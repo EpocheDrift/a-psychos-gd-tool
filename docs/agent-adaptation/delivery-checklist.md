@@ -12,7 +12,7 @@ Integration branch: `agent/agent-ready-v1`
 | PR 1 — Versioned schemas and capability manifest | Complete | Commit [`c42d2be`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/c42d2be7be53daa1b44188e2b37a393a9237afd5) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 2 — Pure command and transaction service | Complete | Commit [`ccd7227`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/ccd7227f4a55a9e22972066430890a1b47877800) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 3 — Revisioned render coordinator | Complete | Commit [`ca930fb`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/ca930fb2380c2ceac1e5a5ab1fc075a9039ad099) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
-| PR 4 — Preview evidence and stable UI automation | In progress | Implementation and local gates are complete; final audit/commit evidence is pending. |
+| PR 4 — Preview evidence and stable UI automation | Complete | Commit [`a257449`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/a257449) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 5 — Gated browser AgentController | Not started | Blocked by sequence. |
 | PR 6 — Local MCP companion | Not started | No MCP write permission may be exposed before all prerequisite gates pass. |
 | PR 7 — Asset and persistence boundary | Not started | Asset/model tools remain disabled. |
@@ -179,10 +179,10 @@ Integration branch: `agent/agent-ready-v1`
   keyboard parameters/fonts/layers, pan/zoom selector stability, and axe.
 - [x] Preserve all existing visual, frame/cache, blur/fringe, marquee,
   revision-churn, export, and real WebGPU smoke checks.
-- [x] Run final typecheck, unit tests, production build, full browser/WebGPU
-  suite, dependency audit, diff check, and independent preview/resource,
-  UI/accessibility, and scope/documentation audits.
-- [ ] Commit and push the stage to the fork and update the Draft integration PR.
+- [x] Run final typecheck, 398 unit tests across 34 files, production build,
+  full browser/WebGPU suite, dependency audit, diff check, and independent
+  preview/resource, UI/accessibility, and scope/documentation audits.
+- [x] Commit and push the stage to the fork and update the Draft integration PR.
 
 ## Open risks carried beyond PR 4
 
