@@ -8,7 +8,7 @@ Integration branch: `agent/agent-ready-v1`
 
 | Stage | Status | Evidence |
 | --- | --- | --- |
-| PR 0 — Freeze the baseline | Ready to publish | Saved-document fixtures, registry inventory tests, cycle guard, shared WebGPU smoke launcher, and reviewed small-frame PNG pass all local gates. Commit/push and Draft PR pending. |
+| PR 0 — Freeze the baseline | Complete | Commit [`083f404`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/083f40480827237e2aa419e70dd8dcda00ec5410) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 1 — Versioned schemas and capability manifest | Not started | Must begin only after PR 0 is committed and pushed. |
 | PR 2 — Pure command and transaction service | Not started | Blocked by sequence. |
 | PR 3 — Revisioned render coordinator | Not started | Blocked by sequence. |
@@ -33,8 +33,8 @@ Integration branch: `agent/agent-ready-v1`
 - [x] Record commands, prerequisites, fixture update flow, and manual CI gate.
 - [x] Run the final typecheck, 119 unit tests, production build, and full browser suite.
 - [x] Review the complete diff, including independent architecture, security, and browser audits.
-- [ ] Commit and push the stage to the fork.
-- [ ] Open/update the Draft integration PR.
+- [x] Commit and push the stage to the fork.
+- [x] Open/update the Draft integration PR.
 
 ## Open risks carried beyond PR 0
 
