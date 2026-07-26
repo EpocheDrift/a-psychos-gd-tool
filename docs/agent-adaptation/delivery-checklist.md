@@ -9,7 +9,7 @@ Integration branch: `agent/agent-ready-v1`
 | Stage | Status | Evidence |
 | --- | --- | --- |
 | PR 0 — Freeze the baseline | Complete | Commit [`083f404`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/083f40480827237e2aa419e70dd8dcda00ec5410) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
-| PR 1 — Versioned schemas and capability manifest | Not started | Must begin only after PR 0 is committed and pushed. |
+| PR 1 — Versioned schemas and capability manifest | Complete | Commit [`c42d2be`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/c42d2be7be53daa1b44188e2b37a393a9237afd5) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 2 — Pure command and transaction service | Not started | Blocked by sequence. |
 | PR 3 — Revisioned render coordinator | Not started | Blocked by sequence. |
 | PR 4 — Preview evidence and stable UI automation | Not started | Blocked by sequence. |
@@ -36,13 +36,45 @@ Integration branch: `agent/agent-ready-v1`
 - [x] Commit and push the stage to the fork.
 - [x] Open/update the Draft integration PR.
 
-## Open risks carried beyond PR 0
+## PR 1 checklist
+
+- [x] Add the strict version 3 project envelope and exportable Draft 2020-12
+  schema for documents, layers, graphs, nodes, edges, frame, and asset metadata.
+- [x] Add pure migration for the legacy single-graph and layered document
+  formats, including `Weight.source = "image"` compatibility normalization.
+- [x] Add structural, editable, and renderable validation modes with stable
+  codes, RFC 6901 paths, bounded all-errors reporting, and JSON-safe findings.
+- [x] Validate registry node/parameter/socket contracts, graph topology,
+  parameters, Output cardinality, required inputs, and configurable budgets.
+- [x] Project all 31 built-in node types into a JSON-safe capability manifest
+  with public descriptions, parameter schemas, execution traits, and truthful
+  feature flags.
+- [x] Add strict codecs for expressions, binds, identifiers, number lists, and
+  approved embedded/bundled PNG, JPEG, and WebP image sources.
+- [x] Add atomic internal import/export and preserve version 3 document identity
+  and asset metadata through local persistence and undo/redo.
+- [x] Preserve editable Output-less drafts while preventing invalid transient
+  state or rejected recovery candidates from overwriting the last safe save.
+- [x] Commit schema/manifest goldens and migration, validation, persistence, and
+  round-trip fixtures with exact drift gates.
+- [x] Run the final typecheck, 191 unit tests, production build, and all six
+  browser/WebGPU smoke checks; the visual baseline has zero changed pixels.
+- [x] Close all P0/P1 findings from independent schema, migration/security, and
+  manifest/UI/persistence audits.
+- [x] Commit and push the stage to the fork and update the Draft integration PR.
+
+## Open risks carried beyond PR 1
 
 - The WebGPU suite is a required manual gate until CI has a real, reliable GPU
   runner; ordinary `ubuntu-latest` browser success is not rendering evidence.
-- Versioned deep validation, atomic transactions, render coordination,
-  controller authorization, bridge authentication, and asset isolation have
-  not landed yet. MCP write tools remain unavailable until those gates pass.
+- Atomic command transactions, render coordination, controller authorization,
+  bridge authentication, and asset isolation have not landed yet. MCP write
+  tools remain unavailable until those gates pass.
+- Version 3 currently preserves asset metadata only. PR 7 owns isolated asset
+  bytes, content-addressed storage, quotas, and lifecycle management.
+- A local working edit that is structurally traversable but semantically invalid
+  remains in memory with autosave paused and a visible diagnostic; explicit
+  external imports continue to require a renderable project.
 - When one evaluator dependency rejects, already-started sibling work can
   continue briefly. PR 3 owns revision cancellation and stale-work handling.
 - `globalThis.__app` is a development-only smoke hook, not a public Agent API;
