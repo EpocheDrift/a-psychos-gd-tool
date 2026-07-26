@@ -13,7 +13,7 @@ Integration branch: `agent/agent-ready-v1`
 | PR 2 — Pure command and transaction service | Complete | Commit [`ccd7227`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/ccd7227f4a55a9e22972066430890a1b47877800) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 3 — Revisioned render coordinator | Complete | Commit [`ca930fb`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/ca930fb2380c2ceac1e5a5ab1fc075a9039ad099) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 4 — Preview evidence and stable UI automation | Complete | Commit [`a257449`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/a257449) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
-| PR 5 — Gated browser AgentController | In progress | Implementation and all local contract/artifact/WebGPU gates pass; commit/push evidence remains. |
+| PR 5 — Gated browser AgentController | Complete | Commit [`a02f74f`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/a02f74f6f83158d706dda14923147a321c63bcb5) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 6 — Local MCP companion | Not started | No MCP write permission may be exposed before all prerequisite gates pass. |
 | PR 7 — Asset and persistence boundary | Not started | Asset/model tools remain disabled. |
 | PR 8 — Agent evals and high-level helpers | Not started | Blocked by sequence. |
@@ -229,7 +229,7 @@ Integration branch: `agent/agent-ready-v1`
   checks, and the 50-round semantic/accessibility/collision gate.
 - [x] Close all P0/P1 findings from independent controller/resource,
   security/scope, UI/accessibility, artifact, and documentation audits.
-- [ ] Commit and push the stage to the fork and update the Draft integration PR.
+- [x] Commit and push the stage to the fork and update the Draft integration PR.
 
 ## Open risks carried beyond PR 5
 
