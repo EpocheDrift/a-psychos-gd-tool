@@ -1,0 +1,148 @@
+{
+  "frame": {
+    "width": 320,
+    "height": 240
+  },
+  "layers": [
+    {
+      "id": "legacy_weight",
+      "name": "Legacy image channel",
+      "visible": true,
+      "opacity": 1,
+      "blendMode": "normal",
+      "graph": {
+        "nodes": {
+          "grid": {
+            "id": "grid",
+            "type": "Grid",
+            "params": {
+              "columns": 2,
+              "rows": 2
+            }
+          },
+          "image": {
+            "id": "image",
+            "type": "Image",
+            "params": {
+              "src": "/factory-image.jpg"
+            }
+          },
+          "weight": {
+            "id": "weight",
+            "type": "Weight",
+            "params": {
+              "source": "image"
+            }
+          },
+          "filter": {
+            "id": "filter",
+            "type": "Filter",
+            "params": {
+              "mode": "threshold",
+              "channel": "image",
+              "threshold": 0.5
+            }
+          },
+          "shape": {
+            "id": "shape",
+            "type": "Shape",
+            "params": {}
+          },
+          "copies": {
+            "id": "copies",
+            "type": "Duplicator",
+            "params": {
+              "count": 4
+            }
+          },
+          "place": {
+            "id": "place",
+            "type": "Place",
+            "params": {
+              "binds": "[{\"channel\":\"image\",\"target\":\"scale\",\"amount\":0.5}]"
+            }
+          },
+          "out": {
+            "id": "out",
+            "type": "Output",
+            "params": {
+              "transparent": true
+            }
+          }
+        },
+        "edges": [
+          {
+            "from": {
+              "node": "grid",
+              "socket": "out"
+            },
+            "to": {
+              "node": "weight",
+              "socket": "layout"
+            }
+          },
+          {
+            "from": {
+              "node": "image",
+              "socket": "out"
+            },
+            "to": {
+              "node": "weight",
+              "socket": "map"
+            }
+          },
+          {
+            "from": {
+              "node": "weight",
+              "socket": "out"
+            },
+            "to": {
+              "node": "filter",
+              "socket": "layout"
+            }
+          },
+          {
+            "from": {
+              "node": "filter",
+              "socket": "out"
+            },
+            "to": {
+              "node": "place",
+              "socket": "layout"
+            }
+          },
+          {
+            "from": {
+              "node": "shape",
+              "socket": "out"
+            },
+            "to": {
+              "node": "copies",
+              "socket": "in"
+            }
+          },
+          {
+            "from": {
+              "node": "copies",
+              "socket": "out"
+            },
+            "to": {
+              "node": "place",
+              "socket": "elements"
+            }
+          },
+          {
+            "from": {
+              "node": "place",
+              "socket": "out"
+            },
+            "to": {
+              "node": "out",
+              "socket": "in"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

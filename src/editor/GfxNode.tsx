@@ -9,6 +9,9 @@ import type { ParamValue } from '../engine/graph';
 import type { SocketType } from '../engine/values';
 import { registry } from '../nodes';
 import { BIND_TARGETS, parseBinds, type BindSpec } from '../nodes/elements';
+import { DEFAULT_AGENT_LIMITS } from '../domain/limits';
+import { validateImageSource } from '../domain/paramCodecs';
+import { getParamPublicMetadata } from '../domain/publicNodeMetadata';
 import { endGesture, localFontsSupported, selectActiveGraph, useApp } from '../store';
 
 // Type ladder colors — a bright 2000s computer palette, one unique hue per type,
@@ -82,6 +85,7 @@ export function GfxNode({ id }: NodeProps) {
           {visibleParams.map((spec) => (
             <NodeParam
               key={spec.name}
+              nodeType={node.type}
               spec={spec}
               value={node.params[spec.name] ?? spec.default}
               onChange={(v) => setParam(node.id, spec.name, v)}
@@ -94,14 +98,17 @@ export function GfxNode({ id }: NodeProps) {
 }
 
 function NodeParam({
+  nodeType,
   spec,
   value,
   onChange,
 }: {
+  nodeType: string;
   spec: ParamSpec;
   value: ParamValue;
   onChange: (v: ParamValue) => void;
 }) {
+  const publicMetadata = getParamPublicMetadata(nodeType, spec);
   if (spec.name === 'font') {
     return (
       <label className="param">
@@ -117,6 +124,7 @@ function NodeParam({
         <textarea
           className="nodrag"
           rows={3}
+          maxLength={publicMetadata.maxLength}
           value={String(value)}
           onChange={(e) => onChange(e.target.value)}
         />
@@ -181,7 +189,12 @@ function NodeParam({
   return (
     <label className="param">
       <span>{spec.name}</span>
-      <input type="text" value={String(value)} onChange={(e) => onChange(e.target.value)} />
+      <input
+        type="text"
+        maxLength={publicMetadata.maxLength}
+        value={String(value)}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </label>
   );
 }
@@ -295,13 +308,36 @@ function BindList({ value, onChange }: { value: string; onChange: (v: ParamValue
 // straight in the node param and travels with the document.
 function ImageUpload({ value, onChange }: { value: string; onChange: (v: ParamValue) => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = ''; // let the same file be re-picked after any outcome
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      setError('Choose a PNG, JPEG, or WebP image.');
+      return;
+    }
+    if (file.size > DEFAULT_AGENT_LIMITS.maxLegacyAssetBytes) {
+      setError('The image exceeds the 20 MiB embedded-image limit.');
+      return;
+    }
     const reader = new FileReader();
-    reader.onload = () => onChange(String(reader.result));
+    reader.onerror = () => setError('The image could not be read.');
+    reader.onload = () => {
+      const source = String(reader.result);
+      const validated = validateImageSource(
+        source,
+        DEFAULT_AGENT_LIMITS.maxLegacyAssetBytes,
+        DEFAULT_AGENT_LIMITS.maxAssetPixels,
+      );
+      if (!validated.ok) {
+        setError(validated.issue.message);
+        return;
+      }
+      setError(null);
+      onChange(source);
+    };
     reader.readAsDataURL(file);
-    e.target.value = ''; // let the same file be re-picked later
   };
   return (
     <div className="image-upload">
@@ -309,7 +345,14 @@ function ImageUpload({ value, onChange }: { value: string; onChange: (v: ParamVa
         {value ? 'replace' : 'upload'}
       </button>
       {value && <img className="image-upload-thumb" src={value} alt="" />}
-      <input ref={inputRef} type="file" accept="image/*" hidden onChange={onFile} />
+      {error && <span className="image-upload-error" role="alert">{error}</span>}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        hidden
+        onChange={onFile}
+      />
     </div>
   );
 }

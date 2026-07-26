@@ -132,8 +132,8 @@ export const GridNode: NodeDef = {
     // with a ratio is the monotone bias, now with honest cell sizes)
     { name: 'distX', kind: 'select', options: DIST_OPTIONS, default: 'uniform' },
     { name: 'distY', kind: 'select', options: DIST_OPTIONS, default: 'uniform' },
-    { name: 'ratioX', kind: 'number', default: 1.618, min: 0.1, max: 5, step: 0.01, showIf: { param: 'distX', in: ['geometric'] } },
-    { name: 'ratioY', kind: 'number', default: 1.618, min: 0.1, max: 5, step: 0.01, showIf: { param: 'distY', in: ['geometric'] } },
+    { name: 'ratioX', kind: 'number', default: 1.618, min: 0.1, max: 5, step: 0.001, showIf: { param: 'distX', in: ['geometric'] } },
+    { name: 'ratioY', kind: 'number', default: 1.618, min: 0.1, max: 5, step: 0.001, showIf: { param: 'distY', in: ['geometric'] } },
     { name: 'weightsX', kind: 'string', default: '1,1,2,3,5', showIf: { param: 'distX', in: ['custom'] } },
     { name: 'weightsY', kind: 'string', default: '1,1,2,3,5', showIf: { param: 'distY', in: ['custom'] } },
     // vars: t (0..1 across tracks), i (track index), n (track count);

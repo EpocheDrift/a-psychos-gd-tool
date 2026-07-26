@@ -131,6 +131,44 @@ body {
 .ev-ms { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
 .cook-error { color: var(--accent); margin-bottom: 8px; white-space: pre-wrap; }
 
+.image-upload-error {
+  display: block;
+  margin-top: 4px;
+  color: var(--accent);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.startup-load-warning {
+  position: fixed;
+  z-index: 1000;
+  top: 12px;
+  left: 50%;
+  max-width: min(680px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  padding: 10px 14px;
+  border: 1px solid var(--accent);
+  background: #fff8fc;
+  color: #6d003c;
+  box-shadow: 0 4px 18px #0003;
+  font-size: 12px;
+}
+
+.persistence-warning {
+  position: fixed;
+  z-index: 1000;
+  top: 12px;
+  left: 50%;
+  max-width: min(680px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  padding: 10px 14px;
+  border: 1px solid #b56b00;
+  background: #fff8e8;
+  color: #5f3900;
+  box-shadow: 0 4px 18px #0003;
+  font-size: 12px;
+}
+
 .viewport {
   flex: 1;
   min-width: 0;

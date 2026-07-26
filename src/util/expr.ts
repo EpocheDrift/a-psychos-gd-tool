@@ -33,6 +33,15 @@ const FUNCTIONS: Record<string, { arity: 1 | 2; fn: (a: number, b: number) => nu
   mod: { arity: 2, fn: (a, b) => (((a % b) + b) % b) }, // true modulo — wraps negatives
 };
 
+export const EXPRESSION_LANGUAGE = Object.freeze({
+  version: 'math-expression-v1',
+  constants: Object.freeze(Object.keys(CONSTANTS)),
+  functions: Object.freeze(Object.entries(FUNCTIONS).map(([name, definition]) => ({
+    name,
+    arity: definition.arity,
+  }))),
+});
+
 type Node = (scope: Scope) => number;
 
 /**

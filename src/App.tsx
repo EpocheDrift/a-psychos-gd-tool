@@ -7,7 +7,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as opentype from 'opentype.js';
 import type { Font } from 'opentype.js';
-import { BLEND_MODES, type Doc, type Graph, type NodeId } from './engine/graph';
+import { BLEND_MODES, type Doc, type Graph } from './engine/graph';
+import { findOutputNodeIds } from './domain/semanticValidation';
 import { Evaluator, type CookEvent } from './engine/evaluator';
 import { socketTypes, type CookContext } from './engine/registry';
 import type { Placement, RasterValue } from './engine/values';
@@ -46,8 +47,13 @@ async function loadFirstFont(): Promise<Font | null> {
   return null;
 }
 
-function findOutputNode(graph: Graph): NodeId | null {
-  return Object.values(graph.nodes).find((n) => n.type === 'Output')?.id ?? null;
+function findOutputNode(graph: Graph): string {
+  const outputIds = findOutputNodeIds(graph);
+  if (outputIds.length === 0) throw new Error('OUTPUT_MISSING: layer has no Output node');
+  if (outputIds.length > 1) {
+    throw new Error(`OUTPUT_AMBIGUOUS: layer has multiple Output nodes (${outputIds.join(', ')})`);
+  }
+  return outputIds[0];
 }
 
 /**
@@ -76,7 +82,6 @@ async function renderDoc(
     for (const layer of doc.layers) {
       if (!layer.visible) continue;
       const outputId = findOutputNode(layer.graph);
-      if (!outputId) throw new Error(`layer "${layer.name}" has no Output node`);
       let evaluator = evaluators.get(layer.id);
       if (!evaluator) {
         evaluator = new Evaluator(registry);
@@ -113,6 +118,8 @@ export default function App() {
   const fonts = useApp((s) => s.fonts);
   const localFonts = useApp((s) => s.localFonts);
   const setFrame = useApp((s) => s.setFrame);
+  const startupLoadIssue = useApp((s) => s.startupLoadIssue);
+  const persistenceValidationReport = useApp((s) => s.persistenceValidationReport);
 
   const [status, setStatus] = useState<Status>('booting');
   const [events, setEvents] = useState<CookEvent[]>([]);
@@ -350,6 +357,26 @@ export default function App() {
 
   return (
     <div className="app">
+      {startupLoadIssue && (
+        <div className="startup-load-warning" role="alert">
+          Saved project data in <code>{startupLoadIssue.storageKey}</code> could not be loaded
+          safely
+          {startupLoadIssue.report.errors[0]
+            ? ` (${startupLoadIssue.report.errors[0].code} at ${startupLoadIssue.report.errors[0].path || '/'})`
+            : ''}
+          . The saved value was left untouched and the factory document is shown.
+          Autosave is paused until a valid project is explicitly imported.
+        </div>
+      )}
+      {!startupLoadIssue && persistenceValidationReport && (
+        <div className="persistence-warning" role="alert">
+          Autosave is paused
+          {persistenceValidationReport.errors[0]
+            ? `: ${persistenceValidationReport.errors[0].code} at ${persistenceValidationReport.errors[0].path || '/'}`
+            : ''}
+          . Fix the invalid value to resume; the current edit remains in memory.
+        </div>
+      )}
       <div className="editor">
         <NodeEditor />
         <LayersPanel />

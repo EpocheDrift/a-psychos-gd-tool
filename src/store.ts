@@ -7,7 +7,6 @@ import { create } from 'zustand';
 import * as opentype from 'opentype.js';
 import type { Font } from 'opentype.js';
 import {
-  BLEND_MODES,
   DEFAULT_FRAME,
   edgeKey,
   hasPath,
@@ -19,6 +18,23 @@ import {
   type ParamValue,
 } from './engine/graph';
 import { canConnect } from './engine/registry';
+import {
+  DEFAULT_DOCUMENT_ID,
+  createSerializedProject,
+  type AssetMetadata,
+  type SerializedProjectV3,
+} from './domain/documentSchema';
+import type { ValidationReport } from './domain/agentErrors';
+import {
+  exportDocumentJson,
+  importProjectJson as decodeProjectJson,
+  prepareProjectImport,
+  type ProjectExportResult,
+  type ProjectImportResult,
+} from './domain/projectCodec';
+import { DEFAULT_AGENT_LIMITS } from './domain/limits';
+import { validateImageSource } from './domain/paramCodecs';
+import { validateSerializedProject } from './domain/semanticValidation';
 import { factoryDoc } from './factoryDoc';
 import { registry } from './nodes';
 import { extractFace, faceCount } from './util/sfnt';
@@ -71,51 +87,67 @@ function makeLayer(id: string, name: string, graph: Graph): Layer {
 // set-up IS the default on next load. The factory document is only the first-run
 // (or unreadable-save) fallback. v1 saves held a single graph — they load as
 // a one-layer document; v1 is left in place so older builds can still read it.
-const STORAGE_KEY = 'gfx.document.v2';
-const LEGACY_STORAGE_KEY = 'gfx.document.v1';
+export const PROJECT_STORAGE_KEY = 'gfx.project';
+export const LAYERED_STORAGE_KEY = 'gfx.document.v2';
+export const LEGACY_STORAGE_KEY = 'gfx.document.v1';
 const canPersist = typeof localStorage !== 'undefined';
 
-function validGraph(g: Graph | null | undefined): g is Graph {
-  if (!g || typeof g !== 'object' || !g.nodes || !Array.isArray(g.edges)) return false;
-  // a save referencing node types this build no longer ships can't cook
-  for (const n of Object.values(g.nodes)) if (!registry.get(n.type)) return false;
-  return true;
+export interface StartupLoadIssue {
+  storageKey: string;
+  report: ValidationReport;
 }
 
-function loadSavedDoc(): Doc | null {
-  if (!canPersist) return null;
+interface SavedProjectLoad {
+  project: SerializedProjectV3 | null;
+  issue: StartupLoadIssue | null;
+}
+
+function decodeSavedCandidate(
+  storageKey: string,
+  raw: string,
+  legacy: boolean,
+): SavedProjectLoad {
+  const imported = decodeProjectJson(raw, {
+    mode: 'editable',
+    ...(legacy ? { documentIdForLegacy: DEFAULT_DOCUMENT_ID } : {}),
+  });
+  return imported.ok
+    ? { project: imported.project, issue: null }
+    : { project: null, issue: { storageKey, report: imported.report } };
+}
+
+function loadSavedProject(): SavedProjectLoad {
+  if (!canPersist) return { project: null, issue: null };
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const d = JSON.parse(raw) as Doc;
-      if (!d || typeof d !== 'object' || !Array.isArray(d.layers) || d.layers.length === 0) return null;
-      const layers: Layer[] = [];
-      for (const l of d.layers) {
-        if (!l || typeof l.id !== 'string' || !validGraph(l.graph)) return null;
-        layers.push({
-          id: l.id,
-          name: typeof l.name === 'string' ? l.name : `Layer ${layers.length + 1}`,
-          visible: l.visible !== false,
-          opacity: Math.max(0, Math.min(1, Number(l.opacity ?? 1))),
-          blendMode: BLEND_MODES.includes(l.blendMode) ? l.blendMode : 'normal',
-          graph: l.graph,
-        });
-      }
-      return { frame: d.frame ?? DEFAULT_FRAME, layers };
+    const current = localStorage.getItem(PROJECT_STORAGE_KEY);
+    if (current !== null) {
+      return decodeSavedCandidate(PROJECT_STORAGE_KEY, current, false);
     }
+
+    const layered = localStorage.getItem(LAYERED_STORAGE_KEY);
+    if (layered !== null) {
+      return decodeSavedCandidate(LAYERED_STORAGE_KEY, layered, true);
+    }
+
     const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
-    if (legacy) {
-      const g = JSON.parse(legacy) as Graph;
-      if (!validGraph(g)) return null;
-      return { frame: g.frame ?? DEFAULT_FRAME, layers: [makeLayer('layer_1', 'Layer 1', { nodes: g.nodes, edges: g.edges })] };
+    if (legacy !== null) {
+      return decodeSavedCandidate(LEGACY_STORAGE_KEY, legacy, true);
     }
-    return null;
+    return { project: null, issue: null };
   } catch {
-    return null;
+    return { project: null, issue: null };
   }
 }
 
-const initialDoc: Doc = loadSavedDoc() ?? factoryDoc;
+const factoryProject = prepareProjectImport(factoryDoc, {
+  documentIdForLegacy: DEFAULT_DOCUMENT_ID,
+});
+if (!factoryProject.ok) {
+  throw new Error(`Factory document failed version 3 migration: ${factoryProject.report.errors[0]?.code ?? 'INTERNAL'}`);
+}
+const savedProject = loadSavedProject();
+const initialProject = savedProject.project ?? factoryProject.project;
+const initialDoc: Doc = initialProject.document;
 
 export interface WireSpec {
   source: NodeId;
@@ -151,15 +183,29 @@ export function endGesture(): void {
   lastEdit = null;
 }
 
-interface AppStore {
+interface DocumentSnapshot {
+  documentId: string;
   doc: Doc;
+  assets?: AssetMetadata[];
+}
+
+export interface AppStore {
+  /** Stable persisted identity. Runtime revision is deliberately separate. */
+  documentId: string;
+  doc: Doc;
+  /** Versioned asset metadata is preserved even before PR 7 adds asset storage. */
+  assets?: AssetMetadata[];
+  /** A rejected saved value remains in storage; this report explains the fallback. */
+  startupLoadIssue: StartupLoadIssue | null;
+  /** Current editable state is kept in memory but not autosaved until this is fixed. */
+  persistenceValidationReport: ValidationReport | null;
   /** the layer whose graph the node editor shows and edits — always a live id */
   activeLayerId: string;
   /** the selected nodes, in selection order — one entry for a plain click, many for a marquee */
   selectedNodeIds: NodeId[];
   /** undo/redo stacks of document snapshots — selection and fonts stay out of history */
-  past: Doc[];
-  future: Doc[];
+  past: DocumentSnapshot[];
+  future: DocumentSnapshot[];
   undo: () => void;
   redo: () => void;
   /** parsed fonts ready to cook, keyed by font key ('default' + local families) */
@@ -190,6 +236,10 @@ interface AppStore {
   loadLocalFont: (family: string) => Promise<void>;
   /** prompt for local font access and list the available families */
   loadLocalFonts: () => Promise<void>;
+  /** Validate and atomically replace the current project, or leave all state untouched. */
+  importProjectJson: (json: string, documentIdForLegacy?: string) => ProjectImportResult;
+  /** Validate and serialize the current project without changing state or persistence. */
+  exportProjectJson: () => ProjectExportResult;
 }
 
 /** The graph the node editor is looking at — the active layer's. */
@@ -227,11 +277,22 @@ function pushHistory(s: AppStore, key: string | null): Pick<AppStore, 'past' | '
     return undefined;
   }
   lastEdit = key ? { key, time: now } : null;
-  return { past: [...s.past.slice(1 - HISTORY_LIMIT), s.doc], future: [] };
+  return {
+    past: [...s.past.slice(1 - HISTORY_LIMIT), {
+      documentId: s.documentId,
+      doc: s.doc,
+      assets: s.assets,
+    }],
+    future: [],
+  };
 }
 
 export const useApp = create<AppStore>((set, get) => ({
+  documentId: initialProject.documentId,
   doc: initialDoc,
+  assets: initialProject.assets,
+  startupLoadIssue: savedProject.issue,
+  persistenceValidationReport: null,
   activeLayerId: initialDoc.layers[initialDoc.layers.length - 1].id,
   selectedNodeIds: [],
   past: [],
@@ -248,9 +309,15 @@ export const useApp = create<AppStore>((set, get) => ({
       endGesture();
       return {
         past: s.past.slice(0, -1),
-        future: [...s.future, s.doc],
-        doc: prev,
-        ...revalidate(s, prev),
+        future: [...s.future, {
+          documentId: s.documentId,
+          doc: s.doc,
+          assets: s.assets,
+        }],
+        documentId: prev.documentId,
+        doc: prev.doc,
+        assets: prev.assets,
+        ...revalidate(s, prev.doc),
       };
     }),
 
@@ -261,9 +328,15 @@ export const useApp = create<AppStore>((set, get) => ({
       endGesture();
       return {
         future: s.future.slice(0, -1),
-        past: [...s.past, s.doc],
-        doc: next,
-        ...revalidate(s, next),
+        past: [...s.past, {
+          documentId: s.documentId,
+          doc: s.doc,
+          assets: s.assets,
+        }],
+        documentId: next.documentId,
+        doc: next.doc,
+        assets: next.assets,
+        ...revalidate(s, next.doc),
       };
     }),
 
@@ -280,13 +353,36 @@ export const useApp = create<AppStore>((set, get) => ({
     })),
 
   setParam: (nodeId, name, value) =>
-    set((s) => ({
-      ...pushHistory(s, `param:${s.activeLayerId}:${nodeId}:${name}`),
-      doc: editActiveGraph(s, (g) => ({
-        ...g,
-        nodes: { ...g.nodes, [nodeId]: { ...g.nodes[nodeId], params: { ...g.nodes[nodeId].params, [name]: value } } },
-      })),
-    })),
+    set((s) => {
+      const graph = selectActiveGraph(s);
+      const node = Object.hasOwn(graph.nodes, nodeId) ? graph.nodes[nodeId] : undefined;
+      const definition = node ? registry.get(node.type) : undefined;
+      const spec = definition?.params.find((param) => param.name === name);
+      if (!node || !spec) return s;
+      if (
+        spec.kind === 'image'
+        && !validateImageSource(
+          value,
+          DEFAULT_AGENT_LIMITS.maxLegacyAssetBytes,
+          DEFAULT_AGENT_LIMITS.maxAssetPixels,
+        ).ok
+      ) {
+        return s;
+      }
+      return {
+        ...pushHistory(s, `param:${s.activeLayerId}:${nodeId}:${name}`),
+        doc: editActiveGraph(s, (g) => ({
+          ...g,
+          nodes: {
+            ...g.nodes,
+            [nodeId]: {
+              ...g.nodes[nodeId],
+              params: { ...g.nodes[nodeId].params, [name]: value },
+            },
+          },
+        })),
+      };
+    }),
 
   moveNodes: (positions) =>
     set((s) => {
@@ -477,13 +573,56 @@ export const useApp = create<AppStore>((set, get) => ({
     localFontData = map;
     set({ localFonts: [...map.keys()].sort((a, b) => a.localeCompare(b)) });
   },
+
+  importProjectJson: (json, documentIdForLegacy = DEFAULT_DOCUMENT_ID) => {
+    const imported = decodeProjectJson(json, { documentIdForLegacy });
+    if (!imported.ok) return imported;
+    endGesture();
+    set((s) => ({
+      ...pushHistory(s, null),
+      documentId: imported.project.documentId,
+      doc: imported.project.document,
+      assets: imported.project.assets,
+      startupLoadIssue: null,
+      persistenceValidationReport: null,
+      ...revalidate(s, imported.project.document),
+    }));
+    return imported;
+  },
+
+  exportProjectJson: () => {
+    const state = get();
+    return exportDocumentJson(state.documentId, state.doc, {}, state.assets);
+  },
 }));
 
 if (canPersist) {
   useApp.subscribe((s, prev) => {
-    if (s.doc === prev.doc) return;
+    if (
+      s.doc === prev.doc
+      && s.documentId === prev.documentId
+      && s.assets === prev.assets
+    ) return;
+    // Do not overwrite a rejected recovery candidate with the factory fallback.
+    // A successful explicit import clears the issue and resumes autosave.
+    if (s.startupLoadIssue) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(s.doc));
+      const project = createSerializedProject(s.documentId, s.doc, s.assets);
+      // Local working saves may be incomplete (for example, an Output can be
+      // temporarily absent), but they must still be structurally and
+      // semantically safe to reload. Explicit external import stays renderable.
+      const validation = validateSerializedProject(project, { mode: 'editable' });
+      if (!validation.valid) {
+        useApp.setState({ persistenceValidationReport: validation });
+        return;
+      }
+      if (s.persistenceValidationReport) {
+        useApp.setState({ persistenceValidationReport: null });
+      }
+      localStorage.setItem(
+        PROJECT_STORAGE_KEY,
+        JSON.stringify(project),
+      );
     } catch {
       // quota/private-mode failures shouldn't break editing
     }

@@ -167,6 +167,7 @@ async function installStorageSeed(page, storage, appUrl) {
     if (sessionStorage.getItem(marker) === '1') return;
     localStorage.removeItem('gfx.document.v1');
     localStorage.removeItem('gfx.document.v2');
+    localStorage.removeItem('gfx.project');
     if (value.mode === 'v2') localStorage.setItem('gfx.document.v2', JSON.stringify(value.document));
     if (value.mode === 'legacy') localStorage.setItem('gfx.document.v1', JSON.stringify(value.graph));
     sessionStorage.setItem(marker, '1');
