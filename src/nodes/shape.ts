@@ -2,6 +2,7 @@
 // origin; downstream ops and Rasterize's centering handle placement for now.
 
 import { boundsOfPaths } from '../engine/path';
+import { geometryBudgetFor } from '../engine/geometryBudget';
 import type { NodeDef } from '../engine/registry';
 import type { PathCmd, StrokeAlign, Style, VectorValue } from '../engine/values';
 
@@ -23,7 +24,8 @@ export const ShapeNode: NodeDef = {
     { name: 'strokeWidth', kind: 'number', default: 4, min: 0, max: 100, step: 0.5, showIf: { param: 'stroke', in: ['true'] } },
     { name: 'strokeAlign', kind: 'select', options: ['center', 'inside', 'outside'], default: 'center', showIf: { param: 'stroke', in: ['true'] } },
   ],
-  cook(_inputs, params) {
+  cook(_inputs, params, ctx) {
+    const budget = geometryBudgetFor(ctx);
     const w = Number(params.width) / 2;
     const h = Number(params.height) / 2;
     let cmds: PathCmd[];
@@ -69,8 +71,14 @@ export const ShapeNode: NodeDef = {
       strokeAlign: String(params.strokeAlign ?? 'center') as StrokeAlign,
       grow: 0,
     };
+    budget.chargeVectorPaths();
     const paths = [cmds];
-    const value: VectorValue = { kind: 'vector', paths, bounds: boundsOfPaths(paths), style };
+    const value: VectorValue = {
+      kind: 'vector',
+      paths,
+      bounds: boundsOfPaths(paths, ctx),
+      style,
+    };
     return { out: value };
   },
 };

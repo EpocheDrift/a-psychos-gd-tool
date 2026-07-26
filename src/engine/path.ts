@@ -3,6 +3,10 @@
 // per-point operations on cubics would distort unevenly along the curve.
 
 import type { PathCmd, Rect, Transform2D } from './values';
+import {
+  geometryBudgetFor,
+  type GeometryBudgetControl,
+} from './geometryBudget';
 
 export interface Pt {
   x: number;
@@ -15,9 +19,15 @@ export interface Polyline {
 }
 
 /** Flatten command lists to polylines. `step` is the target px between samples. */
-export function flattenPaths(paths: PathCmd[][], step = 2.5): Polyline[] {
+export function flattenPaths(
+  paths: PathCmd[][],
+  step = 2.5,
+  control: GeometryBudgetControl = {},
+): Polyline[] {
+  const budget = geometryBudgetFor(control);
   const out: Polyline[] = [];
   for (const cmds of paths) {
+    budget.chargeWork();
     let cur: Pt[] | null = null;
     let pen: Pt = { x: 0, y: 0 };
     const finish = (closed: boolean) => {
@@ -25,20 +35,27 @@ export function flattenPaths(paths: PathCmd[][], step = 2.5): Polyline[] {
       cur = null;
     };
     for (const cmd of cmds) {
+      budget.chargeVectorCommands();
       switch (cmd.type) {
         case 'M':
           finish(false);
           pen = { x: cmd.x, y: cmd.y };
+          budget.chargeFlattenedPoints();
           cur = [pen];
           break;
         case 'L': {
           pen = { x: cmd.x, y: cmd.y };
-          cur?.push(pen);
+          if (cur) {
+            budget.chargeFlattenedPoints();
+            cur.push(pen);
+          }
           break;
         }
         case 'C': {
           const n = sampleCount([pen, { x: cmd.x1, y: cmd.y1 }, { x: cmd.x2, y: cmd.y2 }, { x: cmd.x, y: cmd.y }], step);
+          if (cur) budget.chargeFlattenedPoints(n);
           for (let i = 1; i <= n; i++) {
+            budget.chargeWork();
             const t = i / n;
             cur?.push(cubicAt(pen, { x: cmd.x1, y: cmd.y1 }, { x: cmd.x2, y: cmd.y2 }, { x: cmd.x, y: cmd.y }, t));
           }
@@ -47,7 +64,9 @@ export function flattenPaths(paths: PathCmd[][], step = 2.5): Polyline[] {
         }
         case 'Q': {
           const n = sampleCount([pen, { x: cmd.x1, y: cmd.y1 }, { x: cmd.x, y: cmd.y }], step);
+          if (cur) budget.chargeFlattenedPoints(n);
           for (let i = 1; i <= n; i++) {
+            budget.chargeWork();
             const t = i / n;
             cur?.push(quadAt(pen, { x: cmd.x1, y: cmd.y1 }, { x: cmd.x, y: cmd.y }, t));
           }
@@ -65,18 +84,39 @@ export function flattenPaths(paths: PathCmd[][], step = 2.5): Polyline[] {
 }
 
 /** Polylines back to M/L/Z command lists (one list per polyline). */
-export function polylinesToPaths(polys: Polyline[]): PathCmd[][] {
-  return polys.map((poly) => {
-    const cmds: PathCmd[] = [{ type: 'M', x: poly.points[0].x, y: poly.points[0].y }];
+export function polylinesToPaths(
+  polys: Polyline[],
+  control: GeometryBudgetControl = {},
+): PathCmd[][] {
+  const budget = geometryBudgetFor(control);
+  const paths: PathCmd[][] = [];
+  for (const poly of polys) {
+    if (poly.points.length === 0) continue;
+    budget.chargeVectorPaths();
+    budget.chargeVectorCommands();
+    const cmds: PathCmd[] = [{
+      type: 'M',
+      x: poly.points[0].x,
+      y: poly.points[0].y,
+    }];
     for (let i = 1; i < poly.points.length; i++) {
+      budget.chargeVectorCommands();
       cmds.push({ type: 'L', x: poly.points[i].x, y: poly.points[i].y });
     }
-    if (poly.closed) cmds.push({ type: 'Z' });
-    return cmds;
-  });
+    if (poly.closed) {
+      budget.chargeVectorCommands();
+      cmds.push({ type: 'Z' });
+    }
+    paths.push(cmds);
+  }
+  return paths;
 }
 
-export function boundsOfPaths(paths: PathCmd[][]): Rect {
+export function boundsOfPaths(
+  paths: PathCmd[][],
+  control: GeometryBudgetControl = {},
+): Rect {
+  const budget = geometryBudgetFor(control);
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   const visit = (x: number, y: number) => {
     minX = Math.min(minX, x);
@@ -85,7 +125,9 @@ export function boundsOfPaths(paths: PathCmd[][]): Rect {
     maxY = Math.max(maxY, y);
   };
   for (const path of paths) {
+    budget.chargeWork();
     for (const cmd of path) {
+      budget.chargeVectorCommands();
       if (cmd.type === 'Z') continue;
       visit(cmd.x, cmd.y);
       // control points overestimate slightly; fine as a working bound
@@ -98,30 +140,59 @@ export function boundsOfPaths(paths: PathCmd[][]): Rect {
 }
 
 /** Apply a TRS transform to every coordinate (anchor and control points alike). */
-export function transformPaths(paths: PathCmd[][], t: Transform2D): PathCmd[][] {
+export function transformPaths(
+  paths: PathCmd[][],
+  t: Transform2D,
+  control: GeometryBudgetControl = {},
+): PathCmd[][] {
+  const budget = geometryBudgetFor(control);
   const c = Math.cos(t.rotation), s = Math.sin(t.rotation);
   const tx = (x: number, y: number) => t.x + t.scale * (c * x - s * y);
   const ty = (x: number, y: number) => t.y + t.scale * (s * x + c * y);
-  return paths.map((cmds) =>
-    cmds.map((cmd): PathCmd => {
+  const transformed: PathCmd[][] = [];
+  for (const cmds of paths) {
+    // Empty paths carry no geometry but each retained Array still consumes
+    // memory. Drop them before allocating a transformed container so blank
+    // glyphs cannot be amplified into millions of cached empty arrays.
+    if (cmds.length === 0) {
+      budget.chargeWork();
+      continue;
+    }
+    budget.chargeVectorPaths();
+    const transformedCommands: PathCmd[] = [];
+    for (const cmd of cmds) {
+      budget.chargeVectorCommands();
+      let next: PathCmd;
       switch (cmd.type) {
-        case 'M': return { type: 'M', x: tx(cmd.x, cmd.y), y: ty(cmd.x, cmd.y) };
-        case 'L': return { type: 'L', x: tx(cmd.x, cmd.y), y: ty(cmd.x, cmd.y) };
-        case 'C': return {
-          type: 'C',
-          x1: tx(cmd.x1, cmd.y1), y1: ty(cmd.x1, cmd.y1),
-          x2: tx(cmd.x2, cmd.y2), y2: ty(cmd.x2, cmd.y2),
-          x: tx(cmd.x, cmd.y), y: ty(cmd.x, cmd.y),
-        };
-        case 'Q': return {
-          type: 'Q',
-          x1: tx(cmd.x1, cmd.y1), y1: ty(cmd.x1, cmd.y1),
-          x: tx(cmd.x, cmd.y), y: ty(cmd.x, cmd.y),
-        };
-        case 'Z': return { type: 'Z' };
+        case 'M':
+          next = { type: 'M', x: tx(cmd.x, cmd.y), y: ty(cmd.x, cmd.y) };
+          break;
+        case 'L':
+          next = { type: 'L', x: tx(cmd.x, cmd.y), y: ty(cmd.x, cmd.y) };
+          break;
+        case 'C':
+          next = {
+            type: 'C',
+            x1: tx(cmd.x1, cmd.y1), y1: ty(cmd.x1, cmd.y1),
+            x2: tx(cmd.x2, cmd.y2), y2: ty(cmd.x2, cmd.y2),
+            x: tx(cmd.x, cmd.y), y: ty(cmd.x, cmd.y),
+          };
+          break;
+        case 'Q':
+          next = {
+            type: 'Q',
+            x1: tx(cmd.x1, cmd.y1), y1: ty(cmd.x1, cmd.y1),
+            x: tx(cmd.x, cmd.y), y: ty(cmd.x, cmd.y),
+          };
+          break;
+        case 'Z':
+          next = { type: 'Z' };
       }
-    }),
-  );
+      transformedCommands.push(next);
+    }
+    transformed.push(transformedCommands);
+  }
+  return transformed;
 }
 
 /**
@@ -137,30 +208,50 @@ export function samplePathEvenly(
   polys: Polyline[],
   gap: number,
   offset = 0,
+  control: GeometryBudgetControl = {},
 ): { x: number; y: number; rotation: number; t: number }[] {
+  const budget = geometryBudgetFor(control);
   type Seg = { ax: number; ay: number; bx: number; by: number; len: number };
   const segs: Seg[] = [];
+  const cumulative: number[] = [];
+  let total = 0;
   for (const poly of polys) {
-    const pts = poly.closed ? [...poly.points, poly.points[0]] : poly.points;
-    for (let i = 1; i < pts.length; i++) {
-      const len = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-      if (len > 0) segs.push({ ax: pts[i - 1].x, ay: pts[i - 1].y, bx: pts[i].x, by: pts[i].y, len });
+    const segmentCount = Math.max(
+      0,
+      poly.points.length - 1 + (poly.closed && poly.points.length > 1 ? 1 : 0),
+    );
+    for (let i = 0; i < segmentCount; i++) {
+      budget.chargeWork();
+      const a = poly.points[i];
+      const b = poly.points[(i + 1) % poly.points.length];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (len <= 0) continue;
+      total += len;
+      segs.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y, len });
+      cumulative.push(total);
     }
   }
-  const total = segs.reduce((sum, s) => sum + s.len, 0);
   if (total === 0 || segs.length === 0 || gap <= 0) return [];
 
   const count = Math.max(1, Math.floor(total / gap)); // spacing drives how many fit
+  budget.assertGeneratedItems(count);
   const mid = (count - 1) / 2; // center the run so no sample is pinned to the start
   const out: { x: number; y: number; rotation: number; t: number }[] = [];
   for (let i = 0; i < count; i++) {
+    budget.chargeWork();
     const dist = offset + (i - mid) * gap;
     const target = ((dist % total) + total) % total; // wrap into [0, total)
-    let segIdx = 0, walked = 0;
-    while (segIdx < segs.length - 1 && walked + segs[segIdx].len < target) {
-      walked += segs[segIdx].len;
-      segIdx++;
+    // Lower-bound search avoids the former samples×segments main-thread loop.
+    let lo = 0;
+    let hi = cumulative.length - 1;
+    while (lo < hi) {
+      budget.chargeWork();
+      const middle = lo + Math.floor((hi - lo) / 2);
+      if (cumulative[middle] < target) lo = middle + 1;
+      else hi = middle;
     }
+    const segIdx = lo;
+    const walked = segIdx === 0 ? 0 : cumulative[segIdx - 1];
     const seg = segs[segIdx];
     const local = seg.len === 0 ? 0 : (target - walked) / seg.len;
     out.push({

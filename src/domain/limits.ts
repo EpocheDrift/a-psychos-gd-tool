@@ -16,6 +16,14 @@ export interface AgentLimits {
   maxLegacyAssetBytesPerDocument: number;
   maxBinds: number;
   maxGeneratedItems: number;
+  maxVectorPaths: number;
+  maxVectorCommands: number;
+  maxCanvasPaintPaths: number;
+  maxCanvasPaintCommands: number;
+  maxFlattenedPoints: number;
+  maxBooleanPoints: number;
+  maxGeometryWorkUnits: number;
+  maxRenderableGlyphs: number;
   maxFindings: number;
   maxTransactionJsonBytes: number;
   maxTransactionCommands: number;
@@ -24,6 +32,13 @@ export interface AgentLimits {
   maxRequestCacheEntries: number;
   maxTransactionLedgerEntries: number;
   maxTransactionLedgerBytes: number;
+  maxPendingWorkerRequests: number;
+  maxPendingWorkerBytes: number;
+  maxGpuTextureBytes: number;
+  maxGpuFreeTextureBytes: number;
+  maxGpuTextures: number;
+  maxGpuPasses: number;
+  maxGpuPixelWork: number;
   maxPreviewSide: number;
   maxPreviewBytes: number;
   renderDeadlineMs: number;
@@ -47,6 +62,19 @@ export const DEFAULT_AGENT_LIMITS: Readonly<AgentLimits> = Object.freeze({
   maxLegacyAssetBytesPerDocument: 64 * 1024 * 1024,
   maxBinds: 64,
   maxGeneratedItems: 100_000,
+  // Runtime geometry limits are attempt-scoped. They bound work that cannot be
+  // predicted statically from dynamic Trace, font, or duplicated path output.
+  maxVectorPaths: 250_000,
+  maxVectorCommands: 250_000,
+  // Canvas2D fill/stroke/clip calls are opaque, synchronous native work. Bound
+  // each combined Path2D independently so one call cannot monopolize the main
+  // thread even when the attempt-wide geometry budget still has headroom.
+  maxCanvasPaintPaths: 10_000,
+  maxCanvasPaintCommands: 25_000,
+  maxFlattenedPoints: 1_000_000,
+  maxBooleanPoints: 10_000,
+  maxGeometryWorkUnits: 4_000_000,
+  maxRenderableGlyphs: 16_384,
   maxFindings: 256,
   maxTransactionJsonBytes: 2 * 1024 * 1024,
   maxTransactionCommands: 100,
@@ -55,6 +83,20 @@ export const DEFAULT_AGENT_LIMITS: Readonly<AgentLimits> = Object.freeze({
   maxRequestCacheEntries: 256,
   maxTransactionLedgerEntries: 256,
   maxTransactionLedgerBytes: 256 * 1024 * 1024,
+  maxPendingWorkerRequests: 4,
+  maxPendingWorkerBytes: 128 * 1024 * 1024,
+  // The shipped four-layer 2480×3508 factory document keeps a last successful
+  // evaluator generation while a changed Blur/Output pair cooks. 512 MiB
+  // rejects that supported edit; 768 MiB preserves the transactional cache
+  // guarantee while remaining a deterministic, advertised hard ceiling.
+  maxGpuTextureBytes: 768 * 1024 * 1024,
+  maxGpuFreeTextureBytes: 128 * 1024 * 1024,
+  maxGpuTextures: 512,
+  maxGpuPasses: 2_048,
+  // The factory document deliberately renders ~1,000 eroding elements as
+  // isolated full-frame Canvas2D flushes. Pass count remains the primary queue
+  // cap; this secondary pixel-equivalent cap must preserve that shipped case.
+  maxGpuPixelWork: 32_000_000_000,
   maxPreviewSide: 1024,
   maxPreviewBytes: 4 * 1024 * 1024,
   renderDeadlineMs: 30_000,

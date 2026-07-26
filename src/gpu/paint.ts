@@ -3,9 +3,41 @@
 // renderer so a vector looks the same wherever it lands.
 
 import { DEFAULT_STYLE, type PathCmd, type Style } from '../engine/values';
+import {
+  geometryBudgetFor,
+  type GeometryBudgetControl,
+} from '../engine/geometryBudget';
 
-export function appendPath(p: Path2D, cmds: PathCmd[]) {
+/** Bound one opaque Canvas2D paint before constructing/painting its Path2D. */
+export function preflightCanvasPaint(
+  paths: readonly PathCmd[][],
+  control: GeometryBudgetControl = {},
+): void {
+  const budget = geometryBudgetFor(control);
+  budget.assertCanvasPaint(paths.length, 0);
+  let commands = 0;
+  for (const path of paths) {
+    budget.chargeWork();
+    commands = path.length > Number.MAX_SAFE_INTEGER - commands
+      ? Number.MAX_SAFE_INTEGER
+      : commands + path.length;
+    // Fail as soon as the peak is known to exceed policy; do not traverse the
+    // rest of a hostile collection or hand it to an opaque native paint call.
+    budget.assertCanvasPaint(paths.length, commands);
+  }
+}
+
+export function appendPath(
+  p: Path2D,
+  cmds: PathCmd[],
+  control: GeometryBudgetControl = {},
+) {
+  const budget = geometryBudgetFor(control);
+  // Account for the path container even when it is empty. Producers filter
+  // empty paths, but this keeps bypassed/corrupt values deadline-bounded.
+  budget.chargeWork();
   for (const cmd of cmds) {
+    budget.chargeVectorCommands();
     switch (cmd.type) {
       case 'M': p.moveTo(cmd.x, cmd.y); break;
       case 'L': p.lineTo(cmd.x, cmd.y); break;

@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import * as opentype from 'opentype.js';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { Evaluator } from '../engine/evaluator';
+import { GeometryBudget } from '../engine/geometryBudget';
+import { CookResourceLimitError } from '../engine/cookControl';
 import type { Graph } from '../engine/graph';
 import type { CookContext } from '../engine/registry';
 import { buildRegistry } from './index';
@@ -18,6 +20,7 @@ import type {
   VectorValue,
 } from '../engine/values';
 import { TextNode } from './text';
+import { OutlineNode } from './outline';
 import { ShapeNode } from './shape';
 import { DuplicatorNode, FlattenNode, PlaceNode, SplitNode } from './elements';
 import {
@@ -750,6 +753,108 @@ describe('multiple weights through the real evaluator (the app path)', () => {
     });
     // two genuinely independent signals: scale is monotonic, rotation is noise
     expect(new Set(items.map((e) => e.transform.rotation.toFixed(4))).size).toBeGreaterThan(3);
+  });
+});
+
+describe('runtime geometry budgets', () => {
+  it('drops blank glyph paths before Outline duplication can amplify containers', async () => {
+    const control = {
+      maxVectorPaths: 250_000,
+      maxVectorCommands: 250_000,
+      maxFlattenedPoints: 1_000_000,
+      maxBooleanPoints: 10_000,
+      maxGeometryWorkUnits: 4_000_000,
+      maxRenderableGlyphs: 16_384,
+      maxGeneratedItems: 100_000,
+    };
+    const geometryBudget = new GeometryBudget(control);
+    const attackContext: CookContext = {
+      ...ctx,
+      ...control,
+      geometryBudget,
+    };
+    const text = (await TextNode.cook(
+      {},
+      { content: ' '.repeat(8_192), fontSize: 100, font: 'default' },
+      attackContext,
+    )).out as TextValue;
+    const outlined = (await OutlineNode.cook(
+      { text },
+      {},
+      attackContext,
+    )).out as VectorValue;
+    expect(outlined.paths).toEqual([]);
+
+    const duplicated = (await DuplicatorNode.cook(
+      { in: outlined },
+      { count: 485 },
+      attackContext,
+    )).out as ElementsValue;
+    expect(duplicated.items).toHaveLength(485);
+    const flattened = (await FlattenNode.cook(
+      { in: duplicated },
+      {},
+      attackContext,
+    )).out as VectorValue;
+    expect(flattened.paths).toEqual([]);
+    expect(geometryBudget.snapshot().vectorPaths).toBe(0);
+  });
+
+  it('charges duplicated vector commands cumulatively before Flatten copies them', async () => {
+    const vector = (await ShapeNode.cook(
+      {},
+      {
+        kind: 'rect',
+        width: 10,
+        height: 10,
+        sides: 4,
+        filled: true,
+      },
+      ctx,
+    )).out as VectorValue;
+    const elements: ElementsValue = {
+      kind: 'elements',
+      items: Array.from({ length: 3 }, (_, index) => ({
+        content: vector,
+        transform: { x: index * 10, y: 0, rotation: 0, scale: 1 },
+        index,
+        progress: index / 2,
+        weight: 1,
+      })),
+    };
+    const control = {
+      maxVectorPaths: 100,
+      maxVectorCommands: 10,
+      maxFlattenedPoints: 1_000,
+      maxBooleanPoints: 100,
+      maxGeometryWorkUnits: 1_000,
+      maxRenderableGlyphs: 100,
+      maxGeneratedItems: 100,
+    };
+    const limited: CookContext = {
+      ...ctx,
+      ...control,
+      geometryBudget: new GeometryBudget(control),
+    };
+
+    expect(() => FlattenNode.cook(
+      { in: elements },
+      {},
+      limited,
+    )).toThrow(CookResourceLimitError);
+  });
+
+  it('rejects Duplicator output before allocating beyond generated-item policy', async () => {
+    const vector = (await ShapeNode.cook(
+      {},
+      { kind: 'rect', width: 10, height: 10, sides: 4 },
+      ctx,
+    )).out as VectorValue;
+    expect(() => DuplicatorNode.cook(
+      { in: vector },
+      { count: 11 },
+      { ...ctx, maxGeneratedItems: 10 },
+    )).toThrow(CookResourceLimitError);
   });
 });
 

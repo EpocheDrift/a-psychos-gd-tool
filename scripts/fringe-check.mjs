@@ -36,6 +36,7 @@ await withSmokePage({ storage: { mode: 'legacy', graph } }, async ({ page, url, 
   await page.evaluate(() => globalThis.__app.getState().setParam('out', 'background', '#ffffff'));
 
   await page.waitForFunction((previousLog) => {
+    if (document.querySelector('.cook-error')) return true;
     const currentLog = [...document.querySelectorAll('.cook-log li')].map((item) => item.textContent).join('|');
     return currentLog !== previousLog && !document.querySelector('.cook-pending');
   }, {}, before.log);

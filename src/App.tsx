@@ -1,23 +1,36 @@
 // Shell: node editor (left, showing the active layer's graph) and the poster
 // viewport presenting the composited layer stack (right). A top bar holds the
 // frame config, a floating panel the layer stack, and a collapsible cook log.
-// Node parameters are edited inline on each node. Any document edit schedules
-// a cook on the next animation frame.
+// Node parameters are edited inline on each node. Any document edit synchronously
+// schedules an exact revision ticket; cooking remains serialized offscreen.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as opentype from 'opentype.js';
 import type { Font } from 'opentype.js';
-import { BLEND_MODES, type Doc, type Graph } from './engine/graph';
-import { findOutputNodeIds } from './domain/semanticValidation';
-import { Evaluator, type CookEvent } from './engine/evaluator';
+import { Evaluator } from './engine/evaluator';
 import { socketTypes, type CookContext } from './engine/registry';
-import type { Placement, RasterValue } from './engine/values';
+import type { Placement } from './engine/values';
 import { GpuContext } from './gpu/device';
-import type { PooledTexture } from './gpu/pool';
 import { registry } from './nodes';
 import { NodeEditor } from './editor/NodeEditor';
 import { LayersPanel } from './editor/LayersPanel';
 import { loadLocalFontsIfGranted, selectActiveGraph, useApp } from './store';
+import {
+  appRenderCoordinator,
+  configureAppRenderer,
+  currentArtifactTicket,
+  getDisplayedCanvasIndex,
+  getAppRenderStatus,
+  readbackExact,
+  setRenderCanvases,
+  startRenderStoreBinding,
+  stopRenderStoreBinding,
+} from './render/appRenderService';
+import type {
+  CookEventSummary,
+  RenderStatus,
+} from './domain/renderCoordinator';
+import { DEFAULT_AGENT_LIMITS } from './domain/limits';
 
 const FONT_URLS = ['/fonts/Inter-Regular.otf', '/fonts/JetBrainsMono-Regular.ttf', '/fonts/local-fallback.ttf'];
 
@@ -47,66 +60,6 @@ async function loadFirstFont(): Promise<Font | null> {
   return null;
 }
 
-function findOutputNode(graph: Graph): string {
-  const outputIds = findOutputNodeIds(graph);
-  if (outputIds.length === 0) throw new Error('OUTPUT_MISSING: layer has no Output node');
-  if (outputIds.length > 1) {
-    throw new Error(`OUTPUT_AMBIGUOUS: layer has multiple Output nodes (${outputIds.join(', ')})`);
-  }
-  return outputIds[0];
-}
-
-/**
- * Cook every visible layer (each through its own evaluator, so per-layer
- * caches never collide) and blend the stack bottom-to-top on the GPU. The
- * caller owns the returned texture and releases it after present/readback.
- */
-async function renderDoc(
-  doc: Doc,
-  ctx: CookContext,
-  evaluators: Map<string, Evaluator>,
-): Promise<{ texture: PooledTexture; events: CookEvent[] }> {
-  const gpu = ctx.gpu!;
-  const { width, height } = ctx.frame;
-  // a deleted layer takes its evaluator — and its cached textures — with it
-  for (const [id, evaluator] of evaluators) {
-    if (!doc.layers.some((l) => l.id === id)) {
-      evaluator.dispose(ctx);
-      evaluators.delete(id);
-    }
-  }
-  const events: CookEvent[] = [];
-  let acc = gpu.pool.acquire(width, height);
-  gpu.clear(acc, { r: 0, g: 0, b: 0, a: 0 });
-  try {
-    for (const layer of doc.layers) {
-      if (!layer.visible) continue;
-      const outputId = findOutputNode(layer.graph);
-      let evaluator = evaluators.get(layer.id);
-      if (!evaluator) {
-        evaluator = new Evaluator(registry);
-        evaluators.set(layer.id, evaluator);
-      }
-      const result = await evaluator.evaluate(layer.graph, outputId, ctx);
-      events.push(...evaluator.events);
-      const raster = result.outputs.out as RasterValue;
-      const next = gpu.pool.acquire(width, height);
-      gpu.runPass('layerblend', [acc, raster.texture], next, new Float32Array([
-        Math.max(0, BLEND_MODES.indexOf(layer.blendMode)),
-        layer.opacity,
-        0,
-        0,
-      ]));
-      gpu.pool.release(acc);
-      acc = next;
-    }
-  } catch (err) {
-    gpu.pool.release(acc);
-    throw err;
-  }
-  return { texture: acc, events };
-}
-
 type Status = 'booting' | 'ready' | 'no-webgpu' | 'no-font';
 
 export default function App() {
@@ -116,13 +69,22 @@ export default function App() {
   // the layout guide only makes sense for one node — hide it for a marquee'd group
   const selectedNodeId = selectedNodeIds.length === 1 ? selectedNodeIds[0] : null;
   const fonts = useApp((s) => s.fonts);
+  const revision = useApp((s) => s.revision);
   const localFonts = useApp((s) => s.localFonts);
   const setFrame = useApp((s) => s.setFrame);
   const startupLoadIssue = useApp((s) => s.startupLoadIssue);
   const persistenceValidationReport = useApp((s) => s.persistenceValidationReport);
 
   const [status, setStatus] = useState<Status>('booting');
-  const [events, setEvents] = useState<CookEvent[]>([]);
+  const [renderStatus, setRenderStatus] = useState<RenderStatus>(
+    getAppRenderStatus,
+  );
+  const [displayedCanvasIndex, setDisplayedCanvasIndex] = useState<0 | 1 | null>(
+    getDisplayedCanvasIndex,
+  );
+  const [events, setEvents] = useState<CookEventSummary[]>(
+    () => getAppRenderStatus().events ?? [],
+  );
   const [poolStats, setPoolStats] = useState({ allocated: 0, free: 0, live: 0 });
   const [cookError, setCookError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -133,23 +95,31 @@ export default function App() {
     area?: { width: number; height: number };
   } | null>(null);
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasARef = useRef<HTMLCanvasElement>(null);
+  const canvasBRef = useRef<HTMLCanvasElement>(null);
   const guideRef = useRef<HTMLCanvasElement>(null);
   const gpuRef = useRef<GpuContext | null>(null);
-  const evaluatorsRef = useRef(new Map<string, Evaluator>()); // one cache per layer
-  const busyRef = useRef(false);
-  const queuedRef = useRef<Doc | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     loadLocalFontsIfGranted(); // fire-and-forget; boot doesn't wait on the list
     (async () => {
       const gpu = await GpuContext.init();
-      if (cancelled) return;
+      if (cancelled) {
+        gpu?.dispose();
+        return;
+      }
       if (!gpu) { setStatus('no-webgpu'); return; }
       const font = await loadFirstFont();
-      if (cancelled) return;
-      if (!font) { setStatus('no-font'); return; }
+      if (cancelled) {
+        gpu.dispose();
+        return;
+      }
+      if (!font) {
+        gpu.dispose();
+        setStatus('no-font');
+        return;
+      }
       gpuRef.current = gpu;
       useApp.getState().addFont('default', font);
       setStatus('ready');
@@ -157,63 +127,89 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
-  const runCook = useCallback(async (d: Doc) => {
+  useEffect(() => appRenderCoordinator.subscribe((next) => {
+    setRenderStatus(next);
+    setDisplayedCanvasIndex(getDisplayedCanvasIndex());
+    if (next.events) setEvents(next.events);
     const gpu = gpuRef.current;
-    const canvas = canvasRef.current;
-    if (!gpu || !canvas) return;
-    if (busyRef.current) { queuedRef.current = d; return; }
-    busyRef.current = true;
-    // lax loading: most cooks are instant, so only reveal the overlay once a cook
-    // has been running long enough to actually feel like a wait. fast cooks clear
-    // the timer before it fires and never flash the overlay.
-    const showTimer = setTimeout(() => setPending(true), PENDING_DELAY_MS);
-    const ctx: CookContext = {
-      gpu,
-      fonts: new Map(Object.entries(useApp.getState().fonts)),
-      frame: d.frame,
-    };
-    try {
-      const { texture, events } = await renderDoc(d, ctx, evaluatorsRef.current);
-      canvas.width = texture.width;
-      canvas.height = texture.height;
-      gpu.present(texture, canvas);
-      gpu.pool.release(texture);
-      setEvents(events);
+    if (gpu && (
+      next.state === 'complete'
+      || next.state === 'failed'
+      || next.state === 'superseded'
+    )) {
       setPoolStats(gpu.pool.stats());
-      setCookError(null);
-    } catch (err) {
-      setCookError(err instanceof Error ? err.message : String(err));
-    } finally {
-      clearTimeout(showTimer);
-      busyRef.current = false;
-      const queued = queuedRef.current;
-      queuedRef.current = null;
-      // keep the overlay up if another cook is already queued behind this one
-      if (queued) runCook(queued);
-      else setPending(false);
     }
-  }, []);
+    if (next.state === 'failed') {
+      setCookError(next.error?.message ?? 'Render failed.');
+    } else if (next.state === 'complete') {
+      setCookError(null);
+    }
+  }), []);
 
-  // Export re-evaluates through the caches (all HITs unless the doc changed
-  // mid-click), composites the stack, reads it back to the CPU, and downloads
-  // a PNG — transparency in the stack survives into the file. Shares busyRef
-  // with runCook: cache eviction only happens inside evaluate(), so serializing
-  // against cooks keeps the layer textures alive through the composite.
-  const exportPng = useCallback(async () => {
+  useEffect(() => {
+    if (status !== 'ready') return;
     const gpu = gpuRef.current;
-    if (!gpu || busyRef.current) return;
-    busyRef.current = true;
+    const canvasA = canvasARef.current;
+    const canvasB = canvasBRef.current;
+    if (!gpu || !canvasA || !canvasB) return;
+    setRenderCanvases([canvasA, canvasB]);
+    const cleanupRenderer = configureAppRenderer(gpu, {
+      onDeviceLost: (error) => {
+        setCookError(error.message);
+        setStatus('no-webgpu');
+      },
+    });
+    startRenderStoreBinding();
+    return () => {
+      stopRenderStoreBinding();
+      const drained = cleanupRenderer();
+      const finalize = () => {
+        setRenderCanvases(null);
+        if (gpuRef.current === gpu) gpuRef.current = null;
+        gpu.dispose();
+      };
+      void drained.then(
+        (tornDown) => {
+          if (tornDown) finalize();
+        },
+        (error) => {
+          console.error('Renderer cleanup failed', error);
+          // Device disposal is still required when evaluator/worker cleanup
+          // throws; leaving it live would retain the whole GPU generation.
+          finalize();
+        },
+      );
+    };
+  }, [status]);
+
+  useEffect(() => {
+    if (
+      renderStatus.state !== 'queued'
+      && renderStatus.state !== 'cooking'
+    ) {
+      setPending(false);
+      return;
+    }
+    const timer = setTimeout(() => setPending(true), PENDING_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [renderStatus.state, renderStatus.ticket?.revision, renderStatus.ticket?.attempt]);
+
+  // Export leases one exact GPU-complete artifact; it never re-renders or
+  // silently follows a newer document revision.
+  const exportPng = useCallback(async () => {
     setExporting(true);
     try {
-      const d = useApp.getState().doc;
-      const ctx: CookContext = {
-        gpu,
-        fonts: new Map(Object.entries(useApp.getState().fonts)),
-        frame: d.frame,
-      };
-      const { texture } = await renderDoc(d, ctx, evaluatorsRef.current);
-      const image = await gpu.readback(texture);
-      gpu.pool.release(texture);
+      const ticket = currentArtifactTicket();
+      const currentRevision = useApp.getState().revision;
+      if (!ticket || ticket.revision !== currentRevision) {
+        throw new Error('The current document revision has not finished rendering.');
+      }
+      const image = await readbackExact(ticket);
+      if (useApp.getState().revision !== ticket.revision) {
+        throw new Error(
+          `Render revision ${ticket.revision} was superseded before export completed.`,
+        );
+      }
       const off = document.createElement('canvas');
       off.width = image.width;
       off.height = image.height;
@@ -223,25 +219,15 @@ export default function App() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `poster-${image.width}x${image.height}.png`;
+      a.download = `poster-r${ticket.revision}-a${ticket.attempt}-${image.width}x${image.height}.png`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
       setCookError(err instanceof Error ? err.message : String(err));
     } finally {
-      busyRef.current = false;
       setExporting(false);
-      const queued = queuedRef.current;
-      queuedRef.current = null;
-      if (queued) runCook(queued);
     }
-  }, [runCook]);
-
-  useEffect(() => {
-    if (status !== 'ready') return;
-    const id = requestAnimationFrame(() => runCook(doc));
-    return () => cancelAnimationFrame(id);
-  }, [doc, status, runCook, fonts]);
+  }, []);
 
   // Parse any local font a Text node (on any layer) references but that isn't
   // loaded yet; addFont then bumps `fonts`, which re-cooks via the effect
@@ -270,12 +256,53 @@ export default function App() {
       return;
     }
     let cancelled = false;
+    const controller = new AbortController();
     (async () => {
       try {
         const ctx: CookContext = {
           gpu: null,
           fonts: new Map(Object.entries(useApp.getState().fonts)),
           frame: doc.frame,
+          signal: controller.signal,
+          deadline: performance.now() + 2_000,
+          maxPendingWorkerRequests: 1,
+          maxPendingWorkerBytes: 16 * 1024 * 1024,
+          maxVectorPaths: Math.min(
+            DEFAULT_AGENT_LIMITS.maxVectorPaths,
+            50_000,
+          ),
+          maxVectorCommands: Math.min(
+            DEFAULT_AGENT_LIMITS.maxVectorCommands,
+            100_000,
+          ),
+          maxCanvasPaintPaths: Math.min(
+            DEFAULT_AGENT_LIMITS.maxCanvasPaintPaths,
+            2_000,
+          ),
+          maxCanvasPaintCommands: Math.min(
+            DEFAULT_AGENT_LIMITS.maxCanvasPaintCommands,
+            10_000,
+          ),
+          maxFlattenedPoints: Math.min(
+            DEFAULT_AGENT_LIMITS.maxFlattenedPoints,
+            100_000,
+          ),
+          maxBooleanPoints: Math.min(
+            DEFAULT_AGENT_LIMITS.maxBooleanPoints,
+            5_000,
+          ),
+          maxGeometryWorkUnits: Math.min(
+            DEFAULT_AGENT_LIMITS.maxGeometryWorkUnits,
+            500_000,
+          ),
+          maxRenderableGlyphs: Math.min(
+            DEFAULT_AGENT_LIMITS.maxRenderableGlyphs,
+            4_096,
+          ),
+          maxGeneratedItems: Math.min(
+            DEFAULT_AGENT_LIMITS.maxGeneratedItems,
+            5_000,
+          ),
         };
         const result = await new Evaluator(registry).evaluate(activeGraph, node.id, ctx);
         const value = result.outputs[layoutSocket.name];
@@ -294,7 +321,10 @@ export default function App() {
         if (!cancelled) setGuide(null); // half-wired or GPU-dependent chain — no guide
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [doc.frame, activeGraph, selectedNodeId, status]);
 
   // draw the guide, artboard-centered: placements with cell extents (Grid) draw
@@ -350,10 +380,23 @@ export default function App() {
     }
   }, [guide, doc.frame]);
 
-  if (status === 'no-webgpu') return <div className="boot-msg">WebGPU is not available in this browser. Try Chrome/Edge 113+, or Safari 18+.</div>;
+  if (status === 'no-webgpu') {
+    return (
+      <div className="boot-msg" role="alert">
+        {cookError
+          ? `WebGPU rendering stopped: ${cookError}`
+          : 'WebGPU is not available in this browser. Try Chrome/Edge 113+, or Safari 18+.'}
+      </div>
+    );
+  }
   if (status === 'no-font') return <div className="boot-msg">No font found — run <code>scripts/get-font.sh</code> to fetch one into <code>public/fonts/</code>.</div>;
 
   const frame = doc.frame;
+  const displayedTicket = renderStatus.displayedTicket;
+  const exactCurrentRender = renderStatus.state === 'complete'
+    && renderStatus.ticket?.revision === revision
+    && displayedTicket?.revision === revision
+    && displayedTicket.attempt === renderStatus.ticket?.attempt;
 
   return (
     <div className="app">
@@ -443,7 +486,7 @@ export default function App() {
             type="button"
             className="export-btn"
             title="download the poster as a PNG"
-            disabled={status !== 'ready' || exporting}
+            disabled={status !== 'ready' || exporting || !exactCurrentRender}
             onClick={exportPng}
           >
             {exporting ? 'exporting…' : 'export png'}
@@ -454,7 +497,36 @@ export default function App() {
             <div className="boot-msg">initializing WebGPU…</div>
           ) : (
             <>
-              <canvas ref={canvasRef} />
+              {([0, 1] as const).map((index) => (
+                <canvas
+                  key={index}
+                  ref={index === 0 ? canvasARef : canvasBRef}
+                  hidden={displayedCanvasIndex !== index}
+                  aria-label={
+                    displayedCanvasIndex === index && displayedTicket
+                      ? `Rendered poster revision ${displayedTicket.revision}, attempt ${displayedTicket.attempt}`
+                      : undefined
+                  }
+                  data-document-revision={
+                    displayedCanvasIndex === index ? revision : undefined
+                  }
+                  data-render-revision={
+                    displayedCanvasIndex === index
+                      ? displayedTicket?.revision ?? ''
+                      : undefined
+                  }
+                  data-render-attempt={
+                    displayedCanvasIndex === index
+                      ? displayedTicket?.attempt ?? ''
+                      : undefined
+                  }
+                  data-render-state={
+                    displayedCanvasIndex === index
+                      ? renderStatus.state
+                      : undefined
+                  }
+                />
+              ))}
               {guide && <canvas ref={guideRef} className="guide-overlay" />}
               {pending && <div className="cook-pending" role="status" aria-label="rendering" />}
             </>
@@ -465,16 +537,20 @@ export default function App() {
         <summary>
           cook log
           <span className="pool">pool: {poolStats.live} live / {poolStats.allocated} allocated</span>
+          <span className="render-revision">
+            document r{revision} / displayed {displayedTicket ? `r${displayedTicket.revision}a${displayedTicket.attempt}` : 'none'}
+          </span>
           {cookError && <span className="cook-error-dot" title={cookError}>●</span>}
         </summary>
         <div className="cook-log-body">
-          {cookError && <div className="cook-error">{cookError}</div>}
+          {cookError && <div className="cook-error" role="alert">{cookError}</div>}
           <ul>
             {events.map((e, i) => (
-              <li key={i} className={e.status}>
+              <li key={`${e.revision}:${e.attempt}:${e.layerId}:${e.nodeId}:${i}`} className={e.status}>
                 <span className="badge">{e.status.toUpperCase()}</span>
                 <span className="ev-node">{e.type}</span>
                 <span className="ev-id">{e.nodeId}</span>
+                <span className="ev-revision">r{e.revision}a{e.attempt} · {e.layerId}</span>
                 <span className="ev-ms">{e.status === 'miss' ? `${e.ms.toFixed(1)}ms` : ''}</span>
               </li>
             ))}

@@ -4,6 +4,8 @@
 import type { NodeDef } from '../engine/registry';
 import type { RasterValue } from '../engine/values';
 import { latticeHash, valueNoise2D } from '../util/noise';
+import { throwIfCookInterrupted } from '../engine/cookControl';
+import { gpuWorkBudgetFor } from '../engine/gpuWorkBudget';
 
 export const NoiseNode: NodeDef = {
   type: 'Noise',
@@ -25,6 +27,7 @@ export const NoiseNode: NodeDef = {
 
     const data = new Uint8Array(width * height * 4);
     for (let y = 0; y < height; y++) {
+      if ((y & 31) === 0) throwIfCookInterrupted(ctx);
       for (let x = 0; x < width; x++) {
         const v = grain ? latticeHash(x, y, seed) : valueNoise2D(x / scale, y / scale, seed);
         const i = (y * width + x) * 4;
@@ -33,13 +36,21 @@ export const NoiseNode: NodeDef = {
       }
     }
 
+    throwIfCookInterrupted(ctx);
     const t = gpu.pool.acquire(width, height);
-    gpu.device.queue.writeTexture(
-      { texture: t.texture },
-      data,
-      { bytesPerRow: width * 4 },
-      { width, height },
-    );
+    try {
+      gpuWorkBudgetFor(ctx).charge(width, height);
+      gpu.device.queue.writeTexture(
+        { texture: t.texture },
+        data,
+        { bytesPerRow: width * 4 },
+        { width, height },
+      );
+      throwIfCookInterrupted(ctx);
+    } catch (error) {
+      gpu.pool.discard(t);
+      throw error;
+    }
     const value: RasterValue = { kind: 'raster', texture: t, width, height };
     return { out: value };
   },

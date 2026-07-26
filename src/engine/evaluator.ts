@@ -7,6 +7,11 @@
 
 import type { Edge, Graph, NodeId, ParamValue } from './graph';
 import { hashNode } from './hash';
+import {
+  throwIfCookInterrupted,
+  waitForCookControl,
+} from './cookControl';
+import { geometryBudgetFor } from './geometryBudget';
 import type { CookContext, NodeDef, Registry } from './registry';
 import type { OutputValues, Value } from './values';
 
@@ -30,12 +35,31 @@ export interface CookEvent {
 
 interface CacheEntry {
   nodeId: NodeId;
+  hash: string;
   outputs: OutputValues;
 }
 
-interface CookResult {
+export interface CookResult {
   outputs: OutputValues;
   hash: string;
+}
+
+interface EvaluationAttempt {
+  entries: Map<string, CacheEntry>;
+  latestHash: Map<NodeId, string>;
+  events: CookEvent[];
+}
+
+export interface PreparedEvaluation {
+  readonly result: CookResult;
+  readonly events: readonly CookEvent[];
+  /**
+   * Publish this attempt only after the outer GPU error scopes and presentation
+   * have completed successfully.
+   */
+  commit(): void;
+  /** Release every output created by this attempt. Idempotent. */
+  rollback(): void;
 }
 
 /**
@@ -52,6 +76,49 @@ export class CycleDetectedError extends Error {
   }
 }
 
+export class NodeCookError extends Error {
+  readonly code: string;
+  readonly recoverable: boolean;
+  readonly phase?: string;
+  readonly details?: Record<string, unknown>;
+
+  constructor(
+    readonly nodeId: NodeId,
+    readonly nodeType: string,
+    readonly cause: unknown,
+  ) {
+    const candidate = cause !== null && typeof cause === 'object'
+      ? cause as {
+          code?: unknown;
+          message?: unknown;
+          recoverable?: unknown;
+          phase?: unknown;
+          details?: unknown;
+        }
+      : {};
+    super(
+      typeof candidate.message === 'string'
+        ? candidate.message
+        : `Node ${nodeType} (${nodeId}) failed to cook.`,
+    );
+    this.name = 'NodeCookError';
+    this.code = typeof candidate.code === 'string'
+      ? candidate.code
+      : 'RENDER_FAILED';
+    this.recoverable = typeof candidate.recoverable === 'boolean'
+      ? candidate.recoverable
+      : true;
+    if (typeof candidate.phase === 'string') this.phase = candidate.phase;
+    if (
+      candidate.details !== null
+      && typeof candidate.details === 'object'
+      && !Array.isArray(candidate.details)
+    ) {
+      this.details = candidate.details as Record<string, unknown>;
+    }
+  }
+}
+
 export class Evaluator {
   /** cook log for the most recent evaluate() — HIT/MISS per node, loud on purpose */
   events: CookEvent[] = [];
@@ -62,28 +129,90 @@ export class Evaluator {
   constructor(private registry: Registry) {}
 
   async evaluate(graph: Graph, rootId: NodeId, ctx: CookContext): Promise<CookResult> {
-    this.events = [];
+    const prepared = await this.prepare(graph, rootId, ctx);
+    prepared.commit();
+    return prepared.result;
+  }
+
+  async prepare(
+    graph: Graph,
+    rootId: NodeId,
+    ctx: CookContext,
+  ): Promise<PreparedEvaluation> {
+    // Direct Evaluator users (tests, layout guide, future controller calls)
+    // receive the same finite defaults as the application renderer. A caller
+    // may provide one shared budget to account across several layer evaluators.
+    const cookContext: CookContext = ctx.geometryBudget
+      ? ctx
+      : { ...ctx, geometryBudget: geometryBudgetFor(ctx) };
+    const attempt: EvaluationAttempt = {
+      entries: new Map(),
+      latestHash: new Map(),
+      events: [],
+    };
+    this.events = attempt.events;
     // per-evaluation memo so a diamond dependency cooks each node once
     const memo = new Map<NodeId, Promise<CookResult>>();
-    const result = await this.cookNode(graph, rootId, ctx, memo, [], new Set());
-    this.evictStale(ctx);
-    return result;
+    try {
+      const result = await this.cookNode(
+        graph,
+        rootId,
+        cookContext,
+        memo,
+        [],
+        new Set(),
+        attempt,
+      );
+      throwIfCookInterrupted(cookContext);
+      let settled = false;
+      return {
+        result,
+        events: attempt.events,
+        commit: () => {
+          if (settled) return;
+          settled = true;
+          for (const [key, entry] of attempt.entries) {
+            this.entries.set(key, entry);
+          }
+          this.latestHash = attempt.latestHash;
+          this.evictStale(cookContext);
+        },
+        rollback: () => {
+          if (settled) return;
+          settled = true;
+          const released = new Set<unknown>();
+          for (const entry of attempt.entries.values()) {
+            disposeOutputs(entry.outputs, cookContext, released);
+          }
+        },
+      };
+    } catch (error) {
+      // A failed/superseded attempt never becomes reusable cache state.
+      const released = new Set<unknown>();
+      for (const entry of attempt.entries.values()) {
+        disposeOutputs(entry.outputs, cookContext, released);
+      }
+      throw error;
+    }
   }
 
   /** Release every cached texture and forget everything — called when the
    * graph this evaluator serves (a layer) is deleted. */
   dispose(ctx: CookContext) {
-    for (const entry of this.entries.values()) disposeOutputs(entry.outputs, ctx);
+    const released = new Set<unknown>();
+    for (const entry of this.entries.values()) {
+      disposeOutputs(entry.outputs, ctx, released);
+    }
     this.entries.clear();
     this.latestHash.clear();
   }
 
   /** Drop cache entries superseded by a newer hash for the same node, freeing their textures. */
   private evictStale(ctx: CookContext) {
-    for (const [hash, entry] of this.entries) {
-      if (this.latestHash.get(entry.nodeId) !== hash) {
+    for (const [key, entry] of this.entries) {
+      if (this.latestHash.get(entry.nodeId) !== entry.hash) {
         disposeOutputs(entry.outputs, ctx);
-        this.entries.delete(hash);
+        this.entries.delete(key);
       }
     }
   }
@@ -95,6 +224,7 @@ export class Evaluator {
     memo: Map<NodeId, Promise<CookResult>>,
     path: readonly NodeId[],
     visiting: ReadonlySet<NodeId>,
+    attempt: EvaluationAttempt,
   ): Promise<CookResult> {
     // This check must precede the memo lookup. Returning the current node's
     // pending promise from a recursive A -> B -> A traversal would deadlock.
@@ -106,36 +236,70 @@ export class Evaluator {
     const existing = memo.get(nodeId);
     if (existing) return existing;
 
-    // Ancestry is branch-local. Sibling Promise.all branches may legitimately
-    // share an upstream node (a diamond DAG), so they must not share a mutable
-    // visiting set even though they do share the per-evaluation memo.
+    // Ancestry is call-local. Distinct branches may legitimately share an
+    // upstream node (a diamond DAG), so recursive calls must not share a
+    // mutable visiting set even though they share the per-evaluation memo.
     const nextPath = [...path, nodeId];
     const nextVisiting = new Set(visiting);
     nextVisiting.add(nodeId);
 
     const promise = (async (): Promise<CookResult> => {
+      throwIfCookInterrupted(ctx);
       const node = graph.nodes[nodeId];
-      if (!node) throw new Error(`unknown node: ${nodeId}`);
+      if (!node) {
+        throw new NodeCookError(nodeId, 'unknown', new Error(`unknown node: ${nodeId}`));
+      }
       const def = this.registry.get(node.type);
-      if (!def) throw new Error(`unknown node type: ${node.type}`);
+      if (!def) {
+        throw new NodeCookError(
+          nodeId,
+          node.type,
+          new Error(`unknown node type: ${node.type}`),
+        );
+      }
 
-      // 1. cook all upstream dependencies (in parallel where independent)
-      const inputEdges = graph.edges.filter((e) => e.to.node === nodeId);
-      const upstream = await Promise.all(
-        inputEdges.map(async (e) => ({
-          edge: e,
-          result: await this.cookNode(graph, e.from.node, ctx, memo, nextPath, nextVisiting),
-        })),
-      );
+      // 1. Cook dependencies in deterministic socket order. Serial traversal
+      // intentionally bounds heavyweight browser/GPU primitives to one active
+      // node cook per evaluator: a legal wide DAG must not start hundreds of
+      // frame-sized canvases or readback buffers before budgets can account
+      // for them. The per-evaluation memo still cooks shared diamond ancestors
+      // exactly once.
+      const inputEdges = graph.edges
+        .filter((edge) => edge.to.node === nodeId)
+        .sort((a, b) => (
+          a.to.socket.localeCompare(b.to.socket)
+          || a.from.node.localeCompare(b.from.node)
+          || a.from.socket.localeCompare(b.from.socket)
+        ));
+      const upstream: Array<{ edge: Edge; result: CookResult }> = [];
+      for (const edge of inputEdges) {
+        throwIfCookInterrupted(ctx);
+        upstream.push({
+          edge,
+          result: await this.cookNode(
+            graph,
+            edge.from.node,
+            ctx,
+            memo,
+            nextPath,
+            nextVisiting,
+            attempt,
+          ),
+        });
+      }
+      throwIfCookInterrupted(ctx);
 
       // 2. assemble inputs; hash in deterministic socket order
       const inputs: Record<string, Value> = {};
       const inputHashes: string[] = [];
-      upstream.sort((a, b) => a.edge.to.socket.localeCompare(b.edge.to.socket));
       for (const { edge, result } of upstream) {
         const value = result.outputs[edge.from.socket];
         if (value === undefined) {
-          throw new Error(`${edge.from.node} has no output socket "${edge.from.socket}"`);
+          throw new NodeCookError(
+            nodeId,
+            node.type,
+            new Error(`${edge.from.node} has no output socket "${edge.from.socket}"`),
+          );
         }
         inputs[edge.to.socket] = value;
         inputHashes.push(`${edge.to.socket}:${result.hash}`);
@@ -144,7 +308,11 @@ export class Evaluator {
       // 2b. a half-wired graph should fail with a message, not a crash deep in a cook
       for (const spec of def.inputs) {
         if (!spec.optional && !(spec.name in inputs)) {
-          throw new Error(`${node.type} (${nodeId}): input "${spec.name}" is not connected`);
+          throw new NodeCookError(
+            nodeId,
+            node.type,
+            new Error(`${node.type} (${nodeId}): input "${spec.name}" is not connected`),
+          );
         }
       }
 
@@ -158,18 +326,56 @@ export class Evaluator {
         ...def.hashExtras?.(params, ctx),
       };
       const hash = hashNode(node.type, hashParams, inputHashes);
-      this.latestHash.set(nodeId, hash);
-      const cached = this.entries.get(hash);
+      attempt.latestHash.set(nodeId, hash);
+      const cacheKey = `${nodeId}\u0000${hash}`;
+      const cached = this.entries.get(cacheKey);
       if (cached) {
-        this.events.push({ nodeId, type: node.type, status: 'hit', ms: 0 });
+        attempt.events.push({ nodeId, type: node.type, status: 'hit', ms: 0 });
         return { outputs: cached.outputs, hash };
       }
 
-      // 4. miss: run the actual work (await covers async/model nodes too)
+      // 4. miss: run the actual work (await covers async/model nodes too).
+      // NodeDef cooks must observe ctx.signal/deadline before GPU side effects.
+      // The evaluator can detach a non-cooperative promise for liveness; any
+      // late raster/alpha it returns must be newly owned so it can be released.
       const t0 = performance.now();
-      const outputs = await def.cook(inputs, params, ctx);
-      this.entries.set(hash, { nodeId, outputs });
-      this.events.push({ nodeId, type: node.type, status: 'miss', ms: performance.now() - t0 });
+      let outputs: OutputValues;
+      let cooking: Promise<OutputValues>;
+      try {
+        cooking = Promise.resolve(def.cook(inputs, params, ctx));
+      } catch (error) {
+        if (error instanceof NodeCookError) throw error;
+        throw new NodeCookError(nodeId, node.type, error);
+      }
+      try {
+        outputs = await waitForCookControl(cooking, ctx);
+      } catch (error) {
+        // Detach a non-cooperative browser/model primitive from the active
+        // coordinator. If it eventually yields GPU outputs, reclaim them even
+        // though this attempt has already terminated.
+        void cooking.then(
+          (lateOutputs) => disposeOutputs(lateOutputs, ctx),
+          () => {},
+        );
+        if (error instanceof NodeCookError) throw error;
+        throw new NodeCookError(nodeId, node.type, error);
+      }
+      try {
+        throwIfCookInterrupted(ctx);
+      } catch (error) {
+        // A non-cooperative async cook may return after supersession. Its
+        // textures were never transferred into the attempt cache, so reclaim
+        // them here exactly once before preserving node attribution.
+        disposeOutputs(outputs, ctx);
+        throw new NodeCookError(nodeId, node.type, error);
+      }
+      attempt.entries.set(cacheKey, { nodeId, hash, outputs });
+      attempt.events.push({
+        nodeId,
+        type: node.type,
+        status: 'miss',
+        ms: performance.now() - t0,
+      });
       return { outputs, hash };
     })();
 
@@ -182,10 +388,16 @@ export class Evaluator {
 // raster/alpha outputs. Raster content embedded in elements is NOT owned —
 // it belongs to the producing node's entry, and hash propagation guarantees
 // producer and consumer entries are always evicted in the same pass.
-function disposeOutputs(outputs: OutputValues, ctx: CookContext) {
+function disposeOutputs(
+  outputs: OutputValues,
+  ctx: CookContext,
+  released: Set<unknown> = new Set(),
+) {
   if (!ctx.gpu) return;
   for (const value of Object.values(outputs)) {
     if (value.kind === 'raster' || value.kind === 'alpha') {
+      if (released.has(value.texture)) continue;
+      released.add(value.texture);
       ctx.gpu.pool.release(value.texture);
     }
   }

@@ -233,7 +233,9 @@ export async function waitForInitialCook(page, { width, height }) {
   await page.waitForFunction(
     ({ expectedWidth, expectedHeight }) => {
       if (document.querySelector('.cook-error')) return true;
-      const canvas = document.querySelector('.viewport canvas:not(.guide-overlay)');
+      const canvas = document.querySelector(
+        '.viewport canvas:not(.guide-overlay):not([hidden])',
+      );
       return canvas instanceof HTMLCanvasElement
         && canvas.width === expectedWidth
         && canvas.height === expectedHeight

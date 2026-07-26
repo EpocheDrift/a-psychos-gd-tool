@@ -7,6 +7,8 @@ import { boundsOfPaths } from '../engine/path';
 import type { NodeDef } from '../engine/registry';
 import type { RasterValue, VectorValue } from '../engine/values';
 import { runTrace } from './traceClient';
+import { throwIfCookInterrupted } from '../engine/cookControl';
+import { geometryBudgetFor } from '../engine/geometryBudget';
 
 export const OutlineImageNode: NodeDef = {
   type: 'OutlineImage',
@@ -22,11 +24,13 @@ export const OutlineImageNode: NodeDef = {
     { name: 'minArea', kind: 'number', default: 8, min: 0, max: 100, step: 1 },
   ],
   async cook(inputs, params, ctx) {
+    const budget = geometryBudgetFor(ctx);
     const gpu = ctx.gpu;
     if (!gpu) throw new Error('Outline Image needs a GPU context');
     const src = inputs.in as RasterValue;
 
-    const imageData = await gpu.readback(src.texture);
+    const imageData = await gpu.readback(src.texture, ctx);
+    throwIfCookInterrupted(ctx);
     const paths = await runTrace({
       op: 'silhouette',
       imageData,
@@ -35,9 +39,22 @@ export const OutlineImageNode: NodeDef = {
       threshold: Number(params.threshold),
       dropLight: true,
       thickness: Number(params.thickness),
+    }, {
+      signal: ctx.signal,
+      deadline: ctx.deadline,
+      revision: ctx.revision,
+      maxPendingRequests: ctx.maxPendingWorkerRequests,
+      maxPendingBytes: ctx.maxPendingWorkerBytes,
+      maxVectorCommands: ctx.maxVectorCommands,
     });
+    throwIfCookInterrupted(ctx);
+    budget.chargeVectorPaths(paths.length);
 
-    const value: VectorValue = { kind: 'vector', paths, bounds: boundsOfPaths(paths) };
+    const value: VectorValue = {
+      kind: 'vector',
+      paths,
+      bounds: boundsOfPaths(paths, ctx),
+    };
     return { out: value };
   },
 };

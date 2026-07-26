@@ -30,6 +30,7 @@ await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems
   });
   await page.evaluate(() => globalThis.__app.getState().setParam('blur1', 'radius', 32));
   await page.waitForFunction((previousLog) => {
+    if (document.querySelector('.cook-error')) return true;
     const currentLog = [...document.querySelectorAll('.cook-log li')].map((item) => item.textContent).join('|');
     const miss = [...document.querySelectorAll('.cook-log li')].some((item) =>
       item.querySelector('.ev-id')?.textContent === 'blur1'

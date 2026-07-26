@@ -6,6 +6,8 @@ import { boundsOfPaths } from '../engine/path';
 import type { NodeDef } from '../engine/registry';
 import type { RasterValue, VectorValue } from '../engine/values';
 import { runTrace } from './traceClient';
+import { throwIfCookInterrupted } from '../engine/cookControl';
+import { geometryBudgetFor } from '../engine/geometryBudget';
 
 export const TraceNode: NodeDef = {
   type: 'Trace',
@@ -37,11 +39,13 @@ export const TraceNode: NodeDef = {
     },
   ],
   async cook(inputs, params, ctx) {
+    const budget = geometryBudgetFor(ctx);
     const gpu = ctx.gpu;
     if (!gpu) throw new Error('Trace needs a GPU context');
     const src = inputs.in as RasterValue;
 
-    const imageData = await gpu.readback(src.texture);
+    const imageData = await gpu.readback(src.texture, ctx);
+    throwIfCookInterrupted(ctx);
     const method = String(params.method);
     // sobel draws dark edges on a light ground — the light layer is always the
     // background. for fill it's the user's call.
@@ -52,9 +56,22 @@ export const TraceNode: NodeDef = {
       minArea: Number(params.minArea),
       threshold: Number(params.threshold),
       dropLight: method === 'sobel' || params.ignoreLight === 'yes',
+    }, {
+      signal: ctx.signal,
+      deadline: ctx.deadline,
+      revision: ctx.revision,
+      maxPendingRequests: ctx.maxPendingWorkerRequests,
+      maxPendingBytes: ctx.maxPendingWorkerBytes,
+      maxVectorCommands: ctx.maxVectorCommands,
     });
+    throwIfCookInterrupted(ctx);
+    budget.chargeVectorPaths(paths.length);
 
-    const value: VectorValue = { kind: 'vector', paths, bounds: boundsOfPaths(paths) };
+    const value: VectorValue = {
+      kind: 'vector',
+      paths,
+      bounds: boundsOfPaths(paths, ctx),
+    };
     return { out: value };
   },
 };

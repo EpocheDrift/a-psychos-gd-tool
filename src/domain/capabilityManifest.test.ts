@@ -46,6 +46,24 @@ describe('capability manifest contract', () => {
       assets: false,
       mcp: false,
     });
+    expect(CAPABILITY_MANIFEST.limits).toMatchObject({
+      maxPendingWorkerRequests: 4,
+      maxPendingWorkerBytes: 128 * 1024 * 1024,
+      maxGpuTextureBytes: 768 * 1024 * 1024,
+      maxGpuFreeTextureBytes: 128 * 1024 * 1024,
+      maxGpuTextures: 512,
+      maxGpuPasses: 2_048,
+      maxGpuPixelWork: 32_000_000_000,
+      maxVectorPaths: 250_000,
+      maxVectorCommands: 250_000,
+      maxCanvasPaintPaths: 10_000,
+      maxCanvasPaintCommands: 25_000,
+      maxFlattenedPoints: 1_000_000,
+      maxBooleanPoints: 10_000,
+      maxGeometryWorkUnits: 4_000_000,
+      maxRenderableGlyphs: 16_384,
+      renderDeadlineMs: 30_000,
+    });
 
     const json = JSON.stringify(CAPABILITY_MANIFEST);
     expect(json).not.toContain('"cook"');

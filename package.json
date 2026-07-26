@@ -17,7 +17,8 @@
     "smoke:blur": "node scripts/blur-check.mjs",
     "smoke:fringe": "node scripts/fringe-check.mjs",
     "smoke:interaction": "node scripts/marquee-check.mjs",
-    "smoke:all": "npm run smoke:baseline && npm run smoke:factory && npm run smoke:frame && npm run smoke:blur && npm run smoke:fringe && npm run smoke:interaction",
+    "smoke:render": "node scripts/render-coordinator-check.mjs",
+    "smoke:all": "npm run smoke:baseline && npm run smoke:factory && npm run smoke:frame && npm run smoke:blur && npm run smoke:fringe && npm run smoke:interaction && npm run smoke:render",
     "test": "vitest run",
     "typecheck": "tsc -b"
   },

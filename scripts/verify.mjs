@@ -22,7 +22,7 @@ await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems
       text: item.textContent.replace(/\s+/g, ' ').trim(),
     })));
   const canvasSize = () =>
-    page.$eval('.viewport canvas:not(.guide-overlay)', (canvas) => `${canvas.width}x${canvas.height}`);
+    page.$eval('.viewport canvas:not(.guide-overlay):not([hidden])', (canvas) => `${canvas.width}x${canvas.height}`);
 
   console.log('--- cook 1 (factory document, 2480×3508 frame) ---');
   const initialEvents = await readEvents();
@@ -39,7 +39,10 @@ await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await page.waitForFunction((previousEvents) => {
-    const canvas = document.querySelector('.viewport canvas:not(.guide-overlay)');
+    if (document.querySelector('.cook-error')) return true;
+    const canvas = document.querySelector(
+      '.viewport canvas:not(.guide-overlay):not([hidden])',
+    );
     const currentEvents = [...document.querySelectorAll('.cook-log li')].map((item) => ({
       status: item.querySelector('.badge')?.textContent?.trim().toLowerCase(),
       type: item.querySelector('.ev-node')?.textContent?.trim(),
