@@ -19,12 +19,21 @@ import {
 } from './engine/graph';
 import { canConnect } from './engine/registry';
 import {
+  CURRENT_SCHEMA_VERSION,
   DEFAULT_DOCUMENT_ID,
   createSerializedProject,
   type AssetMetadata,
   type SerializedProjectV3,
 } from './domain/documentSchema';
 import type { ValidationReport } from './domain/agentErrors';
+import type {
+  CommandApplication,
+  DocumentCommand,
+  LayerPatch,
+  RuntimeDocumentState,
+  TransactionResult,
+} from './domain/commandTypes';
+import { applyTrustedUiCommands } from './domain/commands';
 import {
   exportDocumentJson,
   importProjectJson as decodeProjectJson,
@@ -32,9 +41,8 @@ import {
   type ProjectExportResult,
   type ProjectImportResult,
 } from './domain/projectCodec';
-import { DEFAULT_AGENT_LIMITS } from './domain/limits';
-import { validateImageSource } from './domain/paramCodecs';
 import { validateSerializedProject } from './domain/semanticValidation';
+import { TransactionSession } from './domain/transactionSession';
 import { factoryDoc } from './factoryDoc';
 import { registry } from './nodes';
 import { extractFace, faceCount } from './util/sfnt';
@@ -79,18 +87,16 @@ export async function loadLocalFontsIfGranted(): Promise<void> {
   }
 }
 
-function makeLayer(id: string, name: string, graph: Graph): Layer {
-  return { id, name, visible: true, opacity: 1, blendMode: 'normal', graph };
-}
-
-// The working document persists to localStorage on every edit, so the current
-// set-up IS the default on next load. The factory document is only the first-run
-// (or unreadable-save) fallback. v1 saves held a single graph — they load as
-// a one-layer document; v1 is left in place so older builds can still read it.
+// The working document persists to localStorage, so the current set-up IS the
+// default on next load. Continuous edits are debounced to keep serialization
+// and browser storage off drag/scrub hot paths. The factory document is only
+// the first-run (or unreadable-save) fallback. v1 saves held a single graph —
+// they load as a one-layer document; v1 is left in place for older builds.
 export const PROJECT_STORAGE_KEY = 'gfx.project';
 export const LAYERED_STORAGE_KEY = 'gfx.document.v2';
 export const LEGACY_STORAGE_KEY = 'gfx.document.v1';
-const canPersist = typeof localStorage !== 'undefined';
+const persistenceStorage = typeof localStorage === 'undefined' ? null : localStorage;
+const canPersist = persistenceStorage !== null;
 
 export interface StartupLoadIssue {
   storageKey: string;
@@ -119,17 +125,17 @@ function decodeSavedCandidate(
 function loadSavedProject(): SavedProjectLoad {
   if (!canPersist) return { project: null, issue: null };
   try {
-    const current = localStorage.getItem(PROJECT_STORAGE_KEY);
+    const current = persistenceStorage.getItem(PROJECT_STORAGE_KEY);
     if (current !== null) {
       return decodeSavedCandidate(PROJECT_STORAGE_KEY, current, false);
     }
 
-    const layered = localStorage.getItem(LAYERED_STORAGE_KEY);
+    const layered = persistenceStorage.getItem(LAYERED_STORAGE_KEY);
     if (layered !== null) {
       return decodeSavedCandidate(LAYERED_STORAGE_KEY, layered, true);
     }
 
-    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+    const legacy = persistenceStorage.getItem(LEGACY_STORAGE_KEY);
     if (legacy !== null) {
       return decodeSavedCandidate(LEGACY_STORAGE_KEY, legacy, true);
     }
@@ -176,11 +182,13 @@ export function wireIsValid(graph: Graph, w: WireSpec): boolean {
 const HISTORY_LIMIT = 100;
 const COALESCE_MS = 1000;
 let lastEdit: { key: string; time: number } | null = null;
+let scheduleGestureEndAutosave: () => void = () => {};
 
 /** Close the current coalescing run — the next edit starts a fresh undo step.
  * Called on gesture boundaries (pointer-up on a number scrub). */
 export function endGesture(): void {
   lastEdit = null;
+  scheduleGestureEndAutosave();
 }
 
 interface DocumentSnapshot {
@@ -193,6 +201,8 @@ export interface AppStore {
   /** Stable persisted identity. Runtime revision is deliberately separate. */
   documentId: string;
   doc: Doc;
+  /** Monotonic session revision; never persisted or restored from history. */
+  revision: number;
   /** Versioned asset metadata is preserved even before PR 7 adds asset storage. */
   assets?: AssetMetadata[];
   /** A rejected saved value remains in storage; this report explains the fallback. */
@@ -217,7 +227,7 @@ export interface AppStore {
   setParam: (nodeId: NodeId, name: string, value: ParamValue) => void;
   /** one call moves the whole dragged set, so a group drag is a single undo step */
   moveNodes: (positions: Record<NodeId, { x: number; y: number }>) => void;
-  addNode: (type: string, position: { x: number; y: number }) => void;
+  addNode: (type: string, position: { x: number; y: number }) => NodeId | null;
   removeNodes: (ids: NodeId[]) => void;
   connect: (w: WireSpec) => void;
   removeEdges: (edgeKeys: string[]) => void;
@@ -240,6 +250,10 @@ export interface AppStore {
   importProjectJson: (json: string, documentIdForLegacy?: string) => ProjectImportResult;
   /** Validate and serialize the current project without changing state or persistence. */
   exportProjectJson: () => ProjectExportResult;
+  /** Strict, revision-checked, idempotent Agent mutation boundary. */
+  applyTransaction: (request: unknown) => TransactionResult;
+  /** Revert only a compatible transaction created in this runtime session. */
+  revertTransaction: (request: unknown) => TransactionResult;
 }
 
 /** The graph the node editor is looking at — the active layer's. */
@@ -247,36 +261,68 @@ export function selectActiveGraph(s: Pick<AppStore, 'doc' | 'activeLayerId'>): G
   return (s.doc.layers.find((l) => l.id === s.activeLayerId) ?? s.doc.layers[s.doc.layers.length - 1]).graph;
 }
 
-/** An immutable update of the active layer's graph, leaving the other layers shared. */
-function editActiveGraph(s: AppStore, fn: (g: Graph) => Graph): Doc {
-  return {
-    ...s.doc,
-    layers: s.doc.layers.map((l) => (l.id === s.activeLayerId ? { ...l, graph: fn(l.graph) } : l)),
-  };
-}
-
 /** After swapping in a document (undo/redo), keep active layer + selection pointing at things that exist. */
 function revalidate(s: AppStore, doc: Doc): Pick<AppStore, 'activeLayerId' | 'selectedNodeIds'> {
-  const layer = doc.layers.find((l) => l.id === s.activeLayerId) ?? doc.layers[doc.layers.length - 1];
+  const existing = doc.layers.find((layer) => layer.id === s.activeLayerId);
+  const layer = existing ?? doc.layers[doc.layers.length - 1];
   return {
     activeLayerId: layer.id,
-    selectedNodeIds: s.selectedNodeIds.filter((id) => layer.graph.nodes[id]),
+    selectedNodeIds: existing
+      ? s.selectedNodeIds.filter((id) => Object.hasOwn(layer.graph.nodes, id))
+      : [],
   };
 }
 
-let nextId = 1;
-let nextLayerId = 2;
+function runtimeDocumentState(
+  state: Pick<AppStore, 'documentId' | 'doc' | 'assets' | 'revision'>,
+): RuntimeDocumentState {
+  return {
+    documentId: state.documentId,
+    document: state.doc,
+    assets: state.assets,
+    revision: state.revision,
+  };
+}
+
+function runUiCommands(
+  state: AppStore,
+  commands: DocumentCommand[],
+): CommandApplication {
+  return applyTrustedUiCommands(runtimeDocumentState(state), commands);
+}
+
+function applyUiCommands(
+  state: AppStore,
+  commands: DocumentCommand[],
+): RuntimeDocumentState | null {
+  return runUiCommands(state, commands).next ?? null;
+}
+
+const transactionSession = new TransactionSession();
+
+function transactionHostFailure(
+  revision: number,
+  requestId: string | undefined,
+  message = 'The host could not atomically commit the prepared transaction.',
+): TransactionResult {
+  return {
+    ok: false,
+    ...(requestId ? { requestId } : {}),
+    revision,
+    error: {
+      code: 'INTERNAL',
+      message,
+      recoverable: false,
+    },
+  };
+}
 
 /** The history push that precedes a document edit. A `key` marks the edit as
  * continuous: repeats inside the coalescing window reuse the snapshot already
  * pushed. Discrete edits pass null and always snapshot. */
-function pushHistory(s: AppStore, key: string | null): Pick<AppStore, 'past' | 'future'> | undefined {
-  const now = Date.now();
-  if (key && lastEdit && lastEdit.key === key && now - lastEdit.time < COALESCE_MS) {
-    lastEdit.time = now;
-    return undefined;
-  }
-  lastEdit = key ? { key, time: now } : null;
+function buildHistorySnapshot(
+  s: AppStore,
+): Pick<AppStore, 'past' | 'future'> {
   return {
     past: [...s.past.slice(1 - HISTORY_LIMIT), {
       documentId: s.documentId,
@@ -287,9 +333,24 @@ function pushHistory(s: AppStore, key: string | null): Pick<AppStore, 'past' | '
   };
 }
 
+function pushHistory(s: AppStore, key: string | null): Pick<AppStore, 'past' | 'future'> | undefined {
+  if (!key) {
+    lastEdit = null;
+    return buildHistorySnapshot(s);
+  }
+  const now = Date.now();
+  if (key && lastEdit && lastEdit.key === key && now - lastEdit.time < COALESCE_MS) {
+    lastEdit.time = now;
+    return undefined;
+  }
+  lastEdit = { key, time: now };
+  return buildHistorySnapshot(s);
+}
+
 export const useApp = create<AppStore>((set, get) => ({
   documentId: initialProject.documentId,
   doc: initialDoc,
+  revision: 0,
   assets: initialProject.assets,
   startupLoadIssue: savedProject.issue,
   persistenceValidationReport: null,
@@ -300,12 +361,12 @@ export const useApp = create<AppStore>((set, get) => ({
   fonts: {},
   localFonts: [],
 
-  select: (ids) => set({ selectedNodeIds: ids }),
+  select: (ids) => set({ selectedNodeIds: [...ids] }),
 
   undo: () =>
     set((s) => {
       const prev = s.past[s.past.length - 1];
-      if (!prev) return s;
+      if (!prev || s.revision >= Number.MAX_SAFE_INTEGER) return s;
       endGesture();
       return {
         past: s.past.slice(0, -1),
@@ -317,6 +378,7 @@ export const useApp = create<AppStore>((set, get) => ({
         documentId: prev.documentId,
         doc: prev.doc,
         assets: prev.assets,
+        revision: s.revision + 1,
         ...revalidate(s, prev.doc),
       };
     }),
@@ -324,7 +386,7 @@ export const useApp = create<AppStore>((set, get) => ({
   redo: () =>
     set((s) => {
       const next = s.future[s.future.length - 1];
-      if (!next) return s;
+      if (!next || s.revision >= Number.MAX_SAFE_INTEGER) return s;
       endGesture();
       return {
         future: s.future.slice(0, -1),
@@ -336,95 +398,104 @@ export const useApp = create<AppStore>((set, get) => ({
         documentId: next.documentId,
         doc: next.doc,
         assets: next.assets,
+        revision: s.revision + 1,
         ...revalidate(s, next.doc),
       };
     }),
 
   setFrame: (frame) =>
-    set((s) => ({
-      ...pushHistory(s, 'frame'),
-      doc: {
-        ...s.doc,
-        frame: {
-          width: Math.max(16, Math.min(4096, Math.round(frame.width) || DEFAULT_FRAME.width)),
-          height: Math.max(16, Math.min(4096, Math.round(frame.height) || DEFAULT_FRAME.height)),
-        },
-      },
-    })),
+    set((s) => {
+      const next = applyUiCommands(s, [{
+        op: 'set_frame',
+        width: Math.max(16, Math.min(4096, Math.round(frame.width) || DEFAULT_FRAME.width)),
+        height: Math.max(16, Math.min(4096, Math.round(frame.height) || DEFAULT_FRAME.height)),
+      }]);
+      if (!next) return s;
+      return {
+        ...pushHistory(s, 'frame'),
+        doc: next.document,
+        revision: next.revision,
+      };
+    }),
 
   setParam: (nodeId, name, value) =>
     set((s) => {
-      const graph = selectActiveGraph(s);
-      const node = Object.hasOwn(graph.nodes, nodeId) ? graph.nodes[nodeId] : undefined;
-      const definition = node ? registry.get(node.type) : undefined;
-      const spec = definition?.params.find((param) => param.name === name);
-      if (!node || !spec) return s;
-      if (
-        spec.kind === 'image'
-        && !validateImageSource(
-          value,
-          DEFAULT_AGENT_LIMITS.maxLegacyAssetBytes,
-          DEFAULT_AGENT_LIMITS.maxAssetPixels,
-        ).ok
-      ) {
-        return s;
-      }
+      const next = applyUiCommands(s, [{
+        op: 'set_node_params',
+        layerId: s.activeLayerId,
+        nodeId,
+        patch: { [name]: value },
+      }]);
+      if (!next) return s;
       return {
         ...pushHistory(s, `param:${s.activeLayerId}:${nodeId}:${name}`),
-        doc: editActiveGraph(s, (g) => ({
-          ...g,
-          nodes: {
-            ...g.nodes,
-            [nodeId]: {
-              ...g.nodes[nodeId],
-              params: { ...g.nodes[nodeId].params, [name]: value },
-            },
-          },
-        })),
+        doc: next.document,
+        revision: next.revision,
       };
     }),
 
   moveNodes: (positions) =>
     set((s) => {
-      const ids = Object.keys(positions);
+      const graph = selectActiveGraph(s);
+      const ids = Object.keys(positions).filter((id) => Object.hasOwn(graph.nodes, id));
       if (!ids.length) return s;
+      const next = applyUiCommands(s, [{
+        op: 'move_nodes',
+        layerId: s.activeLayerId,
+        positions: ids.map((nodeId) => ({
+          nodeId,
+          position: { ...positions[nodeId] },
+        })),
+      }]);
+      if (!next) return s;
       // the dragged set is stable for the whole gesture, so keying on it
       // coalesces every step of a group drag into one undo snapshot
       return {
         ...pushHistory(s, `move:${s.activeLayerId}:${ids.sort().join(',')}`),
-        doc: editActiveGraph(s, (g) => {
-          const nodes = { ...g.nodes };
-          for (const id of ids) if (nodes[id]) nodes[id] = { ...nodes[id], position: positions[id] };
-          return { ...g, nodes };
-        }),
+        doc: next.document,
+        revision: next.revision,
       };
     }),
 
-  addNode: (type, position) =>
+  addNode: (type, position) => {
+    let createdId: NodeId | null = null;
     set((s) => {
-      const def = registry.get(type);
-      if (!def) return s;
-      const graph = selectActiveGraph(s);
-      let id = `${type.toLowerCase()}_${nextId++}`;
-      while (graph.nodes[id]) id = `${type.toLowerCase()}_${nextId++}`;
-      const params = Object.fromEntries(def.params.map((p) => [p.name, p.default]));
+      const application = runUiCommands(s, [{
+        op: 'add_node',
+        layerId: s.activeLayerId,
+        clientRef: 'created_node',
+        nodeType: type,
+        position: { ...position },
+      }]);
+      if (!application.next || !application.result.ok) return s;
+      createdId = application.result.created.created_node ?? null;
+      if (!createdId) return s;
       return {
         ...pushHistory(s, null),
-        doc: editActiveGraph(s, (g) => ({ ...g, nodes: { ...g.nodes, [id]: { id, type, params, position } } })),
-        selectedNodeIds: [id],
+        doc: application.next.document,
+        revision: application.next.revision,
+        selectedNodeIds: [createdId],
       };
-    }),
+    });
+    return createdId;
+  },
 
   removeNodes: (ids) =>
     set((s) => {
-      const drop = new Set(ids);
+      const graph = selectActiveGraph(s);
+      const uniqueIds = [...new Set(ids)].filter((id) => Object.hasOwn(graph.nodes, id));
+      if (uniqueIds.length === 0) return s;
+      const next = applyUiCommands(s, [{
+        op: 'remove_nodes',
+        layerId: s.activeLayerId,
+        nodeIds: uniqueIds,
+      }]);
+      if (!next) return s;
+      const drop = new Set(uniqueIds);
       return {
         ...pushHistory(s, null),
-        doc: editActiveGraph(s, (g) => ({
-          ...g,
-          nodes: Object.fromEntries(Object.entries(g.nodes).filter(([id]) => !drop.has(id))),
-          edges: g.edges.filter((e) => !drop.has(e.from.node) && !drop.has(e.to.node)),
-        })),
+        doc: next.document,
+        revision: next.revision,
         selectedNodeIds: s.selectedNodeIds.filter((id) => !drop.has(id)),
       };
     }),
@@ -432,25 +503,44 @@ export const useApp = create<AppStore>((set, get) => ({
   connect: (w) =>
     set((s) => {
       if (!wireIsValid(selectActiveGraph(s), w)) return s;
+      const next = applyUiCommands(s, [{
+        op: 'connect',
+        layerId: s.activeLayerId,
+        from: { nodeId: w.source, socket: w.sourceHandle },
+        to: { nodeId: w.target, socket: w.targetHandle },
+        replaceExisting: true,
+      }]);
+      if (!next) return s;
       return {
         ...pushHistory(s, null),
-        doc: editActiveGraph(s, (g) => ({
-          ...g,
-          // an input socket holds one wire — a new connection replaces the old one
-          edges: [
-            ...g.edges.filter((e) => !(e.to.node === w.target && e.to.socket === w.targetHandle)),
-            { from: { node: w.source, socket: w.sourceHandle }, to: { node: w.target, socket: w.targetHandle } },
-          ],
-        })),
+        doc: next.document,
+        revision: next.revision,
       };
     }),
 
   removeEdges: (keys) =>
     set((s) => {
       const drop = new Set(keys);
+      const commands: DocumentCommand[] = [];
+      const targets = new Set<string>();
+      for (const edge of selectActiveGraph(s).edges) {
+        if (!drop.has(edgeKey(edge))) continue;
+        const targetKey = JSON.stringify([edge.to.node, edge.to.socket]);
+        if (targets.has(targetKey)) continue;
+        targets.add(targetKey);
+        commands.push({
+          op: 'disconnect',
+          layerId: s.activeLayerId,
+          to: { nodeId: edge.to.node, socket: edge.to.socket },
+        });
+      }
+      if (commands.length === 0) return s;
+      const next = applyUiCommands(s, commands);
+      if (!next) return s;
       return {
         ...pushHistory(s, null),
-        doc: editActiveGraph(s, (g) => ({ ...g, edges: g.edges.filter((e) => !drop.has(edgeKey(e))) })),
+        doc: next.document,
+        revision: next.revision,
       };
     }),
 
@@ -463,19 +553,18 @@ export const useApp = create<AppStore>((set, get) => ({
 
   addLayer: () =>
     set((s) => {
-      let id = `layer_${nextLayerId++}`;
-      while (s.doc.layers.some((l) => l.id === id)) id = `layer_${nextLayerId++}`;
-      // a fresh layer starts as a transparent Output so the stack shows through
-      const graph: Graph = {
-        nodes: { out: { id: 'out', type: 'Output', params: { transparent: true }, position: { x: 480, y: 120 } } },
-        edges: [],
-      };
-      const layer = makeLayer(id, `Layer ${s.doc.layers.length + 1}`, graph);
-      const at = s.doc.layers.findIndex((l) => l.id === s.activeLayerId) + 1;
-      const layers = [...s.doc.layers.slice(0, at), layer, ...s.doc.layers.slice(at)];
+      const application = runUiCommands(s, [{
+        op: 'add_layer',
+        clientRef: 'created_layer',
+        afterLayerId: s.activeLayerId,
+      }]);
+      if (!application.next || !application.result.ok) return s;
+      const id = application.result.created.created_layer;
+      if (!id) return s;
       return {
         ...pushHistory(s, null),
-        doc: { ...s.doc, layers },
+        doc: application.next.document,
+        revision: application.next.revision,
         activeLayerId: id,
         selectedNodeIds: [],
       };
@@ -486,11 +575,15 @@ export const useApp = create<AppStore>((set, get) => ({
       if (s.doc.layers.length <= 1) return s;
       const at = s.doc.layers.findIndex((l) => l.id === id);
       if (at === -1) return s;
-      const layers = s.doc.layers.filter((l) => l.id !== id);
-      const active = s.activeLayerId === id ? layers[Math.min(at, layers.length - 1)].id : s.activeLayerId;
+      const next = applyUiCommands(s, [{ op: 'remove_layer', layerId: id }]);
+      if (!next) return s;
+      const active = s.activeLayerId === id
+        ? next.document.layers[Math.min(at, next.document.layers.length - 1)].id
+        : s.activeLayerId;
       return {
         ...pushHistory(s, null),
-        doc: { ...s.doc, layers },
+        doc: next.document,
+        revision: next.revision,
         activeLayerId: active,
         selectedNodeIds: s.activeLayerId === id ? [] : s.selectedNodeIds,
       };
@@ -501,9 +594,13 @@ export const useApp = create<AppStore>((set, get) => ({
       const at = s.doc.layers.findIndex((l) => l.id === id);
       const to = at + dir;
       if (at === -1 || to < 0 || to >= s.doc.layers.length) return s;
-      const layers = [...s.doc.layers];
-      [layers[at], layers[to]] = [layers[to], layers[at]];
-      return { ...pushHistory(s, null), doc: { ...s.doc, layers } };
+      const next = applyUiCommands(s, [{ op: 'move_layer', layerId: id, index: to }]);
+      if (!next) return s;
+      return {
+        ...pushHistory(s, null),
+        doc: next.document,
+        revision: next.revision,
+      };
     }),
 
   moveLayerTo: (id, to) =>
@@ -512,20 +609,40 @@ export const useApp = create<AppStore>((set, get) => ({
       if (at === -1) return s;
       const clamped = Math.max(0, Math.min(s.doc.layers.length - 1, to));
       if (clamped === at) return s;
-      const layers = [...s.doc.layers];
-      const [layer] = layers.splice(at, 1);
-      layers.splice(clamped, 0, layer);
-      return { ...pushHistory(s, null), doc: { ...s.doc, layers } };
+      const next = applyUiCommands(s, [{
+        op: 'move_layer',
+        layerId: id,
+        index: clamped,
+      }]);
+      if (!next) return s;
+      return {
+        ...pushHistory(s, null),
+        doc: next.document,
+        revision: next.revision,
+      };
     }),
 
   updateLayer: (id, patch) =>
     set((s) => {
       if (!s.doc.layers.some((l) => l.id === id)) return s;
+      const commandPatch: LayerPatch = {};
+      if (patch.name !== undefined) commandPatch.name = patch.name;
+      if (patch.visible !== undefined) commandPatch.visible = patch.visible;
+      if (patch.opacity !== undefined) commandPatch.opacity = patch.opacity;
+      if (patch.blendMode !== undefined) commandPatch.blendMode = patch.blendMode;
+      if (Object.keys(commandPatch).length === 0) return s;
+      const next = applyUiCommands(s, [{
+        op: 'update_layer',
+        layerId: id,
+        patch: commandPatch,
+      }]);
+      if (!next) return s;
       // opacity scrubs and name typing coalesce into one undo step each
       const key = 'opacity' in patch ? `layer:${id}:opacity` : 'name' in patch ? `layer:${id}:name` : null;
       return {
         ...pushHistory(s, key),
-        doc: { ...s.doc, layers: s.doc.layers.map((l) => (l.id === id ? { ...l, ...patch } : l)) },
+        doc: next.document,
+        revision: next.revision,
       };
     }),
 
@@ -577,12 +694,29 @@ export const useApp = create<AppStore>((set, get) => ({
   importProjectJson: (json, documentIdForLegacy = DEFAULT_DOCUMENT_ID) => {
     const imported = decodeProjectJson(json, { documentIdForLegacy });
     if (!imported.ok) return imported;
+    if (get().revision >= Number.MAX_SAFE_INTEGER) {
+      return {
+        ok: false,
+        report: {
+          ...imported.report,
+          valid: false,
+          errors: [{
+            severity: 'error',
+            code: 'RESOURCE_LIMIT',
+            message: 'Document revision is exhausted.',
+            path: '',
+            recoverable: true,
+          }],
+        },
+      };
+    }
     endGesture();
     set((s) => ({
       ...pushHistory(s, null),
       documentId: imported.project.documentId,
       doc: imported.project.document,
       assets: imported.project.assets,
+      revision: s.revision + 1,
       startupLoadIssue: null,
       persistenceValidationReport: null,
       ...revalidate(s, imported.project.document),
@@ -594,9 +728,226 @@ export const useApp = create<AppStore>((set, get) => ({
     const state = get();
     return exportDocumentJson(state.documentId, state.doc, {}, state.assets);
   },
+
+  applyTransaction: (request) => {
+    // Raw caller data is fully captured before entering a Zustand updater.
+    // Proxy traps may re-enter the store here, but the updater below will then
+    // observe the resulting latest revision and reject stale expectedRevision.
+    const captured = transactionSession.captureApply(request);
+    let response = transactionHostFailure(get().revision, undefined);
+    let finalized = false;
+    try {
+      set((s) => {
+        const application = transactionSession.prepareApply(
+          runtimeDocumentState(s),
+          captured,
+        );
+        response = application.result;
+        if (!application.next) {
+          if (
+            application.finalizeToken
+            && !transactionSession.finalize(application.finalizeToken)
+          ) {
+            response = transactionHostFailure(s.revision, response.requestId);
+            return s;
+          }
+          finalized = application.finalizeToken !== null;
+          return s;
+        }
+
+        // Build every allocation and potentially throwing host artifact before
+        // publishing the replay/ledger record. After finalize, returning this
+        // already-complete replacement is the only remaining action.
+        const replacement: AppStore = {
+          ...s,
+          ...buildHistorySnapshot(s),
+          documentId: application.next.documentId,
+          doc: application.next.document,
+          assets: application.next.assets,
+          revision: application.next.revision,
+          ...revalidate(s, application.next.document),
+        };
+        const latest = get();
+        if (latest !== s) {
+          response = transactionHostFailure(
+            latest.revision,
+            response.requestId,
+            'Store state changed while the transaction commit was being prepared.',
+          );
+          return latest;
+        }
+        if (
+          !application.finalizeToken
+          || !transactionSession.finalize(application.finalizeToken)
+        ) {
+          const current = get();
+          response = transactionHostFailure(current.revision, response.requestId);
+          return current;
+        }
+        lastEdit = null;
+        finalized = true;
+        return replacement;
+      }, true);
+      return response;
+    } catch {
+      // A listener can throw after Zustand has installed the replacement. In
+      // that case finalize already succeeded, so report the committed result.
+      if (finalized) return response;
+      return transactionHostFailure(get().revision, response.requestId);
+    }
+  },
+
+  revertTransaction: (request) => {
+    const captured = transactionSession.captureRevert(request);
+    let response = transactionHostFailure(get().revision, undefined);
+    let finalized = false;
+    try {
+      set((s) => {
+        const application = transactionSession.prepareRevert(
+          runtimeDocumentState(s),
+          captured,
+        );
+        response = application.result;
+        if (!application.next) {
+          if (
+            application.finalizeToken
+            && !transactionSession.finalize(application.finalizeToken)
+          ) {
+            response = transactionHostFailure(s.revision, response.requestId);
+            return s;
+          }
+          finalized = application.finalizeToken !== null;
+          return s;
+        }
+
+        const replacement: AppStore = {
+          ...s,
+          ...buildHistorySnapshot(s),
+          documentId: application.next.documentId,
+          doc: application.next.document,
+          assets: application.next.assets,
+          revision: application.next.revision,
+          ...revalidate(s, application.next.document),
+        };
+        const latest = get();
+        if (latest !== s) {
+          response = transactionHostFailure(
+            latest.revision,
+            response.requestId,
+            'Store state changed while the transaction revert was being prepared.',
+          );
+          return latest;
+        }
+        if (
+          !application.finalizeToken
+          || !transactionSession.finalize(application.finalizeToken)
+        ) {
+          const current = get();
+          response = transactionHostFailure(current.revision, response.requestId);
+          return current;
+        }
+        lastEdit = null;
+        finalized = true;
+        return replacement;
+      }, true);
+      return response;
+    } catch {
+      if (finalized) return response;
+      return transactionHostFailure(get().revision, response.requestId);
+    }
+  },
 }));
 
+interface PersistenceSnapshot {
+  documentId: string;
+  doc: Doc;
+  assets?: AssetMetadata[];
+}
+
+const AUTOSAVE_DEBOUNCE_MS = 250;
+let pendingAutosave: PersistenceSnapshot | null = null;
+let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function samePersistenceSnapshot(snapshot: PersistenceSnapshot): boolean {
+  const current = useApp.getState();
+  return current.documentId === snapshot.documentId
+    && current.doc === snapshot.doc
+    && current.assets === snapshot.assets;
+}
+
+function persistenceFailureReport(): ValidationReport {
+  return {
+    valid: false,
+    mode: 'editable',
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    errors: [{
+      severity: 'error',
+      code: 'PERSISTENCE_FAILED',
+      message: 'Browser storage rejected the working project save.',
+      path: '',
+      recoverable: true,
+      suggestedFix:
+        'Export the project now, then free browser storage or remove large embedded images.',
+    }],
+    warnings: [],
+  };
+}
+
+function persistSnapshot(snapshot: PersistenceSnapshot): void {
+  try {
+    const project = createSerializedProject(
+      snapshot.documentId,
+      snapshot.doc,
+      snapshot.assets,
+    );
+    // Local working saves may be incomplete (for example, an Output can be
+    // temporarily absent), but they must still be structurally and
+    // semantically safe to reload. Explicit external import stays renderable.
+    const validation = validateSerializedProject(project, { mode: 'editable' });
+    if (!validation.valid) {
+      if (samePersistenceSnapshot(snapshot)) {
+        useApp.setState({ persistenceValidationReport: validation });
+      }
+      return;
+    }
+    persistenceStorage!.setItem(PROJECT_STORAGE_KEY, JSON.stringify(project));
+    if (
+      samePersistenceSnapshot(snapshot)
+      && useApp.getState().persistenceValidationReport
+    ) {
+      useApp.setState({ persistenceValidationReport: null });
+    }
+  } catch {
+    // Editing remains available, but a quota/private-mode failure must be
+    // visible: otherwise a refresh can silently discard the in-memory work.
+    if (samePersistenceSnapshot(snapshot)) {
+      useApp.setState({ persistenceValidationReport: persistenceFailureReport() });
+    }
+  }
+}
+
+function cancelAutosaveTimer(): void {
+  if (autosaveTimer === null) return;
+  clearTimeout(autosaveTimer);
+  autosaveTimer = null;
+}
+
+function flushPendingAutosave(): void {
+  cancelAutosaveTimer();
+  const snapshot = pendingAutosave;
+  pendingAutosave = null;
+  if (snapshot) persistSnapshot(snapshot);
+}
+
+function schedulePendingAutosave(delayMs: number): void {
+  cancelAutosaveTimer();
+  autosaveTimer = setTimeout(flushPendingAutosave, delayMs);
+}
+
 if (canPersist) {
+  scheduleGestureEndAutosave = () => {
+    if (pendingAutosave) schedulePendingAutosave(0);
+  };
   useApp.subscribe((s, prev) => {
     if (
       s.doc === prev.doc
@@ -605,28 +956,30 @@ if (canPersist) {
     ) return;
     // Do not overwrite a rejected recovery candidate with the factory fallback.
     // A successful explicit import clears the issue and resumes autosave.
-    if (s.startupLoadIssue) return;
-    try {
-      const project = createSerializedProject(s.documentId, s.doc, s.assets);
-      // Local working saves may be incomplete (for example, an Output can be
-      // temporarily absent), but they must still be structurally and
-      // semantically safe to reload. Explicit external import stays renderable.
-      const validation = validateSerializedProject(project, { mode: 'editable' });
-      if (!validation.valid) {
-        useApp.setState({ persistenceValidationReport: validation });
-        return;
-      }
-      if (s.persistenceValidationReport) {
-        useApp.setState({ persistenceValidationReport: null });
-      }
-      localStorage.setItem(
-        PROJECT_STORAGE_KEY,
-        JSON.stringify(project),
-      );
-    } catch {
-      // quota/private-mode failures shouldn't break editing
+    if (s.startupLoadIssue) {
+      cancelAutosaveTimer();
+      pendingAutosave = null;
+      return;
     }
+    const snapshot: PersistenceSnapshot = {
+      documentId: s.documentId,
+      doc: s.doc,
+      assets: s.assets,
+    };
+    if (lastEdit) {
+      pendingAutosave = snapshot;
+      schedulePendingAutosave(AUTOSAVE_DEBOUNCE_MS);
+      return;
+    }
+    cancelAutosaveTimer();
+    pendingAutosave = null;
+    persistSnapshot(snapshot);
   });
+
+  // Best-effort durability if the tab closes during the debounce window.
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', flushPendingAutosave);
+  }
 }
 
 // dev/verify handle — scripts/verify.mjs builds graphs through this

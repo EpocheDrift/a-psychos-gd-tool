@@ -2,6 +2,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_FRAME, type Doc, type Graph } from './engine/graph';
+import { DEFAULT_AGENT_LIMITS } from './domain/limits';
 import { endGesture, selectActiveGraph, useApp, wireIsValid } from './store';
 
 /** A one-layer document around `graph` — the pre-layers store shape. */
@@ -30,6 +31,12 @@ function chain(): Graph {
       { from: { node: 'blur1', socket: 'out' }, to: { node: 'out', socket: 'in' } },
     ],
   };
+}
+
+function paddedPngDataUri(byteLength = 1_600_000): string {
+  const bytes = Buffer.alloc(byteLength);
+  Buffer.from('89504e470d0a1a0a0000000d494844520000000100000001', 'hex').copy(bytes);
+  return `data:image/png;base64,${bytes.toString('base64')}`;
 }
 
 describe('wireIsValid', () => {
@@ -68,7 +75,14 @@ describe('wireIsValid', () => {
 });
 
 describe('store actions', () => {
-  beforeEach(() => useApp.setState({ doc: docWith(chain()), activeLayerId: 'layer_1', selectedNodeIds: [] }));
+  beforeEach(() => useApp.setState({
+    doc: docWith(chain()),
+    revision: 0,
+    activeLayerId: 'layer_1',
+    selectedNodeIds: [],
+    past: [],
+    future: [],
+  }));
 
   it('connect replaces the existing wire on an input socket', () => {
     useApp.getState().connect({ source: 'raster1', sourceHandle: 'out', target: 'out', targetHandle: 'in' });
@@ -92,16 +106,120 @@ describe('store actions', () => {
   });
 
   it('addNode seeds params from the registry defaults', () => {
-    useApp.getState().addNode('Blur', { x: 0, y: 0 });
+    const position = { x: 0, y: 0 };
+    const id = useApp.getState().addNode('Blur', position);
     const g = activeGraph();
     const added = Object.values(g.nodes).find((n) => n.type === 'Blur' && n.id !== 'blur1')!;
+    expect(id).toBe(added.id);
+    expect(useApp.getState().selectedNodeIds).toEqual([id]);
     expect(added.params.radius).toBe(8);
+    position.x = 999;
+    expect(activeGraph().nodes[added.id].position).toEqual({ x: 0, y: 0 });
+    expect(useApp.getState().revision).toBe(1);
+  });
+
+  it('increments revision only for actual document changes', () => {
+    useApp.getState().select(['text1']);
+    expect(useApp.getState().revision).toBe(0);
+    useApp.getState().connect({
+      source: 'text1',
+      sourceHandle: 'out',
+      target: 'blur1',
+      targetHandle: 'in',
+    });
+    expect(useApp.getState().revision).toBe(0);
+    useApp.getState().setFrame({ width: 640, height: 480 });
+    expect(useApp.getState().revision).toBe(1);
+    useApp.getState().setFrame({ width: 640, height: 480 });
+    expect(useApp.getState().revision).toBe(1);
+  });
+
+  it('defensively copies selection arrays without creating a document edit', () => {
+    const before = useApp.getState();
+    const ids = ['text1'];
+    useApp.getState().select(ids);
+    const selected = useApp.getState().selectedNodeIds;
+    ids.push('blur1');
+
+    expect(selected).not.toBe(ids);
+    expect(useApp.getState().selectedNodeIds).toEqual(['text1']);
+    expect(useApp.getState().doc).toBe(before.doc);
+    expect(useApp.getState().revision).toBe(before.revision);
+    expect(useApp.getState().past).toBe(before.past);
+  });
+
+  it('preserves structural sharing through the trusted UI command path', () => {
+    const document = docWith(chain());
+    const inactiveLayer = {
+      id: 'layer_2',
+      name: 'Layer 2',
+      visible: true,
+      opacity: 1,
+      blendMode: 'normal' as const,
+      graph: {
+        nodes: {
+          out: { id: 'out', type: 'Output', params: { transparent: true } },
+        },
+        edges: [],
+      },
+    };
+    document.layers.push(inactiveLayer);
+    useApp.setState({
+      doc: document,
+      activeLayerId: 'layer_1',
+      revision: 0,
+      past: [],
+      future: [],
+    });
+
+    const activeLayer = document.layers[0];
+    const graph = activeLayer.graph;
+    const nodes = graph.nodes;
+    const blur = nodes.blur1;
+    const text = nodes.text1;
+    useApp.getState().setParam('blur1', 'radius', 12);
+    const after = useApp.getState();
+
+    expect(after.doc.layers[0]).not.toBe(activeLayer);
+    expect(after.doc.layers[0].graph).not.toBe(graph);
+    expect(after.doc.layers[0].graph.nodes).not.toBe(nodes);
+    expect(after.doc.layers[0].graph.nodes.blur1).not.toBe(blur);
+    expect(after.doc.layers[0].graph.nodes.text1).toBe(text);
+    expect(after.doc.layers[0].graph.edges).toBe(graph.edges);
+    expect(after.doc.layers[1]).toBe(inactiveLayer);
+    expect(after.past[0].doc).toBe(document);
+    expect(after.past[0].doc.layers[1]).toBe(after.doc.layers[1]);
+  });
+
+  it('keeps the existing 20 MiB human image-upload boundary above the Agent request cap', () => {
+    const source = paddedPngDataUri();
+    expect(source.length).toBeGreaterThan(DEFAULT_AGENT_LIMITS.maxTransactionJsonBytes);
+    expect(Buffer.byteLength(source.slice(source.indexOf(',') + 1), 'base64'))
+      .toBeLessThan(DEFAULT_AGENT_LIMITS.maxLegacyAssetBytes);
+
+    const imageId = useApp.getState().addNode('Image', { x: 0, y: 0 });
+    expect(imageId).not.toBeNull();
+    const beforeRevision = useApp.getState().revision;
+    const beforeHistory = useApp.getState().past.length;
+    useApp.getState().setParam(imageId!, 'src', source);
+
+    const after = useApp.getState();
+    expect(selectActiveGraph(after).nodes[imageId!].params.src).toBe(source);
+    expect(after.revision).toBe(beforeRevision + 1);
+    expect(after.past).toHaveLength(beforeHistory + 1);
   });
 });
 
 describe('undo/redo', () => {
   beforeEach(() => {
-    useApp.setState({ doc: docWith(chain()), activeLayerId: 'layer_1', selectedNodeIds: [], past: [], future: [] });
+    useApp.setState({
+      doc: docWith(chain()),
+      revision: 0,
+      activeLayerId: 'layer_1',
+      selectedNodeIds: [],
+      past: [],
+      future: [],
+    });
     endGesture();
   });
 
@@ -127,13 +245,17 @@ describe('undo/redo', () => {
     useApp.getState().setParam('blur1', 'radius', 1);
     useApp.getState().setParam('blur1', 'radius', 2);
     useApp.getState().setParam('blur1', 'radius', 3);
+    expect(useApp.getState().revision).toBe(3);
     endGesture(); // pointer-up
     useApp.getState().setParam('blur1', 'radius', 9);
     expect(useApp.getState().past).toHaveLength(2);
+    expect(useApp.getState().revision).toBe(4);
     useApp.getState().undo();
     expect(activeGraph().nodes.blur1.params.radius).toBe(3);
+    expect(useApp.getState().revision).toBe(5);
     useApp.getState().undo();
     expect(activeGraph().nodes.blur1.params.radius).toBeUndefined();
+    expect(useApp.getState().revision).toBe(6);
   });
 
   it('endGesture splits two drags of the same node into two undo steps', () => {
@@ -191,7 +313,14 @@ describe('undo/redo', () => {
 
 describe('layers', () => {
   beforeEach(() => {
-    useApp.setState({ doc: docWith(chain()), activeLayerId: 'layer_1', selectedNodeIds: [], past: [], future: [] });
+    useApp.setState({
+      doc: docWith(chain()),
+      revision: 0,
+      activeLayerId: 'layer_1',
+      selectedNodeIds: [],
+      past: [],
+      future: [],
+    });
     endGesture();
   });
 
@@ -278,6 +407,7 @@ describe('layers', () => {
     useApp.getState().selectLayer('layer_1');
     expect(useApp.getState().activeLayerId).toBe('layer_1');
     expect(useApp.getState().past.length).toBe(before);
+    expect(useApp.getState().revision).toBe(1);
     expect(activeGraph().nodes.text1).toBeDefined();
   });
 });

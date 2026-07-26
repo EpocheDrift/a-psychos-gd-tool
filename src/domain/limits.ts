@@ -17,8 +17,13 @@ export interface AgentLimits {
   maxBinds: number;
   maxGeneratedItems: number;
   maxFindings: number;
+  maxTransactionJsonBytes: number;
   maxTransactionCommands: number;
+  maxClientRefs: number;
   maxTouchedNodes: number;
+  maxRequestCacheEntries: number;
+  maxTransactionLedgerEntries: number;
+  maxTransactionLedgerBytes: number;
   maxPreviewSide: number;
   maxPreviewBytes: number;
   renderDeadlineMs: number;
@@ -43,8 +48,13 @@ export const DEFAULT_AGENT_LIMITS: Readonly<AgentLimits> = Object.freeze({
   maxBinds: 64,
   maxGeneratedItems: 100_000,
   maxFindings: 256,
+  maxTransactionJsonBytes: 2 * 1024 * 1024,
   maxTransactionCommands: 100,
+  maxClientRefs: 100,
   maxTouchedNodes: 200,
+  maxRequestCacheEntries: 256,
+  maxTransactionLedgerEntries: 256,
+  maxTransactionLedgerBytes: 256 * 1024 * 1024,
   maxPreviewSide: 1024,
   maxPreviewBytes: 4 * 1024 * 1024,
   renderDeadlineMs: 30_000,

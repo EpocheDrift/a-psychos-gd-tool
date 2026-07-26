@@ -3534,15 +3534,20 @@
     "maxBinds": 64,
     "maxGeneratedItems": 100000,
     "maxFindings": 256,
+    "maxTransactionJsonBytes": 2097152,
     "maxTransactionCommands": 100,
+    "maxClientRefs": 100,
     "maxTouchedNodes": 200,
+    "maxRequestCacheEntries": 256,
+    "maxTransactionLedgerEntries": 256,
+    "maxTransactionLedgerBytes": 268435456,
     "maxPreviewSide": 1024,
     "maxPreviewBytes": 4194304,
     "renderDeadlineMs": 30000
   },
   "features": {
-    "transactions": false,
-    "dryRun": false,
+    "transactions": true,
+    "dryRun": true,
     "previews": false,
     "assets": false,
     "mcp": false

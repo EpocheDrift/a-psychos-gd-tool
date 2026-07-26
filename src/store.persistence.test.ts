@@ -65,6 +65,11 @@ async function loadStore(entries: Record<string, string>) {
   return { ...module, harness };
 }
 
+async function finishGesture(endGesture: () => void): Promise<void> {
+  endGesture();
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -80,6 +85,7 @@ describe('versioned saved-project loading', () => {
     });
     const state = useApp.getState();
     expect(state.documentId).toBe('document_1');
+    expect(state.revision).toBe(0);
     expect(state.doc.frame).toEqual(legacy.frame);
     expect(state.doc.layers).toHaveLength(1);
     expect(state.doc.layers[0]).toMatchObject({
@@ -112,6 +118,7 @@ describe('versioned saved-project loading', () => {
     expect(useApp.getState().doc).toEqual(project.document);
     expect(useApp.getState().documentId).toBe('fixture_project');
     expect(useApp.getState().assets).toEqual([TEST_ASSET]);
+    expect(useApp.getState().revision).toBe(0);
     expect(harness.setItem).not.toHaveBeenCalled();
   });
 
@@ -198,10 +205,11 @@ describe('versioned saved-project loading', () => {
 describe('versioned persistence and atomic import/export', () => {
   it('persists edits as a v3 envelope and leaves rollback keys intact', async () => {
     const layered = readFixture<Doc>('layered-local-storage.json');
-    const { useApp, harness } = await loadStore({
+    const { useApp, harness, endGesture } = await loadStore({
       'gfx.document.v2': JSON.stringify(layered),
     });
     useApp.getState().setFrame({ width: 640, height: 480 });
+    await finishGesture(endGesture);
     expect(harness.setItem).toHaveBeenCalledTimes(1);
     expect(harness.setItem.mock.calls[0][0]).toBe('gfx.project');
     expect(JSON.parse(harness.setItem.mock.calls[0][1])).toMatchObject({
@@ -210,8 +218,28 @@ describe('versioned persistence and atomic import/export', () => {
       documentId: 'document_1',
       document: { frame: { width: 640, height: 480 } },
     });
+    expect(JSON.parse(harness.setItem.mock.calls[0][1])).not.toHaveProperty('revision');
+    expect(useApp.getState().revision).toBe(1);
     expect(harness.removeItem).not.toHaveBeenCalled();
     expect(harness.values.has('gfx.document.v2')).toBe(true);
+  });
+
+  it('coalesces continuous edits and persists only the final gesture state', async () => {
+    const project = readFixture<SerializedProjectV3>('serialized-project-v3.json');
+    const { useApp, harness, endGesture } = await loadStore({
+      'gfx.project': JSON.stringify(project),
+    });
+
+    useApp.getState().setFrame({ width: 640, height: 480 });
+    useApp.getState().setFrame({ width: 700, height: 500 });
+    useApp.getState().setFrame({ width: 800, height: 600 });
+    expect(harness.setItem).not.toHaveBeenCalled();
+
+    await finishGesture(endGesture);
+    expect(harness.setItem).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(harness.values.get('gfx.project')!)).toMatchObject({
+      document: { frame: { width: 800, height: 600 } },
+    });
   });
 
   it('leaves every store/history/persistence reference untouched when import fails', async () => {
@@ -235,6 +263,7 @@ describe('versioned persistence and atomic import/export', () => {
     expect(after.activeLayerId).toBe(before.activeLayerId);
     expect(after.selectedNodeIds).toBe(before.selectedNodeIds);
     expect(after.documentId).toBe(before.documentId);
+    expect(after.revision).toBe(before.revision);
     expect(listener).not.toHaveBeenCalled();
     expect(harness.setItem).not.toHaveBeenCalled();
     expect(harness.removeItem).not.toHaveBeenCalled();
@@ -264,6 +293,7 @@ describe('versioned persistence and atomic import/export', () => {
     expect(imported.past).toHaveLength(1);
     expect(imported.future).toHaveLength(0);
     expect(imported.selectedNodeIds).toEqual([]);
+    expect(imported.revision).toBe(1);
     expect(listener).toHaveBeenCalledTimes(1);
     expect(harness.setItem).toHaveBeenCalledTimes(1);
     expect(JSON.parse(harness.setItem.mock.calls[0][1])).toEqual(project);
@@ -272,6 +302,7 @@ describe('versioned persistence and atomic import/export', () => {
     expect(useApp.getState().documentId).toBe(before.documentId);
     expect(useApp.getState().doc).toBe(before.doc);
     expect(useApp.getState().assets).toBe(before.assets);
+    expect(useApp.getState().revision).toBe(2);
   });
 
   it('exports current state without mutation or persistence', async () => {
@@ -310,7 +341,7 @@ describe('versioned persistence and atomic import/export', () => {
 
   it('never overwrites the last safe working save with a transient invalid parameter', async () => {
     const project = readFixture<SerializedProjectV3>('serialized-project-v3.json');
-    const { useApp, harness } = await loadStore({
+    const { useApp, harness, endGesture } = await loadStore({
       'gfx.project': JSON.stringify(project),
     });
     useApp.getState().addNode('Weight', { x: 0, y: 0 });
@@ -319,6 +350,8 @@ describe('versioned persistence and atomic import/export', () => {
     harness.setItem.mockClear();
 
     useApp.getState().setParam(weightId, 'expr', 'process.exit(');
+    await finishGesture(endGesture);
+    expect(useApp.getState().revision).toBe(2);
     expect(useApp.getState().doc.layers
       .find((layer) => layer.id === useApp.getState().activeLayerId)!
       .graph.nodes[weightId].params.expr).toBe('process.exit(');
@@ -332,8 +365,37 @@ describe('versioned persistence and atomic import/export', () => {
     });
 
     useApp.getState().setParam(weightId, 'expr', '1 - progress');
+    await finishGesture(endGesture);
+    expect(useApp.getState().revision).toBe(3);
     expect(useApp.getState().persistenceValidationReport).toBeNull();
     expect(harness.setItem).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces browser storage failures and retries on the next safe edit', async () => {
+    const project = readFixture<SerializedProjectV3>('serialized-project-v3.json');
+    const original = JSON.stringify(project);
+    const { useApp, harness, endGesture } = await loadStore({
+      'gfx.project': original,
+    });
+    harness.setItem.mockImplementationOnce(() => {
+      throw new DOMException('quota exceeded', 'QuotaExceededError');
+    });
+
+    useApp.getState().setFrame({ width: 640, height: 480 });
+    await finishGesture(endGesture);
+
+    expect(harness.values.get('gfx.project')).toBe(original);
+    expect(useApp.getState().persistenceValidationReport).toMatchObject({
+      valid: false,
+      errors: [expect.objectContaining({ code: 'PERSISTENCE_FAILED' })],
+    });
+
+    useApp.getState().setFrame({ width: 800, height: 600 });
+    await finishGesture(endGesture);
+    expect(useApp.getState().persistenceValidationReport).toBeNull();
+    expect(JSON.parse(harness.values.get('gfx.project')!)).toMatchObject({
+      document: { frame: { width: 800, height: 600 } },
+    });
   });
 
   it('rejects unsafe Image values before state, history, or persistence changes', async () => {
@@ -349,5 +411,42 @@ describe('versioned persistence and atomic import/export', () => {
     const after = useApp.getState();
     expect(after).toBe(before);
     expect(harness.setItem).not.toHaveBeenCalled();
+  });
+
+  it('persists the first Agent commit once but not dry-runs, failures, or replays', async () => {
+    const project = readFixture<SerializedProjectV3>('serialized-project-v3.json');
+    const { useApp, harness } = await loadStore({
+      'gfx.project': JSON.stringify(project),
+    });
+    harness.setItem.mockClear();
+    const request = {
+      requestId: 'persistence_agent_commit',
+      expectedRevision: 0,
+      commands: [{ op: 'set_frame', width: 640, height: 480 }],
+    };
+    const committed = useApp.getState().applyTransaction(request);
+    expect(committed).toMatchObject({ ok: true, revision: 1 });
+    expect(harness.setItem).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(harness.setItem.mock.calls[0][1])).not.toHaveProperty('revision');
+
+    expect(useApp.getState().applyTransaction(request)).toEqual(committed);
+    useApp.getState().applyTransaction({
+      requestId: 'persistence_agent_dry',
+      expectedRevision: 1,
+      dryRun: true,
+      commands: [{ op: 'set_frame', width: 800, height: 600 }],
+    });
+    useApp.getState().applyTransaction({
+      requestId: 'persistence_agent_failure',
+      expectedRevision: 1,
+      commands: [{
+        op: 'add_node',
+        layerId: 'missing',
+        clientRef: 'shape',
+        nodeType: 'Shape',
+      }],
+    });
+    expect(harness.setItem).toHaveBeenCalledTimes(1);
+    expect(useApp.getState().revision).toBe(1);
   });
 });

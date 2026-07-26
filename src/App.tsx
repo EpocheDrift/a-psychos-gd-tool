@@ -370,11 +370,16 @@ export default function App() {
       )}
       {!startupLoadIssue && persistenceValidationReport && (
         <div className="persistence-warning" role="alert">
-          Autosave is paused
-          {persistenceValidationReport.errors[0]
-            ? `: ${persistenceValidationReport.errors[0].code} at ${persistenceValidationReport.errors[0].path || '/'}`
-            : ''}
-          . Fix the invalid value to resume; the current edit remains in memory.
+          {persistenceValidationReport.errors[0]?.code === 'PERSISTENCE_FAILED'
+            ? 'Autosave failed because browser storage rejected the save. Export the project now, then free browser storage or remove large embedded images.'
+            : `Autosave is paused${
+              persistenceValidationReport.errors[0]
+                ? `: ${persistenceValidationReport.errors[0].code} at ${
+                  persistenceValidationReport.errors[0].path || '/'
+                }`
+                : ''
+            }. Fix the invalid value to resume.`}
+          {' '}The current edit remains in memory.
         </div>
       )}
       <div className="editor">

@@ -271,9 +271,11 @@ interface TransactionRequest {
 }
 ```
 
-`requestId` is scoped to an authenticated session. Repeating the same request
-returns the original result. Reusing a request ID with different arguments
-returns `REQUEST_ID_REUSED`.
+`requestId` is scoped to an authenticated session. Once a request reaches a
+stable fingerprint, repeating it returns the original result and reusing its ID
+with different arguments returns `REQUEST_ID_REUSED`. A request rejected by the
+transport/resource-size gate before hashing is non-mutating and may be retried
+with corrected, smaller arguments under the same ID.
 
 `expectedRevision` prevents the agent from overwriting a human edit made after
 the agent planned its command batch.
@@ -283,7 +285,7 @@ the agent planned its command batch.
 ```ts
 type DocumentCommand =
   | { op: "set_frame"; width: number; height: number }
-  | { op: "add_layer"; clientRef: string; name?: string; afterLayerId?: string }
+  | { op: "add_layer"; clientRef: string; name?: string; afterLayerId?: LayerRef }
   | { op: "update_layer"; layerId: LayerRef; patch: LayerPatch }
   | { op: "move_layer"; layerId: LayerRef; index: number }
   | { op: "remove_layer"; layerId: LayerRef }
@@ -292,16 +294,20 @@ type DocumentCommand =
       layerId: LayerRef;
       clientRef: string;
       nodeType: string;
-      params?: Record<string, ParamValue>;
+      params?: Record<string, JsonValue>;
       position?: Point;
     }
   | {
       op: "set_node_params";
       layerId: LayerRef;
       nodeId: NodeRef;
-      patch: Record<string, ParamValue>;
+      patch: Record<string, JsonValue>;
     }
-  | { op: "move_nodes"; layerId: LayerRef; positions: Record<NodeRef, Point> }
+  | {
+      op: "move_nodes";
+      layerId: LayerRef;
+      positions: Array<{ nodeId: NodeRef; position: Point }>;
+    }
   | { op: "remove_nodes"; layerId: LayerRef; nodeIds: NodeRef[] }
   | {
       op: "connect";
@@ -347,14 +353,23 @@ transaction:
 }
 ```
 
-The result maps client references to durable IDs.
+The result maps client references to durable IDs. Client references share one
+transaction-local namespace across layers and nodes, must be unique, and may
+only refer backward to an earlier command. The array form of `move_nodes` is
+intentional: JSON object keys cannot represent the object form of `NodeRef`.
+Durable node IDs are only unique within a layer, so every cross-layer node
+identity includes both `layerId` and `nodeId`.
+An ID allocated during a transaction remains reserved until that transaction
+finishes even if its entity is deleted, so an earlier `clientRef` can never
+silently resolve to a later entity through ID reuse.
 
 ### Transaction semantics
 
 1. authenticate and enforce session policy;
-2. check idempotency cache;
-3. compare `expectedRevision`;
-4. parse command schemas;
+2. capture and parse the complete caller-controlled request outside the state
+   updater;
+3. check the idempotency cache;
+4. compare `expectedRevision` with the latest state after capture;
 5. resolve existing IDs and transaction-local `clientRef`s;
 6. apply commands to an isolated document draft;
 7. perform semantic and resource validation;
@@ -369,28 +384,70 @@ The result maps client references to durable IDs.
 No command in a failed transaction may update selection, document state,
 history, persistence, or the renderer.
 
+The in-process host uses two-phase finalization. Preparing an apply or revert
+is pure with respect to the replay cache, transaction ledger, transaction-ID
+sequence, and Zustand state. It returns an opaque one-shot finalization token.
+An Agent request is safety-checked, normalized, and fingerprinted exactly once
+into a deep-frozen handle authorized by the command module; the session applies
+that handle without re-running the raw transport-size gate.
+The host first builds the complete next state, history entry, and selection
+revalidation; finalizing that token is its last non-trivial action before
+returning the already-built full state replacement. Both captured-request and
+finalization-token payloads live in module-private `WeakMap`s, not on the token
+objects. This prevents Proxy reentrancy from capturing stale state, prevents a
+host exception from caching a commit that never happened, and prevents callers
+from altering ledger snapshots through token reflection.
+
+The isolated draft is copy-on-write. Agent and human UI operations execute the
+same command switch and per-command validation. The trusted UI profile can
+skip base revalidation, canonical no-net comparison, and exact external change
+summarization for a single command (or the UI's disconnect-only batch), but it
+still performs request safety, revision, command, and final structural
+validation. Operations that can change global asset or generated-work budgets
+also run the resource-only semantic gate; movement and other resource-neutral
+hot paths can skip that scan. Untouched layers, graphs, nodes, and edges retain
+their references so drag and scrub history remains structurally shared.
+
+Working-copy persistence also stays off continuous-edit hot paths: drag, scrub,
+and typing saves are debounced and coalesced, with a best-effort page-hide
+flush. Browser quota/private-mode failures preserve the previous safe save and
+raise a visible `PERSISTENCE_FAILED` diagnostic. PR 7 still owns durable asset
+storage and controller-visible persistence completion.
+
 If an input already has an edge, `connect` returns
 `INPUT_ALREADY_CONNECTED` by default. The caller must set
-`replaceExisting: true`; a successful result reports the replaced edge ID.
+`replaceExisting: true`; a successful result reports the complete replaced
+edge. Version 3 edges do not have durable IDs.
+
+The per-session replay cache and transaction ledger are bounded but
+non-evicting. Once either budget is full, a new request is rejected rather than
+forgetting a committed request ID and allowing a retry to mutate twice.
 
 ## Result and error model
 
 ```ts
-interface TransactionResult {
+interface TransactionSuccess {
   ok: true;
   requestId: string;
-  transactionId: string;
+  dryRun: boolean;
+  committed: boolean;
+  transactionId: string | null;
   previousRevision: number;
   revision: number;
+  proposedRevision: number;
   created: Record<string, string>;
+  createdEntities: Record<
+    string,
+    { kind: "layer" | "node"; id: string; layerId?: string }
+  >;
   changed: {
+    frame: boolean;
     layerIds: string[];
-    nodeIds: string[];
+    nodes: Array<{ layerId: string; nodeId: string }>;
     edgeCountDelta: number;
+    replacedEdges: Array<{ layerId: string; edge: Edge }>;
   };
   warnings: AgentWarning[];
-  render: RenderStatus;
-  persistence: PersistenceStatus;
 }
 
 interface AgentFailure {
@@ -408,6 +465,13 @@ interface AgentFailure {
   };
 }
 ```
+
+A dry run has `committed: false`, `transactionId: null`, an unchanged
+`revision`, and `proposedRevision = revision + 1`. It performs the same command
+and final-document validation but does not update the store, history,
+persistence, renderer, ID allocation, or transaction ledger. Render and
+persistence status join this result in PR 3 and PR 7 respectively; PR 2 does
+not claim either side effect has completed.
 
 Initial stable error codes:
 
@@ -669,6 +733,10 @@ replacement, or model preparation cannot authorize modified arguments.
 The first Agent write creates a session checkpoint. Reverting an Agent
 transaction is allowed only when the current revision is compatible; it must
 not invoke ordinary global undo and accidentally remove a later human edit.
+Agent-ready v1 uses strict head-only compatibility: the target committed
+revision must equal the current revision and the SHA-256 digest of the complete
+version 3 project envelope must still match. A successful revert restores the
+exact before snapshot as a new revision and a new history entry.
 
 ## Resource limits
 
@@ -682,7 +750,9 @@ defaults (configurable downward/upward by an explicit local policy) are:
 | Nodes | 256 per layer, 1024 per document |
 | Edges | 1024 per layer, one per input socket |
 | Frame | 16–4096 each side, at most 4096² pixels |
-| Transaction | 100 commands, at most 200 touched nodes |
+| Transaction | 2 MiB request, 100 commands, 100 client refs, at most 200 touched nodes |
+| Session replay cache | 256 non-evicting request IDs |
+| Transaction ledger | 256 records and 256 MiB of exact before snapshots |
 | IDs/names | ASCII-safe IDs ≤128 chars; names ≤128 chars |
 | Expressions | 2 KiB |
 | Asset | 20 MiB and 32 MP each; 64 MiB per document |
@@ -758,7 +828,7 @@ An agent creating a simple typographic poster:
 6. `gfx_capture_preview({ revision: 8, maxWidth: 768 })`.
 7. Agent evaluates preview and sends a second transaction changing color/warp.
 8. On a poor result,
-   `gfx_revert_transaction({ transactionId, expectedRevision: 9 })`.
+   `gfx_revert_transaction({ requestId: "revert-1", transactionId, expectedRevision: 9 })`.
 
 No pointer coordinates or raw store access are involved.
 

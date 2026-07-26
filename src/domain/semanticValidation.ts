@@ -4,6 +4,7 @@ import { canConnect } from '../engine/registry';
 import { registry as appRegistry } from '../nodes';
 import {
   FindingCollector,
+  type FindingInput,
   type ValidationMode,
   type ValidationReport,
 } from './agentErrors';
@@ -28,6 +29,21 @@ export interface ValidationOptions {
   limits?: Partial<AgentLimits>;
   registry?: Registry;
   maxFindings?: number;
+  /**
+   * Trusted human editing may temporarily violate non-resource semantics while
+   * typing, but it must never commit past global memory/work budgets.
+   */
+  semanticErrorPolicy?: 'all' | 'resource-only';
+}
+
+class ResourceOnlyFindingCollector extends FindingCollector {
+  override error(input: FindingInput): void {
+    if (input.code === 'RESOURCE_LIMIT') super.error(input);
+  }
+
+  override warning(_input: FindingInput): void {
+    // No semantic warnings are required for a resource-only UI gate.
+  }
 }
 
 interface ValidatedEdge {
@@ -604,6 +620,9 @@ export function validateSerializedProject(
   const collector = new FindingCollector(options.maxFindings ?? limits.maxFindings);
   collector.append(structural.errors);
   collector.append(structural.warnings);
+  const semanticCollector = options.semanticErrorPolicy === 'resource-only'
+    ? new ResourceOnlyFindingCollector(options.maxFindings ?? limits.maxFindings)
+    : collector;
   const selectedRegistry = options.registry ?? appRegistry;
   const totals: SemanticResourceTotals = {
     generatedItems: 0,
@@ -619,12 +638,12 @@ export function validateSerializedProject(
       mode,
       selectedRegistry,
       limits,
-      collector,
+      semanticCollector,
       totals,
     );
   }
   if (totals.generatedItems > limits.maxGeneratedItems) {
-    collector.error({
+    semanticCollector.error({
       code: 'RESOURCE_LIMIT',
       message: `Static document generated-item estimate exceeds ${limits.maxGeneratedItems}.`,
       path: '/document/layers',
@@ -636,7 +655,7 @@ export function validateSerializedProject(
     });
   }
   if (totals.assetBytes > limits.maxLegacyAssetBytesPerDocument) {
-    collector.error({
+    semanticCollector.error({
       code: 'RESOURCE_LIMIT',
       message: `Embedded images exceed ${limits.maxLegacyAssetBytesPerDocument} bytes for the document.`,
       path: '/document',
@@ -645,6 +664,11 @@ export function validateSerializedProject(
         maximumBytes: limits.maxLegacyAssetBytesPerDocument,
       },
     });
+  }
+  if (semanticCollector !== collector) {
+    collector.append(semanticCollector.errors);
+    collector.append(semanticCollector.warnings);
+    if (semanticCollector.truncated) collector.truncated = true;
   }
   const report = collector.report(mode, structural.schemaVersion);
   if (structural.truncated) report.truncated = true;

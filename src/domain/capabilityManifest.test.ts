@@ -40,8 +40,8 @@ describe('capability manifest contract', () => {
       'layout',
     ]);
     expect(CAPABILITY_MANIFEST.features).toEqual({
-      transactions: false,
-      dryRun: false,
+      transactions: true,
+      dryRun: true,
       previews: false,
       assets: false,
       mcp: false,

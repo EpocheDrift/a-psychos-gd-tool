@@ -310,8 +310,8 @@ export function buildCapabilityManifest(
     nodes,
     limits: { ...limits },
     features: {
-      transactions: false,
-      dryRun: false,
+      transactions: true,
+      dryRun: true,
       previews: false,
       assets: false,
       mcp: false,
