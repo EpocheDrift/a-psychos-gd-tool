@@ -7,6 +7,12 @@ import type { JsonObject, JsonValue } from './json';
 import { DEFAULT_AGENT_LIMITS, resolveAgentLimits, type AgentLimits } from './limits';
 import { decodeBinds } from './paramCodecs';
 import { getParamPublicMetadata, NODE_PUBLIC_METADATA } from './publicNodeMetadata';
+import {
+  DEFAULT_PREVIEW_FORMAT,
+  PREVIEW_CAPTURE_POLICY,
+  PREVIEW_FORMATS,
+  PREVIEW_METRICS_VERSION,
+} from './previewContract';
 import { auditRegistryContract, SOCKET_TYPES } from './registryContract';
 
 export interface PublicSocketDescriptor {
@@ -66,6 +72,12 @@ export interface CapabilityManifest {
     previews: boolean;
     assets: boolean;
     mcp: boolean;
+  };
+  preview: {
+    formats: Array<(typeof PREVIEW_FORMATS)[number]>;
+    defaultFormat: typeof DEFAULT_PREVIEW_FORMAT;
+    metricsVersion: typeof PREVIEW_METRICS_VERSION;
+    capturePolicy: typeof PREVIEW_CAPTURE_POLICY;
   };
 }
 
@@ -312,9 +324,15 @@ export function buildCapabilityManifest(
     features: {
       transactions: true,
       dryRun: true,
-      previews: false,
+      previews: true,
       assets: false,
       mcp: false,
+    },
+    preview: {
+      formats: [...PREVIEW_FORMATS],
+      defaultFormat: DEFAULT_PREVIEW_FORMAT,
+      metricsVersion: PREVIEW_METRICS_VERSION,
+      capturePolicy: PREVIEW_CAPTURE_POLICY,
     },
   };
 }

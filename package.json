@@ -18,7 +18,8 @@
     "smoke:fringe": "node scripts/fringe-check.mjs",
     "smoke:interaction": "node scripts/marquee-check.mjs",
     "smoke:render": "node scripts/render-coordinator-check.mjs",
-    "smoke:all": "npm run smoke:baseline && npm run smoke:factory && npm run smoke:frame && npm run smoke:blur && npm run smoke:fringe && npm run smoke:interaction && npm run smoke:render",
+    "smoke:agent-ui": "node scripts/agent-semantic-check.mjs",
+    "smoke:all": "npm run smoke:baseline && npm run smoke:factory && npm run smoke:frame && npm run smoke:blur && npm run smoke:fringe && npm run smoke:interaction && npm run smoke:render && npm run smoke:agent-ui",
     "test": "vitest run",
     "typecheck": "tsc -b"
   },
@@ -39,6 +40,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^5.0.0",
     "@webgpu/types": "^0.1.60",
+    "axe-core": "^4.12.1",
     "puppeteer-core": "^25.1.0",
     "typescript": "^5.6.0",
     "vite": "^7.0.0",

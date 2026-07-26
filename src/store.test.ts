@@ -3,7 +3,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_FRAME, type Doc, type Graph } from './engine/graph';
 import { DEFAULT_AGENT_LIMITS } from './domain/limits';
-import { endGesture, selectActiveGraph, useApp, wireIsValid } from './store';
+import {
+  endGesture,
+  previewWireConnection,
+  selectActiveGraph,
+  useApp,
+  wireIsValid,
+} from './store';
 
 /** A one-layer document around `graph` — the pre-layers store shape. */
 function docWith(graph: Graph): Doc {
@@ -92,10 +98,66 @@ describe('store actions', () => {
     expect(intoOut[0].from.node).toBe('raster1'); // blur1 -> out was replaced
   });
 
-  it('connect silently refuses an invalid wire', () => {
-    const before = activeGraph().edges.length;
-    useApp.getState().connect({ source: 'text1', sourceHandle: 'out', target: 'blur1', targetHandle: 'in' });
-    expect(activeGraph().edges).toHaveLength(before);
+  it('connect returns a stable diagnostic and leaves graph/revision unchanged', () => {
+    const before = useApp.getState();
+    const result = useApp.getState().connect({
+      source: 'text1',
+      sourceHandle: 'out',
+      target: 'blur1',
+      targetHandle: 'in',
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      revision: 0,
+      error: { code: 'TYPE_MISMATCH' },
+    });
+    expect(useApp.getState().doc).toBe(before.doc);
+    expect(useApp.getState().revision).toBe(before.revision);
+    expect(useApp.getState().past).toBe(before.past);
+  });
+
+  it.each([
+    [
+      {
+        source: 'missing',
+        sourceHandle: 'out',
+        target: 'out',
+        targetHandle: 'in',
+      },
+      'UNKNOWN_NODE',
+    ],
+    [
+      {
+        source: 'raster1',
+        sourceHandle: 'missing',
+        target: 'out',
+        targetHandle: 'in',
+      },
+      'UNKNOWN_SOCKET',
+    ],
+    [
+      {
+        source: 'text1',
+        sourceHandle: 'out',
+        target: 'blur1',
+        targetHandle: 'in',
+      },
+      'TYPE_MISMATCH',
+    ],
+    [
+      {
+        source: 'out',
+        sourceHandle: 'out',
+        target: 'blur1',
+        targetHandle: 'in',
+      },
+      'CYCLE_DETECTED',
+    ],
+  ])('previews connection failure %s as %s without mutation', (wire, code) => {
+    const before = useApp.getState();
+    const result = previewWireConnection(before, wire);
+    expect(result).toMatchObject({ ok: false, error: { code } });
+    expect(useApp.getState()).toBe(before);
   });
 
   it('removeNodes drops the node and all its wires', () => {

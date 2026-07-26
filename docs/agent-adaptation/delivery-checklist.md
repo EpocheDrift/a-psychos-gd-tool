@@ -12,7 +12,7 @@ Integration branch: `agent/agent-ready-v1`
 | PR 1 — Versioned schemas and capability manifest | Complete | Commit [`c42d2be`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/c42d2be7be53daa1b44188e2b37a393a9237afd5) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 2 — Pure command and transaction service | Complete | Commit [`ccd7227`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/ccd7227f4a55a9e22972066430890a1b47877800) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 3 — Revisioned render coordinator | Complete | Commit [`ca930fb`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/ca930fb2380c2ceac1e5a5ab1fc075a9039ad099) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
-| PR 4 — Preview evidence and stable UI automation | Not started | Blocked by sequence. |
+| PR 4 — Preview evidence and stable UI automation | In progress | Implementation and local gates are complete; final audit/commit evidence is pending. |
 | PR 5 — Gated browser AgentController | Not started | Blocked by sequence. |
 | PR 6 — Local MCP companion | Not started | No MCP write permission may be exposed before all prerequisite gates pass. |
 | PR 7 — Asset and persistence boundary | Not started | Asset/model tools remain disabled. |
@@ -145,13 +145,62 @@ Integration branch: `agent/agent-ready-v1`
   worker/cancellation, and synchronous-geometry audits.
 - [x] Commit and push the stage to the fork and update the Draft integration PR.
 
-## Open risks carried beyond PR 3
+## PR 4 checklist
+
+- [x] Add strict bounded PNG/WebP preview requests, immutable revision/attempt
+  binding at call time, exact current-artifact checks before and after
+  encoding, and explicit untrusted-render labeling.
+- [x] GPU-downsample before CPU readback, retain/release exact artifacts under
+  the shared GPU lock, and reclaim both new and recycled temporary textures on
+  success, cancellation, validation failure, and teardown.
+- [x] Run metrics and encoding in one terminable FIFO worker with request/byte
+  admission limits, absolute deadline/cancellation, generation matching,
+  strict MIME/result validation, encoded and RGBA SHA-256, and recovery after
+  worker-construction or protocol failure.
+- [x] Freeze `preview-metrics-v1`: mean alpha, dominant premultiplied border
+  background, non-background bounds, linear-light luminance, and 64-bit DCT
+  perceptual hash.
+- [x] Publish truthful preview formats, policy, metrics version, and all
+  queue/byte/attempt/deadline limits in the capability manifest and golden.
+- [x] Give nodes, sockets, parameters, actions, edges, layers, render state,
+  errors, frame controls, and the single main preview stable app-owned semantic
+  identities and unique accessible names.
+- [x] Route pointer wiring and the keyboard/DOM connection inspector through
+  the same command/validation layer with persistent structured diagnostics and
+  no revision change on missing/type/cycle failures.
+- [x] Make numeric parameters real spinbuttons, provide an APG keyboard font
+  combobox, make layer selection/rename/visibility/reorder/opacity/deletion
+  keyboard-operable, and add app-owned pan/zoom/focus controls.
+- [x] Add deterministic collision-aware placement using measured nodes and
+  every declared fixed panel, plus a real-browser 20-node overlap gate.
+- [x] Add a 50-round semantic browser gate with no coordinates, forced clicks,
+  private React Flow selectors, fixed sleeps, hard-coded generated IDs, or raw
+  store access; cover exact PNG/WebP evidence, stale capture, negative wiring,
+  keyboard parameters/fonts/layers, pan/zoom selector stability, and axe.
+- [x] Preserve all existing visual, frame/cache, blur/fringe, marquee,
+  revision-churn, export, and real WebGPU smoke checks.
+- [x] Run final typecheck, unit tests, production build, full browser/WebGPU
+  suite, dependency audit, diff check, and independent preview/resource,
+  UI/accessibility, and scope/documentation audits.
+- [ ] Commit and push the stage to the fork and update the Draft integration PR.
+
+## Open risks carried beyond PR 4
 
 - The WebGPU suite is a required manual gate until CI has a real, reliable GPU
   runner; ordinary `ubuntu-latest` browser success is not rendering evidence.
-- Preview evidence, controller authorization, bridge authentication, asset
-  isolation, and Agent evals have not landed yet. MCP write tools remain
-  unavailable until those gates pass.
+- Preview evidence is implemented internally, but its transferable
+  `ArrayBuffer` handle is intentionally not a production Agent API.
+  Controller authorization, bridge authentication, asset isolation, and Agent
+  evals have not landed yet. MCP write tools remain unavailable until those
+  gates pass.
+- Browser-native `OffscreenCanvas.convertToBlob` cannot be interrupted from
+  inside the call; cancellation terminates and replaces the bounded preview
+  worker. DCT pHash is similarity evidence and may vary at floating-point
+  boundaries across browser engines; canonical RGBA SHA-256 remains the
+  integrity evidence.
+- `npm audit` reports seven advisories (one low, one moderate, five high) in
+  dependencies already locked before PR 4. The added dev-only `axe-core` is not
+  on an advisory path; broad dependency upgrades remain separate review work.
 - Version 3 currently preserves asset metadata only. PR 7 owns isolated asset
   bytes, content-addressed storage, quotas, and lifecycle management.
 - A local working edit that is structurally traversable but semantically invalid

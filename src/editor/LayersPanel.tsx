@@ -33,12 +33,19 @@ export function LayersPanel() {
   };
 
   return (
-    <div className={`layers-panel${collapsed ? ' collapsed' : ''}`}>
+    <section
+      className={`layers-panel${collapsed ? ' collapsed' : ''}`}
+      aria-label="Layers"
+      data-agent-fixed-panel="layers"
+    >
       <div className="layers-head">
         <button
           type="button"
           className="layers-toggle"
-          title={collapsed ? 'expand the layers panel' : 'collapse the layers panel'}
+          aria-label={collapsed ? 'Expand layers panel' : 'Collapse layers panel'}
+          aria-expanded={!collapsed}
+          aria-controls="layers-panel-content"
+          data-agent-action="toggle-layers-panel"
           onClick={() => setCollapsed((c) => !c)}
         >
           <span className="layers-chevron">{collapsed ? '▸' : '▾'}</span>
@@ -47,16 +54,20 @@ export function LayersPanel() {
         <button
           type="button"
           className="num-arrow"
-          title="add a layer above the active one"
+          aria-label={`Add a layer above ${active.name} (${active.id})`}
+          data-agent-action="add-layer"
           onClick={() => useApp.getState().addLayer()}
         >
           +
         </button>
       </div>
-      {!collapsed && (<>
+      {!collapsed && (<div id="layers-panel-content">
       <div className="layers-blend">
         <select
-          title="blend mode"
+          aria-label={`Blend mode for layer ${active.name} (${active.id})`}
+          data-agent-target="layer-control"
+          data-agent-layer-id={active.id}
+          data-agent-layer-control="blend-mode"
           value={active.blendMode}
           onChange={(e) => useApp.getState().updateLayer(active.id, { blendMode: e.target.value as BlendMode })}
         >
@@ -79,10 +90,16 @@ export function LayersPanel() {
             spec={OPACITY_SPEC}
             value={Math.round(active.opacity * 100)}
             onChange={(v) => useApp.getState().updateLayer(active.id, { opacity: v / 100 })}
+            ariaLabel={`Opacity for layer ${active.name} (${active.id})`}
+            agentAttributes={{
+              'data-agent-target': 'layer-control',
+              'data-agent-layer-id': active.id,
+              'data-agent-layer-control': 'opacity',
+            }}
           />
         </div>
       </div>
-      <div className="layers-list">
+      <ul className="layers-list" aria-label="Layer stack">
         {[...layers].reverse().map((layer) => (
           <LayerRow
             key={layer.id}
@@ -122,9 +139,9 @@ export function LayersPanel() {
             onDragEnd={() => setDrag(null)}
           />
         ))}
-      </div>
-      </>)}
-    </div>
+      </ul>
+      </div>)}
+    </section>
   );
 }
 
@@ -146,10 +163,10 @@ function LayerRow({
   bottommost: boolean;
   last: boolean;
   dragState: 'dragging' | 'drop-above' | 'drop-below' | null;
-  onDragStart: React.DragEventHandler<HTMLDivElement>;
-  onDragOver: React.DragEventHandler<HTMLDivElement>;
-  onDrop: React.DragEventHandler<HTMLDivElement>;
-  onDragEnd: React.DragEventHandler<HTMLDivElement>;
+  onDragStart: React.DragEventHandler<HTMLLIElement>;
+  onDragOver: React.DragEventHandler<HTMLLIElement>;
+  onDrop: React.DragEventHandler<HTMLLIElement>;
+  onDragEnd: React.DragEventHandler<HTMLLIElement>;
 }) {
   const [editing, setEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -165,9 +182,11 @@ function LayerRow({
   };
 
   return (
-    <div
+    <li
       className={`layer-row${active ? ' active' : ''}${layer.visible ? '' : ' hidden-layer'}${dragState ? ` ${dragState}` : ''}`}
-      onClick={() => useApp.getState().selectLayer(layer.id)}
+      aria-label={`Layer ${layer.name} (${layer.id}) controls`}
+      data-agent-target="layer"
+      data-agent-layer-id={layer.id}
       draggable={!editing}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
@@ -176,8 +195,28 @@ function LayerRow({
     >
       <button
         type="button"
+        className="layer-name layer-select"
+        aria-label={`Select layer ${layer.name} (${layer.id})`}
+        aria-current={active ? 'true' : undefined}
+        data-agent-action="select-layer"
+        data-agent-layer-id={layer.id}
+        onClick={() => useApp.getState().selectLayer(layer.id)}
+        onDoubleClick={() => setEditing(true)}
+        onKeyDown={(event) => {
+          if (event.key === 'F2') {
+            event.preventDefault();
+            setEditing(true);
+          }
+        }}
+      >
+        {layer.name}
+      </button>
+      <button
+        type="button"
         className="layer-eye"
-        title={layer.visible ? 'hide layer' : 'show layer'}
+        aria-label={`${layer.visible ? 'Hide' : 'Show'} layer ${layer.name} (${layer.id})`}
+        data-agent-action="toggle-layer-visibility"
+        data-agent-layer-id={layer.id}
         onClick={(e) => {
           e.stopPropagation();
           useApp.getState().updateLayer(layer.id, { visible: !layer.visible });
@@ -189,6 +228,9 @@ function LayerRow({
         <input
           ref={inputRef}
           className="layer-name-input"
+          aria-label={`Rename layer ${layer.name} (${layer.id})`}
+          data-agent-target="layer-name"
+          data-agent-layer-id={layer.id}
           defaultValue={layer.name}
           onClick={(e) => e.stopPropagation()}
           onBlur={(e) => commit(e.target.value)}
@@ -198,15 +240,27 @@ function LayerRow({
           }}
         />
       ) : (
-        <span className="layer-name" title="double-click to rename" onDoubleClick={() => setEditing(true)}>
-          {layer.name}
-        </span>
+        <button
+          type="button"
+          className="num-arrow layer-rename"
+          aria-label={`Rename layer ${layer.name} (${layer.id})`}
+          data-agent-action="rename-layer"
+          data-agent-layer-id={layer.id}
+          onClick={(event) => {
+            event.stopPropagation();
+            setEditing(true);
+          }}
+        >
+          ✎
+        </button>
       )}
       <span className="layer-tools">
         <button
           type="button"
           className="num-arrow"
-          title="raise layer"
+          aria-label={`Raise layer ${layer.name} (${layer.id})`}
+          data-agent-action="raise-layer"
+          data-agent-layer-id={layer.id}
           disabled={topmost}
           onClick={(e) => {
             e.stopPropagation();
@@ -218,7 +272,9 @@ function LayerRow({
         <button
           type="button"
           className="num-arrow"
-          title="lower layer"
+          aria-label={`Lower layer ${layer.name} (${layer.id})`}
+          data-agent-action="lower-layer"
+          data-agent-layer-id={layer.id}
           disabled={bottommost}
           onClick={(e) => {
             e.stopPropagation();
@@ -230,7 +286,9 @@ function LayerRow({
         <button
           type="button"
           className="num-arrow"
-          title="delete layer"
+          aria-label={`Delete layer ${layer.name} (${layer.id})`}
+          data-agent-action="delete-layer"
+          data-agent-layer-id={layer.id}
           disabled={last}
           onClick={(e) => {
             e.stopPropagation();
@@ -240,6 +298,6 @@ function LayerRow({
           ×
         </button>
       </span>
-    </div>
+    </li>
   );
 }

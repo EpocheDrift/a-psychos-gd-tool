@@ -30,15 +30,19 @@ await withSmokePage({ storage: { mode: 'legacy', graph } }, async ({ page, url, 
     if (!layer?.graph.nodes.text || !layer.graph.nodes.out) throw new Error('legacy fringe nodes missing');
     return {
       nodes: Object.keys(layer.graph.nodes).sort(),
-      log: [...document.querySelectorAll('.cook-log li')].map((item) => item.textContent).join('|'),
+      log: [...document.querySelectorAll('[data-agent-cook-event]')].map((item) => item.textContent).join('|'),
     };
   });
   await page.evaluate(() => globalThis.__app.getState().setParam('out', 'background', '#ffffff'));
 
   await page.waitForFunction((previousLog) => {
-    if (document.querySelector('.cook-error')) return true;
-    const currentLog = [...document.querySelectorAll('.cook-log li')].map((item) => item.textContent).join('|');
-    return currentLog !== previousLog && !document.querySelector('.cook-pending');
+    if (document.querySelector('[data-agent-render-error]')) return true;
+    const currentLog = [...document.querySelectorAll('[data-agent-cook-event]')].map((item) => item.textContent).join('|');
+    const status = document.querySelector('[data-agent-render-status]');
+    return currentLog !== previousLog
+      && status instanceof HTMLElement
+      && status.dataset.agentRenderState === 'complete'
+      && status.dataset.agentDocumentRevision === status.dataset.agentRenderRevision;
   }, {}, before.log);
   const renderedPng = await captureExportPng(page);
   const rendered = await page.evaluate(async (png) => {
@@ -67,7 +71,7 @@ await withSmokePage({ storage: { mode: 'legacy', graph } }, async ({ page, url, 
   }, renderedPng);
   if (JSON.stringify(rendered.nodes) !== JSON.stringify(before.nodes)) throw new Error('fringe edit changed node inventory');
   if (rendered.background !== '#ffffff') throw new Error(`background did not update: ${rendered.background}`);
-  const cookError = await page.$eval('.cook-error', (element) => element.textContent).catch(() => null);
+  const cookError = await page.$eval('[data-agent-render-error]', (element) => element.textContent).catch(() => null);
   if (cookError) throw new Error(`fringe cook error: ${cookError}`);
 
   const screenshot = await smokeArtifactPath('fringe-check.png');

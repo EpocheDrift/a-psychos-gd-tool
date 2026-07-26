@@ -126,8 +126,10 @@ npm run smoke:all
 ```
 
 The checks cover the reviewed small-frame render, factory load, frame/cache
-behavior, blur/fringe regressions, and canvas interactions. They default to
-headless mode and support `CHROME`, `SMOKE_URL`, and `SMOKE_HEADED=1`. See
+behavior, blur/fringe regressions, canvas interactions, revision-coordinator
+churn, exact PNG/WebP preview evidence, semantic keyboard automation,
+accessibility, and collision-aware node placement. They default to headless
+mode and support `CHROME`, `SMOKE_URL`, and `SMOKE_HEADED=1`. See
 [Browser and WebGPU smoke tests](docs/testing/browser-smoke.md) for the
 individual commands, fixtures, prerequisites, and artifact policy.
 

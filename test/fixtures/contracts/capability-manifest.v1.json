@@ -3558,13 +3558,26 @@
     "maxGpuPixelWork": 32000000000,
     "maxPreviewSide": 1024,
     "maxPreviewBytes": 4194304,
+    "maxPendingPreviewRequests": 4,
+    "maxPendingPreviewBytes": 16777216,
+    "maxPreviewEncodeAttempts": 6,
+    "previewDeadlineMs": 15000,
     "renderDeadlineMs": 30000
   },
   "features": {
     "transactions": true,
     "dryRun": true,
-    "previews": false,
+    "previews": true,
     "assets": false,
     "mcp": false
+  },
+  "preview": {
+    "formats": [
+      "png",
+      "webp"
+    ],
+    "defaultFormat": "png",
+    "metricsVersion": "preview-metrics-v1",
+    "capturePolicy": "current-exact-ticket-v1"
   }
 }

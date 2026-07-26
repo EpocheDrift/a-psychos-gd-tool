@@ -16,8 +16,9 @@ code or depending on internet access; all other requests continue normally.
 - Node.js 20.19+ or 22+ and dependencies installed with `npm ci`;
 - Chrome or Chromium with a working WebGPU adapter;
 - a localhost or HTTPS URL, because WebGPU requires a secure context;
-- the Vite development build for checks that use the temporary `__app` test
-  hook. A production URL intentionally does not expose that hook.
+- the Vite development build for checks that use the temporary read-only
+  `__render` evidence hook or the legacy `__app` smoke hook. A production URL
+  intentionally exposes neither hook.
 
 The launcher checks `CHROME` first, then common Chrome/Chromium locations on
 macOS, Linux, and Windows. It never adds `--no-sandbox`.
@@ -48,6 +49,8 @@ Individual checks:
 | `npm run smoke:blur` | Edits `blur1` in its explicit layer, waits for a cache miss, and proves no phantom node was created. |
 | `npm run smoke:fringe` | Loads the legacy v1 fixture, renders white-on-white, and rejects any dark fringe in the native PNG readback. |
 | `npm run smoke:interaction` | Exercises pan, zoom, marquee selection, cross-platform Shift-add, group movement, delete, and undo. |
+| `npm run smoke:render` | Churns revisions, retries, and frame sizes; proves coalescing, exact terminal tickets, last-known-good display, and bounded GPU-pool recovery. |
+| `npm run smoke:agent-ui` | Runs the semantic Text → Outline → Rasterize → Output workflow 50 times, captures exact PNG/WebP evidence and metrics, checks rejected wiring/stale capture, exercises keyboard parameters/fonts/layers plus app-owned pan/zoom controls, scans accessibility, and verifies 20-node collision-free placement. |
 
 The default is headless Chrome. Set `SMOKE_HEADED=1` to watch a run.
 
@@ -60,6 +63,7 @@ The default is headless Chrome. Set `SMOKE_HEADED=1` to watch a run.
 | `SMOKE_HEADED=1` | Run with a visible browser window. |
 | `SMOKE_TIMEOUT_MS` | Puppeteer action/navigation timeout; default 20 seconds. |
 | `SMOKE_ARTIFACT_DIR` | Screenshot directory; defaults to an OS temporary directory. |
+| `AGENT_UI_ROUNDS` | Debug-only override from 1 through 50 for `smoke:agent-ui`; omitted means the required 50-round acceptance gate. Reduced runs are not release evidence. |
 
 The reviewed visual fixture is
 `test/fixtures/screenshots/visual-small-frame.png`. Update it only after

@@ -229,7 +229,8 @@ export interface AppStore {
   moveNodes: (positions: Record<NodeId, { x: number; y: number }>) => void;
   addNode: (type: string, position: { x: number; y: number }) => NodeId | null;
   removeNodes: (ids: NodeId[]) => void;
-  connect: (w: WireSpec) => void;
+  /** Structured result is shared by pointer wiring and the keyboard inspector. */
+  connect: (w: WireSpec) => TransactionResult;
   removeEdges: (edgeKeys: string[]) => void;
   selectLayer: (id: string) => void;
   /** insert a fresh layer (transparent Output, empty otherwise) above the active one */
@@ -289,6 +290,19 @@ function runUiCommands(
   commands: DocumentCommand[],
 ): CommandApplication {
   return applyTrustedUiCommands(runtimeDocumentState(state), commands);
+}
+
+export function previewWireConnection(
+  state: AppStore,
+  wire: WireSpec,
+): TransactionResult {
+  return runUiCommands(state, [{
+    op: 'connect',
+    layerId: state.activeLayerId,
+    from: { nodeId: wire.source, socket: wire.sourceHandle },
+    to: { nodeId: wire.target, socket: wire.targetHandle },
+    replaceExisting: true,
+  }]).result;
 }
 
 function applyUiCommands(
@@ -500,23 +514,29 @@ export const useApp = create<AppStore>((set, get) => ({
       };
     }),
 
-  connect: (w) =>
+  connect: (w) => {
+    let result: TransactionResult = transactionHostFailure(
+      get().revision,
+      undefined,
+    );
     set((s) => {
-      if (!wireIsValid(selectActiveGraph(s), w)) return s;
-      const next = applyUiCommands(s, [{
+      const application = runUiCommands(s, [{
         op: 'connect',
         layerId: s.activeLayerId,
         from: { nodeId: w.source, socket: w.sourceHandle },
         to: { nodeId: w.target, socket: w.targetHandle },
         replaceExisting: true,
       }]);
-      if (!next) return s;
+      result = application.result;
+      if (!application.next || !application.result.ok) return s;
       return {
         ...pushHistory(s, null),
-        doc: next.document,
-        revision: next.revision,
+        doc: application.next.document,
+        revision: application.next.revision,
       };
-    }),
+    });
+    return result;
+  },
 
   removeEdges: (keys) =>
     set((s) => {

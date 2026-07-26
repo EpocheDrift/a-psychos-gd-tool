@@ -42,9 +42,15 @@ describe('capability manifest contract', () => {
     expect(CAPABILITY_MANIFEST.features).toEqual({
       transactions: true,
       dryRun: true,
-      previews: false,
+      previews: true,
       assets: false,
       mcp: false,
+    });
+    expect(CAPABILITY_MANIFEST.preview).toEqual({
+      formats: ['png', 'webp'],
+      defaultFormat: 'png',
+      metricsVersion: 'preview-metrics-v1',
+      capturePolicy: 'current-exact-ticket-v1',
     });
     expect(CAPABILITY_MANIFEST.limits).toMatchObject({
       maxPendingWorkerRequests: 4,
@@ -54,6 +60,12 @@ describe('capability manifest contract', () => {
       maxGpuTextures: 512,
       maxGpuPasses: 2_048,
       maxGpuPixelWork: 32_000_000_000,
+      maxPreviewSide: 1024,
+      maxPreviewBytes: 4 * 1024 * 1024,
+      maxPendingPreviewRequests: 4,
+      maxPendingPreviewBytes: 16 * 1024 * 1024,
+      maxPreviewEncodeAttempts: 6,
+      previewDeadlineMs: 15_000,
       maxVectorPaths: 250_000,
       maxVectorCommands: 250_000,
       maxCanvasPaintPaths: 10_000,

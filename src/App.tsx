@@ -26,6 +26,7 @@ import {
   startRenderStoreBinding,
   stopRenderStoreBinding,
 } from './render/appRenderService';
+import './render/preview';
 import type {
   CookEventSummary,
   RenderStatus,
@@ -122,6 +123,12 @@ export default function App() {
       }
       gpuRef.current = gpu;
       useApp.getState().addFont('default', font);
+      const bundledFamily = font.getEnglishName('fontFamily')?.trim();
+      if (bundledFamily && bundledFamily !== 'default') {
+        // Keep the historical "default" key while exposing the bundled
+        // family's real name as a deterministic keyboard-selectable option.
+        useApp.getState().addFont(bundledFamily, font);
+      }
       setStatus('ready');
     })();
     return () => { cancelled = true; };
@@ -397,11 +404,61 @@ export default function App() {
     && renderStatus.ticket?.revision === revision
     && displayedTicket?.revision === revision
     && displayedTicket.attempt === renderStatus.ticket?.attempt;
+  const renderStatusText = `Render ${renderStatus.state}; document revision ${
+    revision
+  }; requested ${
+    renderStatus.ticket
+      ? `revision ${renderStatus.ticket.revision}, attempt ${renderStatus.ticket.attempt}`
+      : 'none'
+  }; displayed ${
+    displayedTicket
+      ? `revision ${displayedTicket.revision}, attempt ${displayedTicket.attempt}`
+      : 'none'
+  }.`;
+  const displayedStatus = displayedTicket
+    ? appRenderCoordinator.getRenderStatus(displayedTicket)
+    : null;
+  const displayedDimensions = displayedStatus?.width && displayedStatus.height
+    ? `${displayedStatus.width} by ${displayedStatus.height} pixels`
+    : null;
 
   return (
     <div className="app">
+      <div
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        data-agent-render-status
+        data-agent-render-state={renderStatus.state}
+        data-agent-document-revision={revision}
+        data-agent-render-revision={renderStatus.ticket?.revision ?? ''}
+        data-agent-render-attempt={renderStatus.ticket?.attempt ?? ''}
+        data-agent-displayed-revision={displayedTicket?.revision ?? ''}
+        data-agent-displayed-attempt={displayedTicket?.attempt ?? ''}
+      >
+        {renderStatusText}
+      </div>
+      {cookError && (
+        <div
+          className="render-alert"
+          role="alert"
+          data-agent-fixed-panel="render-error"
+          data-agent-render-error
+          data-agent-error-code={renderStatus.error?.code ?? 'RENDER_FAILED'}
+          data-agent-error-layer-id={renderStatus.error?.layerId ?? ''}
+          data-agent-error-node-id={renderStatus.error?.nodeId ?? ''}
+          data-agent-error-phase={renderStatus.error?.phase ?? ''}
+        >
+          {cookError}
+        </div>
+      )}
       {startupLoadIssue && (
-        <div className="startup-load-warning" role="alert">
+        <div
+          className="startup-load-warning"
+          role="alert"
+          data-agent-fixed-panel="startup-warning"
+        >
           Saved project data in <code>{startupLoadIssue.storageKey}</code> could not be loaded
           safely
           {startupLoadIssue.report.errors[0]
@@ -412,7 +469,11 @@ export default function App() {
         </div>
       )}
       {!startupLoadIssue && persistenceValidationReport && (
-        <div className="persistence-warning" role="alert">
+        <div
+          className="persistence-warning"
+          role="alert"
+          data-agent-fixed-panel="persistence-warning"
+        >
           {persistenceValidationReport.errors[0]?.code === 'PERSISTENCE_FAILED'
             ? 'Autosave failed because browser storage rejected the save. Export the project now, then free browser storage or remove large embedded images.'
             : `Autosave is paused${
@@ -430,7 +491,7 @@ export default function App() {
         <LayersPanel />
       </div>
       <div className="viewport">
-        <div className="frame-config">
+        <div className="frame-config" data-agent-fixed-panel="frame">
           <div className="preset-icons">
             {FRAME_PRESETS.map((p) => {
               const ar = p.width / p.height;
@@ -445,7 +506,10 @@ export default function App() {
                   <button
                     key={p.label}
                     type="button"
-                    title={p.label}
+                    aria-label={`Set frame to ${p.label}`}
+                    data-agent-action="set-frame-preset"
+                    data-agent-frame-width={p.width}
+                    data-agent-frame-height={p.height}
                     className={`preset-icon${active ? ' active' : ''}`}
                     onClick={() => setFrame({ width: p.width, height: p.height })}
                   >
@@ -458,6 +522,9 @@ export default function App() {
             <span>w</span>
             <input
               type="number"
+              aria-label="Frame width"
+              data-agent-target="frame-control"
+              data-agent-frame-control="width"
               min={16}
               max={4096}
               value={frame.width}
@@ -467,7 +534,8 @@ export default function App() {
           <button
             type="button"
             className="swap-btn"
-            title="swap width & height"
+            aria-label="Swap frame width and height"
+            data-agent-action="swap-frame-dimensions"
             onClick={() => setFrame({ width: frame.height, height: frame.width })}
           >
             ⇄
@@ -476,6 +544,9 @@ export default function App() {
             <span>h</span>
             <input
               type="number"
+              aria-label="Frame height"
+              data-agent-target="frame-control"
+              data-agent-frame-control="height"
               min={16}
               max={4096}
               value={frame.height}
@@ -485,14 +556,15 @@ export default function App() {
           <button
             type="button"
             className="export-btn"
-            title="download the poster as a PNG"
+            aria-label="Download the current exact poster as PNG"
+            data-agent-action="export-png"
             disabled={status !== 'ready' || exporting || !exactCurrentRender}
             onClick={exportPng}
           >
             {exporting ? 'exporting…' : 'export png'}
           </button>
         </div>
-        <div className="stage">
+        <div className="stage" data-agent-stage>
           {status === 'booting' ? (
             <div className="boot-msg">initializing WebGPU…</div>
           ) : (
@@ -502,51 +574,84 @@ export default function App() {
                   key={index}
                   ref={index === 0 ? canvasARef : canvasBRef}
                   hidden={displayedCanvasIndex !== index}
+                  role={displayedCanvasIndex === index ? 'img' : undefined}
+                  aria-hidden={displayedCanvasIndex === index ? undefined : true}
                   aria-label={
                     displayedCanvasIndex === index && displayedTicket
-                      ? `Rendered poster revision ${displayedTicket.revision}, attempt ${displayedTicket.attempt}`
+                      ? `Rendered poster revision ${displayedTicket.revision}, attempt ${displayedTicket.attempt}${
+                          displayedDimensions ? `, ${displayedDimensions}` : ''
+                        }`
                       : undefined
                   }
-                  data-document-revision={
+                  data-agent-preview={
+                    displayedCanvasIndex === index ? 'main' : undefined
+                  }
+                  data-agent-document-revision={
                     displayedCanvasIndex === index ? revision : undefined
                   }
-                  data-render-revision={
+                  data-agent-render-revision={
                     displayedCanvasIndex === index
                       ? displayedTicket?.revision ?? ''
                       : undefined
                   }
-                  data-render-attempt={
+                  data-agent-render-attempt={
                     displayedCanvasIndex === index
                       ? displayedTicket?.attempt ?? ''
                       : undefined
                   }
-                  data-render-state={
+                  data-agent-render-state={
                     displayedCanvasIndex === index
-                      ? renderStatus.state
+                      ? 'complete'
                       : undefined
                   }
                 />
               ))}
-              {guide && <canvas ref={guideRef} className="guide-overlay" />}
-              {pending && <div className="cook-pending" role="status" aria-label="rendering" />}
+              {guide && (
+                <canvas
+                  ref={guideRef}
+                  className="guide-overlay"
+                  role="presentation"
+                  aria-hidden="true"
+                  data-agent-guide="layout"
+                />
+              )}
+              {pending && (
+                <div
+                  className="cook-pending"
+                  aria-hidden="true"
+                  data-agent-render-spinner
+                />
+              )}
             </>
           )}
         </div>
       </div>
-      <details className="cook-log">
+      <details className="cook-log" data-agent-fixed-panel="cook-log">
         <summary>
           cook log
-          <span className="pool">pool: {poolStats.live} live / {poolStats.allocated} allocated</span>
+          <span className="pool" data-agent-pool-status>
+            pool: {poolStats.live} live / {poolStats.allocated} allocated
+          </span>
           <span className="render-revision">
             document r{revision} / displayed {displayedTicket ? `r${displayedTicket.revision}a${displayedTicket.attempt}` : 'none'}
           </span>
           {cookError && <span className="cook-error-dot" title={cookError}>●</span>}
         </summary>
         <div className="cook-log-body">
-          {cookError && <div className="cook-error" role="alert">{cookError}</div>}
+          {cookError && <div className="cook-error">{cookError}</div>}
           <ul>
             {events.map((e, i) => (
-              <li key={`${e.revision}:${e.attempt}:${e.layerId}:${e.nodeId}:${i}`} className={e.status}>
+              <li
+                key={`${e.revision}:${e.attempt}:${e.layerId}:${e.nodeId}:${i}`}
+                className={e.status}
+                data-agent-cook-event
+                data-agent-cook-status={e.status}
+                data-agent-cook-node-type={e.type}
+                data-agent-layer-id={e.layerId}
+                data-agent-node-id={e.nodeId}
+                data-agent-render-revision={e.revision}
+                data-agent-render-attempt={e.attempt}
+              >
                 <span className="badge">{e.status.toUpperCase()}</span>
                 <span className="ev-node">{e.type}</span>
                 <span className="ev-id">{e.nodeId}</span>

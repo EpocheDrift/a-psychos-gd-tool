@@ -41,6 +41,10 @@ export interface AgentLimits {
   maxGpuPixelWork: number;
   maxPreviewSide: number;
   maxPreviewBytes: number;
+  maxPendingPreviewRequests: number;
+  maxPendingPreviewBytes: number;
+  maxPreviewEncodeAttempts: number;
+  previewDeadlineMs: number;
   renderDeadlineMs: number;
 }
 
@@ -99,6 +103,13 @@ export const DEFAULT_AGENT_LIMITS: Readonly<AgentLimits> = Object.freeze({
   maxGpuPixelWork: 32_000_000_000,
   maxPreviewSide: 1024,
   maxPreviewBytes: 4 * 1024 * 1024,
+  // Preview readback is at most 4 MiB of RGBA at 1024². Keep only a small,
+  // explicitly byte-accounted worker queue so callers cannot turn evidence
+  // capture into an unbounded main-memory buffer.
+  maxPendingPreviewRequests: 4,
+  maxPendingPreviewBytes: 16 * 1024 * 1024,
+  maxPreviewEncodeAttempts: 6,
+  previewDeadlineMs: 15_000,
   renderDeadlineMs: 30_000,
 });
 

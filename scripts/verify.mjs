@@ -15,14 +15,14 @@ await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems
   await waitForInitialCook(page, { width: 2480, height: 3508 });
 
   const readEvents = () =>
-    page.$$eval('.cook-log li', (items) => items.map((item) => ({
-      status: item.querySelector('.badge')?.textContent?.trim().toLowerCase(),
-      type: item.querySelector('.ev-node')?.textContent?.trim(),
-      nodeId: item.querySelector('.ev-id')?.textContent?.trim(),
+    page.$$eval('[data-agent-cook-event]', (items) => items.map((item) => ({
+      status: item.dataset.agentCookStatus,
+      type: item.dataset.agentCookNodeType,
+      nodeId: item.dataset.agentNodeId,
       text: item.textContent.replace(/\s+/g, ' ').trim(),
     })));
   const canvasSize = () =>
-    page.$eval('.viewport canvas:not(.guide-overlay):not([hidden])', (canvas) => `${canvas.width}x${canvas.height}`);
+    page.$eval('[data-agent-preview="main"]', (canvas) => `${canvas.width}x${canvas.height}`);
 
   console.log('--- cook 1 (factory document, 2480×3508 frame) ---');
   const initialEvents = await readEvents();
@@ -31,7 +31,9 @@ await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems
 
   // Type a new frame width into the real sidebar control.
   await page.evaluate(() => {
-    const input = document.querySelector('.frame-config input[type=number]');
+    const input = document.querySelector(
+      '[data-agent-target="frame-control"][data-agent-frame-control="width"]',
+    );
     if (!(input instanceof HTMLInputElement)) throw new Error('frame width input not found');
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
     if (!setter) throw new Error('native input value setter unavailable');
@@ -39,22 +41,26 @@ await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await page.waitForFunction((previousEvents) => {
-    if (document.querySelector('.cook-error')) return true;
-    const canvas = document.querySelector(
-      '.viewport canvas:not(.guide-overlay):not([hidden])',
-    );
-    const currentEvents = [...document.querySelectorAll('.cook-log li')].map((item) => ({
-      status: item.querySelector('.badge')?.textContent?.trim().toLowerCase(),
-      type: item.querySelector('.ev-node')?.textContent?.trim(),
-      nodeId: item.querySelector('.ev-id')?.textContent?.trim(),
+    if (document.querySelector('[data-agent-render-error]')) return true;
+    const canvas = document.querySelector('[data-agent-preview="main"]');
+    const status = document.querySelector('[data-agent-render-status]');
+    const currentEvents = [...document.querySelectorAll('[data-agent-cook-event]')].map((item) => ({
+      status: item.dataset.agentCookStatus,
+      type: item.dataset.agentCookNodeType,
+      nodeId: item.dataset.agentNodeId,
     }));
     return canvas instanceof HTMLCanvasElement
+      && status instanceof HTMLElement
       && canvas.width === 1024
       && canvas.height === 3508
       && JSON.stringify(currentEvents) !== previousEvents
-      && !document.querySelector('.cook-pending');
+      && status.dataset.agentRenderState === 'complete'
+      && status.dataset.agentDocumentRevision === status.dataset.agentRenderRevision;
   }, {}, JSON.stringify(initialEvents.map(({ status, type, nodeId }) => ({ status, type, nodeId }))));
-  const cookError = await page.$eval('.cook-error', (element) => element.textContent).catch(() => null);
+  const cookError = await page.$eval(
+    '[data-agent-render-error]',
+    (element) => element.textContent,
+  ).catch(() => null);
   if (cookError) throw new Error(`cook error after frame edit: ${cookError}`);
 
   console.log('--- frame width 2480 -> 1024 via UI ---');
@@ -82,7 +88,7 @@ await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems
     throw new Error(`expected four frame-aware Output MISS events, got ${JSON.stringify(outputs)}`);
   }
   console.log('canvas:', finalSize);
-  console.log('---', await page.$eval('.pool', (element) => element.textContent));
+  console.log('---', await page.$eval('[data-agent-pool-status]', (element) => element.textContent));
 
   const screenshot = await smokeArtifactPath('frame-resize.png');
   await page.screenshot({ path: screenshot });

@@ -25,17 +25,22 @@ await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems
     if (!layer?.graph.nodes.blur1) throw new Error('factory layer_1 blur1 node missing');
     return {
       nodes: Object.keys(layer.graph.nodes).sort(),
-      log: [...document.querySelectorAll('.cook-log li')].map((item) => item.textContent).join('|'),
+      log: [...document.querySelectorAll('[data-agent-cook-event]')].map((item) => item.textContent).join('|'),
     };
   });
   await page.evaluate(() => globalThis.__app.getState().setParam('blur1', 'radius', 32));
   await page.waitForFunction((previousLog) => {
-    if (document.querySelector('.cook-error')) return true;
-    const currentLog = [...document.querySelectorAll('.cook-log li')].map((item) => item.textContent).join('|');
-    const miss = [...document.querySelectorAll('.cook-log li')].some((item) =>
-      item.querySelector('.ev-id')?.textContent === 'blur1'
-        && item.querySelector('.badge')?.textContent === 'MISS');
-    return currentLog !== previousLog && miss && !document.querySelector('.cook-pending');
+    if (document.querySelector('[data-agent-render-error]')) return true;
+    const currentLog = [...document.querySelectorAll('[data-agent-cook-event]')].map((item) => item.textContent).join('|');
+    const miss = [...document.querySelectorAll('[data-agent-cook-event]')].some((item) =>
+      item.dataset.agentNodeId === 'blur1'
+        && item.dataset.agentCookStatus === 'miss');
+    const status = document.querySelector('[data-agent-render-status]');
+    return currentLog !== previousLog
+      && miss
+      && status instanceof HTMLElement
+      && status.dataset.agentRenderState === 'complete'
+      && status.dataset.agentDocumentRevision === status.dataset.agentRenderRevision;
   }, {}, before.log);
   const after = await page.evaluate(() => {
     const layer = globalThis.__app.getState().doc.layers.find((candidate) => candidate.id === 'layer_1');
@@ -46,7 +51,7 @@ await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems
   });
   if (JSON.stringify(after.nodes) !== JSON.stringify(before.nodes)) throw new Error('blur edit changed the node inventory');
   if (after.radius !== 32) throw new Error(`blur radius did not update: ${after.radius}`);
-  const cookError = await page.$eval('.cook-error', (element) => element.textContent).catch(() => null);
+  const cookError = await page.$eval('[data-agent-render-error]', (element) => element.textContent).catch(() => null);
   if (cookError) throw new Error(`blur cook error: ${cookError}`);
 
   const screenshot = await smokeArtifactPath('blur-check.png');

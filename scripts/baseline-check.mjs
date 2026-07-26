@@ -40,7 +40,7 @@ await withSmokePage(
     const renderedPng = await captureExportPng(page);
     const rendered = await page.evaluate(async (png) => {
       const canvases = document.querySelectorAll(
-        '.viewport canvas:not(.guide-overlay):not([hidden])',
+        '[data-agent-preview="main"]',
       );
       if (canvases.length !== 1) throw new Error(`expected one main canvas, found ${canvases.length}`);
       const response = await fetch(`data:image/png;base64,${png}`);

@@ -27,6 +27,10 @@ import {
   type RenderDocumentInput,
   type RenderedDocument,
 } from './renderDocument';
+import {
+  resetPreviewWorker,
+  whenPreviewWorkerIdle,
+} from './previewWorkerClient';
 
 export interface AppRenderInput extends RenderDocumentInput {
   environmentRevision: number;
@@ -70,6 +74,8 @@ let environmentRevision = 0;
 let storeBindingStarted = false;
 let onDeviceLostCallback: ((error: Error) => void) | null = null;
 let gpuOperationTail: Promise<void> = Promise.resolve();
+let previewTeardownHandler: ((reason: Error) => void) | null = null;
+let devPreviewCapture: ((request: unknown) => Promise<unknown>) | null = null;
 
 function sameTicket(left: RenderTicket, right: RenderTicket): boolean {
   return left.revision === right.revision && left.attempt === right.attempt;
@@ -299,15 +305,22 @@ export function configureAppRenderer(
   let unsubscribeLoss = () => {};
   const beginTeardown = (reason?: Error): Promise<void> => {
     if (teardownPromise) return teardownPromise;
+    const teardownReason = reason ?? new CookCancelledError();
     pendingTeardown = null;
     appRenderCoordinator.clearExecutor(run);
     appRenderCoordinator.cancelPending(reason);
+    previewTeardownHandler?.(teardownReason);
+    resetPreviewWorker(teardownReason);
     unsubscribeLoss();
     if (gpu === configuredGpu) {
       gpu = null;
       onDeviceLostCallback = null;
     }
-    teardownPromise = appRenderCoordinator.whenIdle()
+    teardownPromise = Promise.all([
+      appRenderCoordinator.whenIdle(),
+      gpuOperationTail.catch(() => {}),
+      whenPreviewWorkerIdle(),
+    ])
       .then(() => {
         releaseRendererResources(configuredGpu);
       })
@@ -361,6 +374,23 @@ export function retryCurrentRender(): RenderTicket {
   return scheduleState(useApp.getState(), 'retry');
 }
 
+/**
+ * Preview orchestration lives in preview.ts to avoid exposing GPU ownership.
+ * This narrow registration lets renderer teardown cancel its queued public
+ * work without importing the higher-level service back into this module.
+ */
+export function registerPreviewLifecycle(
+  teardown: ((reason: Error) => void) | null,
+): void {
+  previewTeardownHandler = teardown;
+}
+
+export function registerDevPreviewCapture(
+  capture: ((request: unknown) => Promise<unknown>) | null,
+): void {
+  if (import.meta.env?.DEV) devPreviewCapture = capture;
+}
+
 export async function readbackExact(
   ticket: RenderTicket,
   control: Omit<CookControl, 'revision'> = {},
@@ -396,6 +426,112 @@ export async function readbackExact(
           readbackControl,
         );
       } finally {
+        activeGpu.pool.release(exact.texture);
+      }
+    },
+  );
+}
+
+/**
+ * Read back one exact completed artifact at a bounded size. Downsampling stays
+ * on the GPU so preview capture never allocates the full-resolution frame on
+ * the CPU merely to produce a small evidence image.
+ */
+export async function readbackPreviewExact(
+  ticket: RenderTicket,
+  width: number,
+  height: number,
+  control: Omit<CookControl, 'revision'> = {},
+): Promise<ImageData> {
+  if (
+    !Number.isSafeInteger(width)
+    || !Number.isSafeInteger(height)
+    || width <= 0
+    || height <= 0
+    || width > DEFAULT_AGENT_LIMITS.maxPreviewSide
+    || height > DEFAULT_AGENT_LIMITS.maxPreviewSide
+  ) {
+    throw new RangeError(
+      `Preview dimensions must be positive integers no larger than ${
+        DEFAULT_AGENT_LIMITS.maxPreviewSide
+      }.`,
+    );
+  }
+  const status = await appRenderCoordinator.awaitRender(ticket);
+  if (status.state !== 'complete') {
+    if (status.error) {
+      throw Object.assign(new Error(status.error.message), status.error);
+    }
+    throw new ExactRenderUnavailableError(ticket);
+  }
+  const readbackControl: CookControl = {
+    ...control,
+    revision: ticket.revision,
+    deadline: control.deadline
+      ?? performance.now() + DEFAULT_AGENT_LIMITS.renderDeadlineMs,
+  };
+  return withGpuLock(
+    readbackControl,
+    async () => {
+      const activeGpu = gpu;
+      const exact = artifact;
+      if (!activeGpu || !exact || !sameTicket(exact.ticket, ticket)) {
+        throw new ExactRenderUnavailableError(ticket);
+      }
+      if (width > exact.width || height > exact.height) {
+        throw new RangeError(
+          `Preview ${width}x${height} cannot upscale exact artifact ${
+            exact.width
+          }x${exact.height}.`,
+        );
+      }
+
+      activeGpu.pool.retain(exact.texture);
+      const poolCheckpoint = activeGpu.pool.checkpoint();
+      let target: PooledTexture | null = null;
+      try {
+        const gpuControl = {
+          ...readbackControl,
+          maxGpuPasses: width === exact.width && height === exact.height ? 1 : 2,
+          maxGpuPixelWork: width * height
+            * (width === exact.width && height === exact.height ? 1 : 2),
+        };
+        const gpuWorkBudget = new GpuWorkBudget(gpuControl);
+        const attemptControl = { ...gpuControl, gpuWorkBudget };
+        return await activeGpu.captureErrors(
+          `preview-r${ticket.revision}-a${ticket.attempt}-${width}x${height}`,
+          async () => {
+            const source = width === exact.width && height === exact.height
+              ? exact.texture
+              : (target = activeGpu.pool.acquire(width, height));
+            if (source !== exact.texture) {
+              activeGpu.runPass(
+                'blit',
+                exact.texture,
+                source,
+                undefined,
+                attemptControl,
+              );
+            }
+            return activeGpu.readback(source, attemptControl);
+          },
+          readbackControl,
+        );
+      } catch (error) {
+        if (isUnsafeGpuAttempt(error)) {
+          // Only the temporary resources created after this checkpoint can be
+          // tainted. The published exact artifact predates the checkpoint.
+          activeGpu.quarantineFailedAttempt(poolCheckpoint);
+        }
+        throw error;
+      } finally {
+        if (target) {
+          try {
+            activeGpu.pool.release(target);
+          } catch {
+            // Device loss or quarantine may already have invalidated it.
+          }
+        }
         activeGpu.pool.release(exact.texture);
       }
     },
@@ -442,5 +578,11 @@ if (import.meta.env?.DEV) {
     awaitRender: (request: AwaitRenderRequest) =>
       appRenderCoordinator.awaitRender(request),
     getPoolStats: () => gpu?.pool.stats() ?? null,
+    capturePreview: (request: unknown) => {
+      if (!devPreviewCapture) {
+        return Promise.reject(new Error('Preview capture is not initialized.'));
+      }
+      return devPreviewCapture(request);
+    },
   });
 }

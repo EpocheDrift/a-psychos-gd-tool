@@ -145,6 +145,12 @@ interface CapabilityManifest {
     assets: boolean;
     mcp: boolean;
   };
+  preview: {
+    formats: ["png", "webp"];
+    defaultFormat: "png";
+    metricsVersion: "preview-metrics-v1";
+    capturePolicy: "current-exact-ticket-v1";
+  };
 }
 
 interface PublicNodeDescriptor {
@@ -552,6 +558,9 @@ Rules:
 ```ts
 interface PreviewRequest {
   revision: number;
+  // Optional exact-attempt extension. If omitted, the latest attempt is bound
+  // atomically when the call begins and never followed to a later retry.
+  attempt?: number;
   maxWidth?: number;
   maxHeight?: number;
   format?: "png" | "webp";
@@ -559,16 +568,29 @@ interface PreviewRequest {
 }
 
 interface PreviewResult {
+  requestedRevision: number;
   revision: number;
+  attempt: number;
+  sourceWidth: number;
+  sourceHeight: number;
   width: number;
   height: number;
   mimeType: string;
+  byteLength: number;
+  contentHash: string;
+  rgbaSha256: string;
+  capturePolicy: "current-exact-ticket-v1";
   image: BinaryHandle;
   metrics?: {
+    version: "preview-metrics-v1";
     alphaCoverage: number;
     nonBackgroundBounds: { x: number; y: number; width: number; height: number } | null;
     luminance: { min: number; max: number; mean: number };
     perceptualHash: string;
+    background: {
+      premultipliedRgba: [number, number, number, number];
+      confidence: number;
+    } | null;
   };
 }
 ```
@@ -576,6 +598,30 @@ interface PreviewResult {
 MCP should return an image content item or a temporary-file handle rather than
 embedding a full-resolution base64 string in ordinary JSON. Preview defaults
 should be bounded; full-resolution PNG remains a separate export operation.
+
+`preview-metrics-v1` is frozen as follows:
+
+- `alphaCoverage` is mean normalized alpha, `sum(alpha) / (255 * pixels)`;
+- luminance uses the exact sRGB transfer function, composites transparent
+  pixels over white in linear light, and reports min/max/mean over every final
+  preview pixel;
+- background detection builds an 8-value-quantized histogram from all border
+  pixels in premultiplied RGBA, requires at least 50% dominance, and uses a
+  per-channel tolerance of 4; without a dominant border, non-background bounds
+  conservatively cover the whole frame;
+- fully transparent output has null non-background bounds;
+- perceptual hash is a 64-bit lowercase hexadecimal DCT pHash over a
+  deterministic 32x32 white-matted linear-luminance image. It is similarity
+  evidence only, never an integrity or authorization hash.
+
+Preview capture uses `current-exact-ticket-v1`: the requested ticket must be the
+current document's completed and displayed artifact before GPU readback and
+again after encoding. A newer document revision or same-revision render attempt
+rejects the result as `RENDER_SUPERSEDED`. The GPU downsamples before CPU
+readback; a bounded, single-active worker computes metrics and PNG/WebP
+encoding, and termination is the cancellation mechanism for native encoding.
+Encoded bytes, queued pixel bytes, worker count, attempts, and the shared
+absolute deadline are all hard-bounded by the capability manifest.
 
 ## Asset boundary
 

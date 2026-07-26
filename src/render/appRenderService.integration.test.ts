@@ -9,6 +9,7 @@ import {
   currentArtifactTicket,
   getDisplayedCanvasIndex,
   readbackExact,
+  readbackPreviewExact,
   setRenderCanvases,
   startRenderStoreBinding,
   stopRenderStoreBinding,
@@ -50,10 +51,28 @@ function fakeGpu(completion: Promise<void>) {
   let captureCall = 0;
   const captureFailures = new Set<number>();
   const refs = new Map<PooledTexture, number>();
+  const creationSequence = new Map<PooledTexture, number>();
   const pool = {
     checkpoint: vi.fn(() => sequence),
-    quarantineSince: vi.fn(),
+    quarantineSince: vi.fn((checkpoint: number) => {
+      for (const [texture, created] of creationSequence) {
+        if (created <= checkpoint) continue;
+        refs.delete(texture);
+        creationSequence.delete(texture);
+      }
+    }),
     acquire: vi.fn((width: number, height: number) => {
+      const recycled = [...refs].find(
+        ([texture, count]) => (
+          count === 0
+          && texture.width === width
+          && texture.height === height
+        ),
+      )?.[0];
+      if (recycled) {
+        refs.set(recycled, 1);
+        return recycled;
+      }
       const texture: PooledTexture = {
         texture: { id: ++sequence } as unknown as GPUTexture,
         width,
@@ -62,12 +81,14 @@ function fakeGpu(completion: Promise<void>) {
         estimatedBytes: width * height * 4,
       };
       refs.set(texture, 1);
+      creationSequence.set(texture, sequence);
       return texture;
     }),
     retain: vi.fn((texture: PooledTexture) => {
       refs.set(texture, (refs.get(texture) ?? 0) + 1);
     }),
     release: vi.fn((texture: PooledTexture) => {
+      if (!refs.has(texture)) return;
       refs.set(texture, Math.max(0, (refs.get(texture) ?? 0) - 1));
     }),
     discard: vi.fn((texture: PooledTexture) => {
@@ -106,8 +127,19 @@ function fakeGpu(completion: Promise<void>) {
       }
       return value;
     }),
-    readback: vi.fn(async () => image),
-    quarantineFailedAttempt: vi.fn(),
+    readback: vi.fn(async (texture: PooledTexture) => (
+      texture.width === 16 && texture.height === 16
+        ? image
+        : {
+            data: new Uint8ClampedArray(texture.width * texture.height * 4),
+            width: texture.width,
+            height: texture.height,
+            colorSpace: 'srgb',
+          } as ImageData
+    )),
+    quarantineFailedAttempt: vi.fn((checkpoint: number) => {
+      pool.quarantineSince(checkpoint);
+    }),
     onDeviceLost: vi.fn(() => () => {}),
   } as unknown as GpuContext;
   return { gpu, pool, image, captureFailures };
@@ -163,6 +195,109 @@ describe('App render service integration', () => {
     useApp.setState({
       doc: original.doc,
       // Keep the process-local coordinator's monotonic revision invariant.
+      revision: original.revision + 1,
+      fonts: original.fonts,
+    });
+  });
+
+  it('GPU-downsamples before bounded preview readback and releases its lease', async () => {
+    const original = useApp.getState();
+    const submitted = deferred();
+    submitted.resolve();
+    const { gpu, pool } = fakeGpu(submitted.promise);
+    const canvases = [
+      { width: 0, height: 0 },
+      { width: 0, height: 0 },
+    ] as unknown as [HTMLCanvasElement, HTMLCanvasElement];
+    useApp.setState({
+      doc: minimalDocument(),
+      revision: original.revision + 1,
+      fonts: {},
+    });
+    setRenderCanvases(canvases);
+    const cleanup = configureAppRenderer(gpu);
+    startRenderStoreBinding();
+    const ticket = appRenderCoordinator.getRenderStatus().ticket!;
+    await appRenderCoordinator.awaitRender(ticket);
+    const releasesBefore = pool.release.mock.calls.length;
+
+    await expect(readbackPreviewExact(ticket, 8, 4)).resolves.toMatchObject({
+      width: 8,
+      height: 4,
+    });
+    expect(pool.acquire).toHaveBeenLastCalledWith(8, 4);
+    expect((gpu.runPass as ReturnType<typeof vi.fn>)).toHaveBeenLastCalledWith(
+      'blit',
+      expect.objectContaining({ width: 16, height: 16 }),
+      expect.objectContaining({ width: 8, height: 4 }),
+      undefined,
+      expect.objectContaining({
+        revision: ticket.revision,
+        maxGpuPasses: 2,
+        maxGpuPixelWork: 64,
+      }),
+    );
+    expect((gpu.readback as ReturnType<typeof vi.fn>)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ width: 8, height: 4 }),
+      expect.objectContaining({ revision: ticket.revision }),
+    );
+    // One release returns the temporary; one balances the exact-artifact
+    // retain. Renderer ownership remains intact.
+    expect(pool.release.mock.calls.length - releasesBefore).toBe(2);
+
+    stopRenderStoreBinding();
+    await cleanup();
+    setRenderCanvases(null);
+    useApp.setState({
+      doc: original.doc,
+      revision: original.revision + 1,
+      fonts: original.fonts,
+    });
+  });
+
+  it('releases a recycled preview target after an unsafe GPU failure', async () => {
+    const original = useApp.getState();
+    const submitted = deferred();
+    submitted.resolve();
+    const { gpu, pool, captureFailures } = fakeGpu(submitted.promise);
+    const canvases = [
+      { width: 0, height: 0 },
+      { width: 0, height: 0 },
+    ] as unknown as [HTMLCanvasElement, HTMLCanvasElement];
+    useApp.setState({
+      doc: minimalDocument(),
+      revision: original.revision + 1,
+      fonts: {},
+    });
+    setRenderCanvases(canvases);
+    const cleanup = configureAppRenderer(gpu);
+    startRenderStoreBinding();
+    const ticket = appRenderCoordinator.getRenderStatus().ticket!;
+    await appRenderCoordinator.awaitRender(ticket);
+
+    await readbackPreviewExact(ticket, 8, 4);
+    const afterSuccess = pool.stats();
+    const recycledTarget = pool.acquire.mock.results.at(-1)?.value;
+    expect(recycledTarget).toMatchObject({ width: 8, height: 4 });
+
+    // Cook/present are capture calls 1/2 and the first preview is call 3.
+    // Call 4 reuses the free target created before its checkpoint, so
+    // quarantine cannot destroy it and the finally block must release it.
+    captureFailures.add(4);
+    await expect(readbackPreviewExact(ticket, 8, 4)).rejects.toThrow(
+      'simulated GPU validation failure',
+    );
+    expect(pool.acquire.mock.results.at(-1)?.value).toBe(recycledTarget);
+    expect(pool.stats()).toEqual(afterSuccess);
+    expect(
+      (gpu.quarantineFailedAttempt as ReturnType<typeof vi.fn>),
+    ).toHaveBeenCalled();
+
+    stopRenderStoreBinding();
+    await cleanup();
+    setRenderCanvases(null);
+    useApp.setState({
+      doc: original.doc,
       revision: original.revision + 1,
       fonts: original.fonts,
     });

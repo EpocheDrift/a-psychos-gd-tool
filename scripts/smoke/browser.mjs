@@ -135,6 +135,7 @@ async function installDeterministicNetwork(page, appUrl, problems) {
         await request.respond({
           status: 200,
           contentType: 'text/css; charset=utf-8',
+          headers: { 'access-control-allow-origin': '*' },
           body: '',
         });
         return;
@@ -232,20 +233,24 @@ export async function assertDevHook(page) {
 export async function waitForInitialCook(page, { width, height }) {
   await page.waitForFunction(
     ({ expectedWidth, expectedHeight }) => {
-      if (document.querySelector('.cook-error')) return true;
-      const canvas = document.querySelector(
-        '.viewport canvas:not(.guide-overlay):not([hidden])',
-      );
+      if (document.querySelector('[data-agent-render-error]')) return true;
+      const canvas = document.querySelector('[data-agent-preview="main"]');
+      const status = document.querySelector('[data-agent-render-status]');
       return canvas instanceof HTMLCanvasElement
+        && status instanceof HTMLElement
         && canvas.width === expectedWidth
         && canvas.height === expectedHeight
-        && document.querySelectorAll('.cook-log li').length > 0
-        && !document.querySelector('.cook-pending');
+        && status.dataset.agentRenderState === 'complete'
+        && status.dataset.agentDocumentRevision === status.dataset.agentRenderRevision
+        && canvas.dataset.agentRenderRevision === status.dataset.agentDocumentRevision;
     },
     {},
     { expectedWidth: width, expectedHeight: height },
   );
-  const cookError = await page.$eval('.cook-error', (element) => element.textContent).catch(() => null);
+  const cookError = await page.$eval(
+    '[data-agent-render-error]',
+    (element) => element.textContent,
+  ).catch(() => null);
   if (cookError) throw new Error(`cook error: ${cookError}`);
 }
 
@@ -275,7 +280,7 @@ export async function captureExportPng(page) {
       };
     });
   }, DEFAULT_TIMEOUT_MS);
-  await page.click('.export-btn');
+  await page.click('[data-agent-action="export-png"]');
   return page.evaluate(() => globalThis.__gfxSmokeExport);
 }
 

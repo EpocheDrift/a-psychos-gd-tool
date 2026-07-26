@@ -176,6 +176,9 @@ possible to prove that existing projects still load and render.
 
 - implement bounded preview readback/downsampling;
 - return PNG/WebP plus revision and dimensions;
+- bind revision-only capture to one immutable attempt and return that attempt;
+- run metrics/encoding in a single-active, count/byte/deadline-bounded
+  terminable worker;
 - compute basic preview metrics:
   - alpha coverage;
   - non-background bounds;

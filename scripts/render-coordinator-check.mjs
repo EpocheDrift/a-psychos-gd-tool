@@ -138,11 +138,11 @@ await withSmokePage(
     }
 
     const canvasStatus = await page.$eval(
-      '.viewport canvas:not(.guide-overlay):not([hidden])',
+      '[data-agent-preview="main"]',
       (element) => ({
-        revision: Number(element.dataset.renderRevision),
-        attempt: Number(element.dataset.renderAttempt),
-        state: element.dataset.renderState,
+        revision: Number(element.dataset.agentRenderRevision),
+        attempt: Number(element.dataset.agentRenderAttempt),
+        state: element.dataset.agentRenderState,
       }),
     );
     if (
