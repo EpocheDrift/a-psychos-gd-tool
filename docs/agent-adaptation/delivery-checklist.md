@@ -14,7 +14,7 @@ Integration branch: `agent/agent-ready-v1`
 | PR 3 — Revisioned render coordinator | Complete | Commit [`ca930fb`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/ca930fb2380c2ceac1e5a5ab1fc075a9039ad099) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 4 — Preview evidence and stable UI automation | Complete | Commit [`a257449`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/a257449) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 5 — Gated browser AgentController | Complete | Commit [`a02f74f`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/a02f74f6f83158d706dda14923147a321c63bcb5) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
-| PR 6 — Local MCP companion | Not started | No MCP write permission may be exposed before all prerequisite gates pass. |
+| PR 6 — Local MCP companion | Complete | Commit [`1a2a833`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/1a2a8339bd60056797963904291b6dd5c8855dbd) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 7 — Asset and persistence boundary | Not started | Asset/model tools remain disabled. |
 | PR 8 — Agent evals and high-level helpers | Not started | Blocked by sequence. |
 
@@ -231,29 +231,96 @@ Integration branch: `agent/agent-ready-v1`
   security/scope, UI/accessibility, artifact, and documentation audits.
 - [x] Commit and push the stage to the fork and update the Draft integration PR.
 
-## Open risks carried beyond PR 5
+## PR 6 checklist
+
+- [x] Add a private workspace package with one executable local MCP companion,
+  an exact `127.0.0.1:5199` app host, an isolated Chrome context, and no
+  attachment to an existing user profile.
+- [x] Expose only six read/preview tools by default and add only
+  `apply_transaction` and `revert_transaction` behind both `--allow-edit` and
+  explicit in-app `edit` approval.
+- [x] Require the exact HTTP `Host`, WebSocket `Origin`, fixed path,
+  subprotocol, process-local 256-bit HttpOnly cookie, one owner, pre-auth hello
+  deadline, strict sequence numbers, pairing deadline, heartbeat, and terminal
+  reconnect semantics.
+- [x] Keep browser-trusted approval in the visible page while exposing no MCP
+  browser input, CDP, page evaluation, arbitrary navigation, shell, arbitrary
+  fetch, general filesystem access, or reflective controller dispatch.
+- [x] Add a lexical same-origin browser adapter that dispatches only the eight
+  frozen controller operations and uses a separate private controller solely
+  for cancellable render wait and preview byte resolution.
+- [x] Bound text, binary, preview, stdio input/output, JSON depth/value count,
+  pending requests, writes, render waits, previews, request rate, deadlines,
+  and cancellation acknowledgement before work can overlap or enter the SDK
+  parser.
+- [x] Resolve preview handles only inside the page, verify exact byte length,
+  SHA-256, MIME, binary magic, header shape, revision, and sequence, and return
+  MCP image content without exposing object URLs or logging image bytes.
+- [x] Normalize successes, controller faults, local transport failures, unknown
+  tools, and SDK pre-handler schema failures into one bounded machine-readable
+  `structuredContent.outcome` envelope with request/revision context.
+- [x] Make startup, stdin/SIGINT/SIGTERM shutdown, browser disconnect, revoke,
+  page loss, protocol failure, pairing failure, and hard deadline teardown
+  close Chrome and the loopback host without permitting authority reacquisition
+  in the same process.
+- [x] Add an AST authority gate over companion source, compiled companion
+  JavaScript, and Agent bridge source with exact per-file import capabilities,
+  a positive browser-handle use policy, local-module containment, immutable
+  trusted bindings, and regression fixtures for indirect/aliased authority.
+- [x] Keep asset/model/export/project-replacement tools absent and make
+  `Trace`, `OutlineImage`, and `RemoveBackground` machine-readably fail closed
+  until the PR 7 integrity boundary lands.
+- [x] Run final typecheck, 446 application tests, 41 companion tests, default
+  and Agent builds, compiled authority checks, and the poisoned
+  default/wrong-origin/raw-store artifact gate.
+- [x] Run the real child-process official stdio client through Chrome/WebGPU,
+  browser-trusted approval, all eight tool handlers, transaction idempotency,
+  structured negative validation, exact preview bytes/hash, conflict-safe
+  revert, revoke, and teardown.
+- [x] Verify the compiled executable exposes 6/8 and 8/8 tool profiles,
+  produces structured unpaired failures, preserves stdout JSON-RPC purity, and
+  releases its PID and fixed port on EOF.
+- [x] Run all nine browser/WebGPU smokes: zero-delta visual baseline, factory,
+  controller, frame, blur, fringe, interaction, exact render churn, and 50/50
+  semantic/accessibility/collision workflows.
+- [x] Dry-run the package: 26 expected files, complete relative imports,
+  packaged Agent artifact, and no source tests, credentials, or unexpected
+  files.
+- [x] Record the dependency audit without blind remediation: full tree 9
+  advisories (1 low, 3 moderate, 5 high), production tree 7 (3 moderate,
+  4 high), and zero critical; retain exact MCP SDK and direct runtime versions.
+- [x] Close all reproducible P0/P1/P2 findings from independent protocol,
+  schema/tool, lifecycle, package/CI, repository, and defensive authority
+  audits.
+- [x] Commit and push the stage to the fork and update the Draft integration PR.
+
+## Open risks carried beyond PR 6
 
 - The WebGPU suite is a required manual gate until CI has a real, reliable GPU
   runner; ordinary `ubuntu-latest` browser success is not rendering evidence.
-- Preview `ArrayBuffer` bytes remain internal; the browser controller exposes a
-  bounded, revocable object-URL handle. The HTTP/WebSocket MCP transport, asset
-  isolation, and Agent evals have not landed. MCP tools remain unavailable
-  until their rollout gates pass.
+- Preview `ArrayBuffer` bytes remain private to the page/companion path and are
+  transferred only after exact binary verification. Asset isolation and Agent
+  evals have not landed; asset, model, export, project-replacement, arbitrary
+  fetch, and filesystem tools remain absent.
 - Browser-trusted `Event.isTrusted` rejects page-script synthetic approval but
-  does not prove a physical human when an attacker controls CDP/input. PR 6
-  must expose no CDP, navigation, browser-input, or page-evaluation tool; a
-  stronger threat model requires out-of-band native/WebAuthn/OS confirmation.
-- PR 5 verifies the owning page realm and Vite preview host. PR 6 must enforce
-  exact HTTP `Host`, WebSocket upgrade `Origin`, authentication, message/rate/
-  concurrency budgets, and these response headers in its production host.
+  does not prove a physical human when an attacker controls CDP/input. The
+  companion exposes no CDP, navigation, browser-input, or page-evaluation tool;
+  a stronger threat model requires out-of-band native/WebAuthn/OS confirmation.
+- The companion enforces the exact loopback host/origin and bounded protocol,
+  but the fixed port intentionally fails startup on conflict rather than
+  selecting a wider or dynamic origin.
 - Browser-native `OffscreenCanvas.convertToBlob` cannot be interrupted from
   inside the call; cancellation terminates and replaces the bounded preview
   worker. DCT pHash is similarity evidence and may vary at floating-point
   boundaries across browser engines; canonical RGBA SHA-256 remains the
   integrity evidence.
-- `npm audit` reports seven advisories (one low, one moderate, five high) in
-  dependencies already locked before PR 4. The added dev-only `axe-core` is not
-  on an advisory path; broad dependency upgrades remain separate review work.
+- `npm audit` reports 9 full-tree advisories (1 low, 3 moderate, 5 high) and 7
+  production-tree advisories (3 moderate, 4 high), with zero critical. The new
+  MCP path is a transitive `@hono/node-server` static-serving advisory, while
+  this companion imports only the stdio SDK subpaths and its authority gate
+  forbids HTTP adapter imports; the remaining high paths are in the existing
+  model/native-image toolchain. The suggested SDK downgrade was not applied;
+  dependency remediation remains separately reviewable.
 - Version 3 currently preserves asset metadata only. PR 7 owns isolated asset
   bytes, content-addressed storage, quotas, and lifecycle management.
 - A local working edit that is structurally traversable but semantically invalid
