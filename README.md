@@ -117,14 +117,19 @@ and staged implementation plan live in
 
 ### Dev scripts
 
-Two Puppeteer smoke-test scripts drive a real (headed) Chrome against a running dev server, since WebGPU needs a GPU:
+The Puppeteer smoke suite drives an isolated real Chrome/Chromium WebGPU
+session. Start the fixed local server, then run the whole suite:
 
 ```sh
-node scripts/verify.mjs [url]       # cold cook, cache-hit check on edit, wire type-checking
-node scripts/blur-check.mjs [url]   # renders a heavy blur and screenshots the halo
+npm run smoke:serve
+npm run smoke:all
 ```
 
-Both default to `http://localhost:5199/` (pass your dev server's URL) and locate Chrome at the standard macOS path — set the `CHROME` env var to point elsewhere on Linux/Windows.
+The checks cover the reviewed small-frame render, factory load, frame/cache
+behavior, blur/fringe regressions, and canvas interactions. They default to
+headless mode and support `CHROME`, `SMOKE_URL`, and `SMOKE_HEADED=1`. See
+[Browser and WebGPU smoke tests](docs/testing/browser-smoke.md) for the
+individual commands, fixtures, prerequisites, and artifact policy.
 
 ## Roadmap
 
@@ -148,7 +153,9 @@ Both default to `http://localhost:5199/` (pass your dev server's URL) and locate
 
 ## Contributing
 
-Issues and PRs are welcome. CI runs `npm run typecheck`, `npm test`, and `npm run build` — please make sure all three pass locally.
+Issues and PRs are welcome. CI runs `npm run typecheck`, `npm test`, and
+`npm run build` — please make sure all three pass locally. Rendering changes
+also require the documented [WebGPU smoke suite](docs/testing/browser-smoke.md).
 
 ## License
 

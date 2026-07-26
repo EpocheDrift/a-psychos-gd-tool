@@ -84,6 +84,8 @@ support a constrained L4 loop.
   contracts, MCP/browser transport, render lifecycle, and error model.
 - [Implementation plan](./implementation-plan.md) — staged PRs, acceptance
   criteria, test matrix, and rollout gates.
+- [Delivery evidence](./delivery-checklist.md) — non-normative phase status and
+  reproducible verification links.
 
 ## Non-goals for the first release
 

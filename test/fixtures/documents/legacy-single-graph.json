@@ -1,0 +1,84 @@
+{
+  "frame": {
+    "width": 320,
+    "height": 240
+  },
+  "nodes": {
+    "text": {
+      "id": "text",
+      "type": "Text",
+      "params": {
+        "content": "LEGACY",
+        "font": "default",
+        "fontSize": 72,
+        "fill": "#ffffff"
+      },
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "outline": {
+      "id": "outline",
+      "type": "Outline",
+      "params": {},
+      "position": {
+        "x": 220,
+        "y": 0
+      }
+    },
+    "raster": {
+      "id": "raster",
+      "type": "Rasterize",
+      "params": {},
+      "position": {
+        "x": 440,
+        "y": 0
+      }
+    },
+    "out": {
+      "id": "out",
+      "type": "Output",
+      "params": {
+        "transparent": false,
+        "background": "#101820"
+      },
+      "position": {
+        "x": 660,
+        "y": 0
+      }
+    }
+  },
+  "edges": [
+    {
+      "from": {
+        "node": "text",
+        "socket": "out"
+      },
+      "to": {
+        "node": "outline",
+        "socket": "text"
+      }
+    },
+    {
+      "from": {
+        "node": "outline",
+        "socket": "out"
+      },
+      "to": {
+        "node": "raster",
+        "socket": "vector"
+      }
+    },
+    {
+      "from": {
+        "node": "raster",
+        "socket": "out"
+      },
+      "to": {
+        "node": "out",
+        "socket": "in"
+      }
+    }
+  ]
+}

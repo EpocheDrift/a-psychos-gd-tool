@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { Graph } from './graph';
-import { Evaluator } from './evaluator';
+import { CycleDetectedError, Evaluator } from './evaluator';
 import type { CookContext, NodeDef, Registry } from './registry';
 
 // numeric stub values stand in for real Values; the evaluator never inspects
@@ -46,6 +46,17 @@ function stubRegistry(cookCounts: Record<string, number>): Registry {
         count('AsyncAdd');
         await new Promise((r) => setTimeout(r, 1));
         return { out: num((i.in as never as { v: number }).v + Number(p.k)) };
+      },
+    },
+    {
+      type: 'AsyncConst',
+      inputs: [],
+      outputs: [{ name: 'out', type: 'raster' }],
+      params: [{ name: 'v', kind: 'number', default: 0 }],
+      cook: async (_i, p) => {
+        count('AsyncConst');
+        await new Promise((r) => setTimeout(r, 1));
+        return { out: num(Number(p.v)) };
       },
     },
   ];
@@ -131,6 +142,93 @@ describe('Evaluator', () => {
     const { outputs } = await ev.evaluate(g, 'd', ctx);
     expect((outputs.out as never as { v: number }).v).toBe(112);
     expect(counts.Const).toBe(1); // shared upstream cooked once, not twice
+  });
+
+  it('does not mistake a concurrent async diamond for a cycle', async () => {
+    const counts: Record<string, number> = {};
+    const ev = new Evaluator(stubRegistry(counts));
+    const g: Graph = {
+      nodes: {
+        a: { id: 'a', type: 'AsyncConst', params: { v: 1 } },
+        b: { id: 'b', type: 'Add', params: { k: 10 } },
+        c: { id: 'c', type: 'Add', params: { k: 100 } },
+        d: { id: 'd', type: 'Sum2', params: {} },
+      },
+      edges: [
+        { from: { node: 'a', socket: 'out' }, to: { node: 'b', socket: 'in' } },
+        { from: { node: 'a', socket: 'out' }, to: { node: 'c', socket: 'in' } },
+        { from: { node: 'b', socket: 'out' }, to: { node: 'd', socket: 'a' } },
+        { from: { node: 'c', socket: 'out' }, to: { node: 'd', socket: 'b' } },
+      ],
+    };
+
+    const { outputs } = await ev.evaluate(g, 'd', ctx);
+    expect((outputs.out as never as { v: number }).v).toBe(112);
+    expect(counts.AsyncConst).toBe(1);
+  });
+
+  it('returns CYCLE_DETECTED with the reachable cycle path', async () => {
+    const counts: Record<string, number> = {};
+    const ev = new Evaluator(stubRegistry(counts));
+    const g: Graph = {
+      nodes: {
+        a: { id: 'a', type: 'Add', params: {} },
+        b: { id: 'b', type: 'Add', params: {} },
+      },
+      edges: [
+        { from: { node: 'a', socket: 'out' }, to: { node: 'b', socket: 'in' } },
+        { from: { node: 'b', socket: 'out' }, to: { node: 'a', socket: 'in' } },
+      ],
+    };
+
+    await expect(ev.evaluate(g, 'a', ctx)).rejects.toMatchObject({
+      name: 'CycleDetectedError',
+      code: 'CYCLE_DETECTED',
+      cycle: ['a', 'b', 'a'],
+    });
+    expect(counts).toEqual({});
+  });
+
+  it('returns CYCLE_DETECTED for a self-loop', async () => {
+    const ev = new Evaluator(stubRegistry({}));
+    const g: Graph = {
+      nodes: { a: { id: 'a', type: 'Add', params: {} } },
+      edges: [{ from: { node: 'a', socket: 'out' }, to: { node: 'a', socket: 'in' } }],
+    };
+
+    await expect(ev.evaluate(g, 'a', ctx)).rejects.toEqual(
+      expect.objectContaining({
+        name: 'CycleDetectedError',
+        code: 'CYCLE_DETECTED',
+        cycle: ['a', 'a'],
+      }),
+    );
+  });
+
+  it('can retry with the same evaluator after a cyclic graph is repaired', async () => {
+    const ev = new Evaluator(stubRegistry({}));
+    const g: Graph = {
+      nodes: {
+        source: { id: 'source', type: 'Const', params: { v: 2 } },
+        a: { id: 'a', type: 'Add', params: { k: 10 } },
+        b: { id: 'b', type: 'Add', params: { k: 100 } },
+      },
+      edges: [
+        { from: { node: 'a', socket: 'out' }, to: { node: 'b', socket: 'in' } },
+        { from: { node: 'b', socket: 'out' }, to: { node: 'a', socket: 'in' } },
+      ],
+    };
+    await expect(ev.evaluate(g, 'b', ctx)).rejects.toBeInstanceOf(CycleDetectedError);
+
+    g.edges = [
+      { from: { node: 'source', socket: 'out' }, to: { node: 'a', socket: 'in' } },
+      { from: { node: 'a', socket: 'out' }, to: { node: 'b', socket: 'in' } },
+    ];
+    const repaired = await ev.evaluate(g, 'b', ctx);
+    expect((repaired.outputs.out as never as { v: number }).v).toBe(112);
+
+    await ev.evaluate(g, 'b', ctx);
+    expect(statuses(ev)).toEqual({ source: 'hit', a: 'hit', b: 'hit' });
   });
 
   it('allows optional inputs to stay unwired, requires the rest', async () => {

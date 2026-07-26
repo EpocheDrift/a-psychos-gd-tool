@@ -38,6 +38,20 @@ interface CookResult {
   hash: string;
 }
 
+/**
+ * Defense-in-depth error for corrupt or otherwise unvalidated cyclic graphs.
+ * Full-document cycle validation belongs at the document boundary, but the
+ * evaluator must still fail predictably if that boundary is bypassed.
+ */
+export class CycleDetectedError extends Error {
+  readonly code = 'CYCLE_DETECTED' as const;
+
+  constructor(readonly cycle: readonly NodeId[]) {
+    super(`cycle detected: ${cycle.join(' -> ')}`);
+    this.name = 'CycleDetectedError';
+  }
+}
+
 export class Evaluator {
   /** cook log for the most recent evaluate() — HIT/MISS per node, loud on purpose */
   events: CookEvent[] = [];
@@ -51,7 +65,7 @@ export class Evaluator {
     this.events = [];
     // per-evaluation memo so a diamond dependency cooks each node once
     const memo = new Map<NodeId, Promise<CookResult>>();
-    const result = await this.cookNode(graph, rootId, ctx, memo);
+    const result = await this.cookNode(graph, rootId, ctx, memo, [], new Set());
     this.evictStale(ctx);
     return result;
   }
@@ -79,9 +93,25 @@ export class Evaluator {
     nodeId: NodeId,
     ctx: CookContext,
     memo: Map<NodeId, Promise<CookResult>>,
+    path: readonly NodeId[],
+    visiting: ReadonlySet<NodeId>,
   ): Promise<CookResult> {
+    // This check must precede the memo lookup. Returning the current node's
+    // pending promise from a recursive A -> B -> A traversal would deadlock.
+    if (visiting.has(nodeId)) {
+      const cycleStart = path.indexOf(nodeId);
+      throw new CycleDetectedError([...path.slice(cycleStart), nodeId]);
+    }
+
     const existing = memo.get(nodeId);
     if (existing) return existing;
+
+    // Ancestry is branch-local. Sibling Promise.all branches may legitimately
+    // share an upstream node (a diamond DAG), so they must not share a mutable
+    // visiting set even though they do share the per-evaluation memo.
+    const nextPath = [...path, nodeId];
+    const nextVisiting = new Set(visiting);
+    nextVisiting.add(nodeId);
 
     const promise = (async (): Promise<CookResult> => {
       const node = graph.nodes[nodeId];
@@ -92,7 +122,10 @@ export class Evaluator {
       // 1. cook all upstream dependencies (in parallel where independent)
       const inputEdges = graph.edges.filter((e) => e.to.node === nodeId);
       const upstream = await Promise.all(
-        inputEdges.map(async (e) => ({ edge: e, result: await this.cookNode(graph, e.from.node, ctx, memo) })),
+        inputEdges.map(async (e) => ({
+          edge: e,
+          result: await this.cookNode(graph, e.from.node, ctx, memo, nextPath, nextVisiting),
+        })),
       );
 
       // 2. assemble inputs; hash in deterministic socket order
