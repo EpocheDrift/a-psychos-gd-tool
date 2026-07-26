@@ -74,7 +74,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.resetModules();
-  Reflect.deleteProperty(globalThis, '__app');
 });
 
 describe('versioned saved-project loading', () => {

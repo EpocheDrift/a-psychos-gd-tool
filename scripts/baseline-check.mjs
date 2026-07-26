@@ -10,7 +10,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import process from 'node:process';
 import {
-  assertDevHook,
   assertNoPageProblems,
   captureExportPng,
   navigateToApp,
@@ -31,7 +30,6 @@ await withSmokePage(
   async ({ page, url, problems, version, executablePath }) => {
     console.log(`Chrome: ${version} (${executablePath})`);
     await navigateToApp(page, url);
-    await assertDevHook(page);
     await waitForInitialCook(page, { width: 256, height: 192 });
 
     // Capture the native rendered pixels through the existing PNG export
@@ -43,8 +41,11 @@ await withSmokePage(
         '[data-agent-preview="main"]',
       );
       if (canvases.length !== 1) throw new Error(`expected one main canvas, found ${canvases.length}`);
-      const response = await fetch(`data:image/png;base64,${png}`);
-      const bitmap = await createImageBitmap(await response.blob());
+      const binary = atob(png);
+      const bytes = Uint8Array.from(binary, (value) => value.charCodeAt(0));
+      const bitmap = await createImageBitmap(
+        new Blob([bytes], { type: 'image/png' }),
+      );
       const snapshot = new OffscreenCanvas(bitmap.width, bitmap.height);
       const context = snapshot.getContext('2d', { willReadFrequently: true });
       if (!context) throw new Error('2D screenshot context unavailable');
@@ -127,8 +128,11 @@ await withSmokePage(
       const expectedPng = await readFile(screenshotUrl);
       const comparison = await page.evaluate(async ({ actual, expected }) => {
         const decode = async (base64) => {
-          const response = await fetch(`data:image/png;base64,${base64}`);
-          const bitmap = await createImageBitmap(await response.blob());
+          const binary = atob(base64);
+          const bytes = Uint8Array.from(binary, (value) => value.charCodeAt(0));
+          const bitmap = await createImageBitmap(
+            new Blob([bytes], { type: 'image/png' }),
+          );
           const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
           const context = canvas.getContext('2d', { willReadFrequently: true });
           context.drawImage(bitmap, 0, 0);

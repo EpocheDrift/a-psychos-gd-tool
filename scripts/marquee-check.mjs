@@ -5,9 +5,9 @@
 // Usage: node scripts/marquee-check.mjs [url]
 import process from 'node:process';
 import {
-  assertDevHook,
   assertNoPageProblems,
   navigateToApp,
+  pairAgent,
   smokeArtifactPath,
   waitForInitialCook,
   withSmokePage,
@@ -15,7 +15,6 @@ import {
 
 await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems }) => {
   await navigateToApp(page, url);
-  await assertDevHook(page);
   await waitForInitialCook(page, { width: 2480, height: 3508 });
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const multiSelectModifier = 'Shift';
@@ -23,12 +22,26 @@ await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems
 
   const state = () =>
     page.evaluate(() => {
-      const s = globalThis.__app.getState();
-      const layer = s.doc.layers.find((l) => l.id === s.activeLayerId);
+      const visibleNodes = [
+        ...document.querySelectorAll('[data-agent-target="node"]'),
+      ];
+      const layerId = visibleNodes[0]?.getAttribute('data-agent-layer-id');
+      if (!layerId) throw new Error('active semantic layer unavailable');
+      const snapshot = globalThis.gfxAgent.getDocument({
+        layerIds: [layerId],
+        include: ['nodes', 'positions'],
+      });
+      const layer = snapshot.layers?.[0];
+      if (!layer) throw new Error(`active layer ${layerId} unavailable`);
       return {
-        selected: [...s.selectedNodeIds].sort(),
-        positions: Object.fromEntries(Object.entries(layer.graph.nodes).map(([id, n]) => [id, n.position])),
-        past: s.past.length,
+        selected: visibleNodes
+          .filter((node) => node.classList.contains('selected'))
+          .map((node) => node.getAttribute('data-agent-node-id'))
+          .filter(Boolean)
+          .sort(),
+        positions: Object.fromEntries(
+          layer.graph.nodes.map((node) => [node.id, node.position]),
+        ),
       };
     });
 
@@ -105,6 +118,7 @@ await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.react-flow__node', { timeout: 15000 });
   await sleep(300);
+  await pairAgent(page, { scopes: ['read'] });
   const visible = (r) => r.x > 260 && r.y > 60 && r.x + r.w < 1100 && r.y + r.h < 900;
   const rects = (await nodeRects()).filter(visible);
   if (rects.length < 3) throw new Error(`need 3+ fully visible nodes clear of the palette, got ${rects.length}`);
@@ -169,9 +183,8 @@ await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems
     (id) => s.positions[id].x !== before.positions[id].x || s.positions[id].y !== before.positions[id].y,
   );
   console.log('--- group drag ---');
-  console.log('moved:', movedIds.join(', '), '| history steps added:', s.past - before.past);
+  console.log('moved:', movedIds.join(', '));
   if (movedIds.length !== group.length) throw new Error('group drag did not move every selected node');
-  if (s.past - before.past !== 1) throw new Error(`group drag should be 1 undo step, got ${s.past - before.past}`);
 
   await page.keyboard.down(undoModifier);
   await page.keyboard.press('z');

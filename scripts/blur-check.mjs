@@ -4,10 +4,10 @@
 // Usage: node scripts/blur-check.mjs [url]
 import { writeFile } from 'node:fs/promises';
 import {
-  assertDevHook,
   assertNoPageProblems,
   captureExportPng,
   navigateToApp,
+  pairAgent,
   smokeArtifactPath,
   waitForInitialCook,
   withSmokePage,
@@ -15,20 +15,47 @@ import {
 
 await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems }) => {
   await navigateToApp(page, url);
-  await assertDevHook(page);
   await waitForInitialCook(page, { width: 2480, height: 3508 });
+  await pairAgent(page, { scopes: ['read', 'edit'] });
 
   const before = await page.evaluate(() => {
-    const app = globalThis.__app;
-    app.getState().selectLayer('layer_1');
-    const layer = app.getState().doc.layers.find((candidate) => candidate.id === 'layer_1');
-    if (!layer?.graph.nodes.blur1) throw new Error('factory layer_1 blur1 node missing');
+    const snapshot = globalThis.gfxAgent.getDocument({
+      layerIds: ['layer_1'],
+      include: ['nodes'],
+    });
+    const layer = snapshot.layers?.[0];
+    if (!layer?.graph.nodes.some((node) => node.id === 'blur1')) {
+      throw new Error('factory layer_1 blur1 node missing');
+    }
     return {
-      nodes: Object.keys(layer.graph.nodes).sort(),
+      revision: snapshot.revision,
+      nodes: layer.graph.nodes.map((node) => node.id).sort(),
       log: [...document.querySelectorAll('[data-agent-cook-event]')].map((item) => item.textContent).join('|'),
     };
   });
-  await page.evaluate(() => globalThis.__app.getState().setParam('blur1', 'radius', 32));
+  const transaction = await page.evaluate(async (expectedRevision) => {
+    const result = await globalThis.gfxAgent.applyTransaction({
+      requestId: 'smoke_blur_radius_32',
+      expectedRevision,
+      commands: [{
+        op: 'set_node_params',
+        layerId: 'layer_1',
+        nodeId: 'blur1',
+        patch: { radius: 32 },
+      }],
+    });
+    if (!result.ok) throw new Error(`blur transaction failed: ${JSON.stringify(result)}`);
+    const rendered = await globalThis.gfxAgent.awaitRender({
+      revision: result.revision,
+    });
+    return { result, rendered };
+  }, before.revision);
+  if (
+    transaction.rendered.state !== 'complete'
+    || transaction.rendered.renderRevision !== transaction.result.revision
+  ) {
+    throw new Error(`blur render did not complete exactly: ${JSON.stringify(transaction)}`);
+  }
   await page.waitForFunction((previousLog) => {
     if (document.querySelector('[data-agent-render-error]')) return true;
     const currentLog = [...document.querySelectorAll('[data-agent-cook-event]')].map((item) => item.textContent).join('|');
@@ -43,10 +70,15 @@ await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems
       && status.dataset.agentDocumentRevision === status.dataset.agentRenderRevision;
   }, {}, before.log);
   const after = await page.evaluate(() => {
-    const layer = globalThis.__app.getState().doc.layers.find((candidate) => candidate.id === 'layer_1');
+    const snapshot = globalThis.gfxAgent.getDocument({
+      layerIds: ['layer_1'],
+      include: ['nodes'],
+    });
+    const layer = snapshot.layers[0];
+    const blur = layer.graph.nodes.find((node) => node.id === 'blur1');
     return {
-      nodes: Object.keys(layer.graph.nodes).sort(),
-      radius: layer.graph.nodes.blur1.params.radius,
+      nodes: layer.graph.nodes.map((node) => node.id).sort(),
+      radius: blur?.params.radius,
     };
   });
   if (JSON.stringify(after.nodes) !== JSON.stringify(before.nodes)) throw new Error('blur edit changed the node inventory');

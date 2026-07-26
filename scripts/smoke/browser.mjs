@@ -131,13 +131,17 @@ async function installDeterministicNetwork(page, appUrl, problems) {
         });
         return;
       }
-      if (requested.hostname === 'fonts.googleapis.com') {
-        await request.respond({
-          status: 200,
-          contentType: 'text/css; charset=utf-8',
-          headers: { 'access-control-allow-origin': '*' },
-          body: '',
-        });
+      if (
+        (requested.protocol === 'http:' || requested.protocol === 'https:')
+        && requested.origin !== appOrigin
+      ) {
+        const problem = {
+          kind: 'unexpected-network',
+          message: `Agent smoke blocked cross-origin request ${request.url()}`,
+        };
+        problems.push(problem);
+        console.error(`[${problem.kind}] ${problem.message}`);
+        await request.abort('blockedbyclient');
         return;
       }
       await request.continue();
@@ -223,10 +227,240 @@ export async function navigateToApp(page, url) {
   return webGpu;
 }
 
-export async function assertDevHook(page) {
-  const available = await page.evaluate(() => Boolean(globalThis.__app?.getState));
-  if (!available) {
-    throw new Error('Smoke scripts require a Vite development build with the DEV-only __app test hook.');
+export async function pairAgent(
+  page,
+  {
+    scopes = ['read'],
+    clientLabel = 'Codex browser smoke',
+  } = {},
+) {
+  await page.waitForFunction(() =>
+    Boolean(globalThis.gfxAgentPairing)
+    && document.querySelector('[data-agent-pairing-panel]'));
+  const unpaired = await page.evaluate(() => ({
+    controller: globalThis.gfxAgent,
+    legacyApp: globalThis.__app,
+    legacyRender: globalThis.__render,
+  }));
+  if (
+    unpaired.controller !== undefined
+    || unpaired.legacyApp !== undefined
+    || unpaired.legacyRender !== undefined
+  ) {
+    throw new Error('Agent build exposed a controller before pairing or a legacy raw hook.');
+  }
+  await page.click('[data-agent-action="open-agent-pairing"]');
+  await page.waitForFunction(() =>
+    document.querySelector('[data-agent-pairing-panel]')
+      ?.getAttribute('data-agent-pairing-state') === 'armed');
+
+  const challenge = await page.evaluateHandle(({ requestedScopes, label }) => {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    const clientNonce = btoa(binary)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/g, '');
+    let result;
+    try {
+      result = globalThis.gfxAgentPairing?.requestPairing({
+        protocolVersion: '1.0',
+        clientNonce,
+        clientLabel: label,
+        requestedScopes,
+      });
+    } catch (error) {
+      throw new Error(
+        `Pairing request threw: ${error instanceof Error ? error.stack : String(error)}`,
+      );
+    }
+    if (!result?.ok) {
+      throw new Error(`Pairing request failed: ${JSON.stringify(result?.error)}`);
+    }
+    return result.value;
+  }, { requestedScopes: scopes, label: clientLabel });
+
+  try {
+    await page.waitForFunction(() =>
+      document.querySelector('[data-agent-pairing-panel]')
+        ?.getAttribute('data-agent-pairing-state') === 'pending');
+    await page.waitForFunction(() =>
+      document.activeElement?.id === 'agent-pairing-title');
+    const dialogAudit = await page.evaluate(() => {
+      const dialog = document.querySelector('.agent-pairing-dialog');
+      return {
+        open: dialog instanceof HTMLDialogElement && dialog.open,
+        modal:
+          dialog instanceof HTMLDialogElement
+          && typeof dialog.matches === 'function'
+          && dialog.matches(':modal'),
+        activeId: document.activeElement?.id,
+        scopes: Array.from(
+          document.querySelectorAll('[data-agent-scope]'),
+          (element) => element.getAttribute('data-agent-scope'),
+        ),
+      };
+    });
+    if (
+      !dialogAudit.open
+      || !dialogAudit.modal
+      || dialogAudit.activeId !== 'agent-pairing-title'
+      || JSON.stringify(dialogAudit.scopes) !== JSON.stringify([
+        'read',
+        'preview',
+        'edit',
+        'assets',
+        'model',
+        'export',
+      ])
+    ) {
+      throw new Error(`Pairing dialog semantic audit failed: ${JSON.stringify(dialogAudit)}`);
+    }
+    const firstScope = scopes[0];
+    await page.evaluate((scope) => {
+      const input = document.querySelector(`[data-agent-scope="${scope}"]`);
+      input?.click();
+    }, firstScope);
+    await page.waitForFunction((scope) => {
+      const input = document.querySelector(`[data-agent-scope="${scope}"]`);
+      return input instanceof HTMLInputElement
+        && !input.checked
+        && input.getAttribute('data-agent-scope-selected') === 'false';
+    }, {}, firstScope);
+    const syntheticScope = await page.evaluate((scope) => {
+      const input = document.querySelector(`[data-agent-scope="${scope}"]`);
+      return {
+        checked: input instanceof HTMLInputElement && input.checked,
+        selected: input?.getAttribute('data-agent-scope-selected'),
+        granted: input?.getAttribute('data-agent-scope-granted'),
+        phase: document.querySelector('[data-agent-pairing-panel]')
+          ?.getAttribute('data-agent-pairing-state'),
+      };
+    }, firstScope);
+    if (
+      syntheticScope.checked
+      || syntheticScope.selected !== 'false'
+      || syntheticScope.granted !== 'false'
+      || syntheticScope.phase !== 'pending'
+    ) {
+      throw new Error(`Synthetic scope selection crossed consent boundary: ${JSON.stringify(syntheticScope)}`);
+    }
+    for (const scope of scopes) {
+      const selector = `[data-agent-scope="${scope}"]`;
+      const disabled = await page.$eval(selector, (element) =>
+        !(element instanceof HTMLInputElement) || element.disabled);
+      if (disabled) throw new Error(`Requested smoke scope is unavailable: ${scope}`);
+      await page.click(selector);
+    }
+    const pendingGrantAudit = await page.evaluate(() => ({
+      phase: document.querySelector('[data-agent-pairing-panel]')
+        ?.getAttribute('data-agent-pairing-state'),
+      accidentallyGranted: Array.from(
+        document.querySelectorAll('[data-agent-scope-granted="true"]'),
+        (element) => element.getAttribute('data-agent-scope'),
+      ),
+    }));
+    if (
+      pendingGrantAudit.phase !== 'pending'
+      || pendingGrantAudit.accidentallyGranted.length > 0
+    ) {
+      throw new Error(`Pending scope appeared granted: ${JSON.stringify(pendingGrantAudit)}`);
+    }
+    const syntheticApprove = await page.evaluate(() => {
+      document.querySelector('[data-agent-action="approve-agent-pairing"]')?.click();
+      return document.querySelector('[data-agent-pairing-panel]')
+        ?.getAttribute('data-agent-pairing-state');
+    });
+    if (syntheticApprove !== 'pending') {
+      throw new Error(`Synthetic approval crossed consent boundary: ${syntheticApprove}`);
+    }
+    await page.click('[data-agent-action="approve-agent-pairing"]');
+    await page.waitForFunction(() =>
+      document.querySelector('[data-agent-pairing-panel]')
+        ?.getAttribute('data-agent-pairing-state') === 'approved');
+    const result = await page.evaluate((pairingChallenge) => {
+      const completed = globalThis.gfxAgentPairing?.completePairing({
+        pairingId: pairingChallenge.pairingId,
+        clientNonce: pairingChallenge.clientNonce,
+        serverNonce: pairingChallenge.serverNonce,
+        claimToken: pairingChallenge.claimToken,
+      });
+      if (!completed?.ok) {
+        throw new Error(`Pairing completion failed: ${JSON.stringify(completed?.error)}`);
+      }
+      return completed.value;
+    }, challenge);
+    const smokeAudit = await page.evaluate((pairingChallenge) => {
+      const sensitive = [
+        pairingChallenge.pairingId,
+        pairingChallenge.clientNonce,
+        pairingChallenge.serverNonce,
+        pairingChallenge.claimToken,
+      ];
+      const dom = document.documentElement.outerHTML;
+      const storage = [
+        ...Object.entries(localStorage),
+        ...Object.entries(sessionStorage),
+      ].flatMap(([key, value]) => [key, value]);
+      const replay = globalThis.gfxAgentPairing?.completePairing({
+        pairingId: pairingChallenge.pairingId,
+        clientNonce: pairingChallenge.clientNonce,
+        serverNonce: pairingChallenge.serverNonce,
+        claimToken: pairingChallenge.claimToken,
+      });
+      return {
+        secretInDom: sensitive.some((value) => dom.includes(value)),
+        secretInUrl: sensitive.some((value) => location.href.includes(value)),
+        secretInStorage: sensitive.some((value) =>
+          storage.some((entry) => entry.includes(value))),
+        replayCode: replay?.ok ? 'UNEXPECTED_SUCCESS' : replay?.error?.code,
+      };
+    }, challenge);
+    await page.waitForFunction(() => Boolean(globalThis.gfxAgent));
+    await page.waitForFunction(() =>
+      document.activeElement?.getAttribute('data-agent-action')
+        === 'revoke-agent-session');
+    const syntheticRevoke = await page.evaluate(() => {
+      document.querySelector('[data-agent-action="revoke-agent-session"]')?.click();
+      return document.querySelector('[data-agent-pairing-panel]')
+        ?.getAttribute('data-agent-pairing-state');
+    });
+    if (syntheticRevoke !== 'connected') {
+      throw new Error(`Synthetic revoke crossed trusted control boundary: ${syntheticRevoke}`);
+    }
+    const surface = await page.evaluate(() => ({
+      methods: Object.keys(globalThis.gfxAgent ?? {}),
+      frozen: Object.isFrozen(globalThis.gfxAgent),
+      extensible: Object.isExtensible(globalThis.gfxAgent),
+      hasGenericCall: Object.hasOwn(globalThis.gfxAgent ?? {}, 'call'),
+      hasLegacyApp: globalThis.__app !== undefined,
+      hasLegacyRender: globalThis.__render !== undefined,
+    }));
+    const expected = [
+      'getCapabilities',
+      'getDocument',
+      'validateDocument',
+      'applyTransaction',
+      'getRenderStatus',
+      'awaitRender',
+      'capturePreview',
+      'revertTransaction',
+    ];
+    if (
+      JSON.stringify(surface.methods) !== JSON.stringify(expected)
+      || !surface.frozen
+      || surface.extensible
+      || surface.hasGenericCall
+      || surface.hasLegacyApp
+      || surface.hasLegacyRender
+    ) {
+      throw new Error(`Unsafe Agent surface: ${JSON.stringify(surface)}`);
+    }
+    return { ...result, smokeAudit };
+  } finally {
+    await challenge.dispose();
   }
 }
 

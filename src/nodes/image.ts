@@ -8,6 +8,7 @@ import type { NodeDef } from '../engine/registry';
 import type { RasterValue } from '../engine/values';
 import { throwIfCookInterrupted } from '../engine/cookControl';
 import { gpuWorkBudgetFor } from '../engine/gpuWorkBudget';
+import { imageSourceBlob } from '../util/imageSource';
 
 export const ImageNode: NodeDef = {
   type: 'Image',
@@ -36,9 +37,7 @@ export const ImageNode: NodeDef = {
     let bmp: ImageBitmap | undefined;
     try {
       if (src) {
-        const response = await fetch(src, { signal: ctx.signal });
-        throwIfCookInterrupted(ctx);
-        const blob = await response.blob();
+        const blob = await imageSourceBlob(src, ctx.signal);
         throwIfCookInterrupted(ctx);
         bmp = await createImageBitmap(blob);
         throwIfCookInterrupted(ctx);

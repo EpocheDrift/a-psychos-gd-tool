@@ -19,7 +19,6 @@ import {
   appRenderCoordinator,
   currentArtifactTicket,
   readbackPreviewExact,
-  registerDevPreviewCapture,
   registerPreviewLifecycle,
 } from './appRenderService';
 import type { PreviewMetricsV1 } from './previewMetrics';
@@ -670,4 +669,3 @@ export function previewCaptureStats(): ReturnType<PreviewCaptureService['stats']
 registerPreviewLifecycle((reason) => {
   sharedPreviewCapture.reset(reason);
 });
-registerDevPreviewCapture((request) => sharedPreviewCapture.capture(request));

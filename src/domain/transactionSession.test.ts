@@ -485,6 +485,48 @@ describe('TransactionSession conflict-safe revert', () => {
 });
 
 describe('TransactionSession two-phase finalization', () => {
+  it('runs trusted policy on the validated proposed dry-run and caches fail-closed denial', () => {
+    const session = new TransactionSession();
+    const request = setFrameRequest('policy_dry', 0, 777, true);
+    const policy = (context: {
+      proposed: RuntimeDocumentState;
+      requestId: string;
+      current: RuntimeDocumentState;
+    }) => ({
+      ok: false as const,
+      requestId: context.requestId,
+      revision: context.current.revision,
+      error: {
+        code: 'PERMISSION_REQUIRED' as const,
+        message: `Denied proposed width ${context.proposed.document.frame.width}.`,
+        recoverable: true,
+      },
+    });
+    const first = session.prepareApply(
+      runtime(),
+      session.captureApply(request),
+      policy,
+    );
+    expect(first.next).toBeUndefined();
+    expect(first.result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'PERMISSION_REQUIRED',
+        message: 'Denied proposed width 777.',
+      },
+    });
+    expect(session.finalize(first.finalizeToken!)).toBe(true);
+    const replay = session.prepareApply(
+      runtime(),
+      session.captureApply(request),
+      () => {
+        throw new Error('cached result must not rerun policy');
+      },
+    );
+    expect(replay.replayed).toBe(true);
+    expect(replay.result).toEqual(first.result);
+  });
+
   it('does not reserve cache, ledger, sequence, or IDs until finalize', () => {
     const session = new TransactionSession();
     const captured = session.captureApply(setFrameRequest('prepared_only'));
@@ -540,6 +582,34 @@ describe('TransactionSession two-phase finalization', () => {
       replayEntries: 1,
       ledgerEntries: 1,
     });
+  });
+
+  it('destroys cached snapshots and invalidates every prepared token', () => {
+    const session = new TransactionSession();
+    const committed = commitApply(
+      session,
+      runtime(),
+      setFrameRequest('destroy_committed'),
+    );
+    const pending = session.prepareApply(
+      committed.next!,
+      session.captureApply(setFrameRequest('destroy_pending', 1, 800)),
+    );
+    expect(session.getStats()).toMatchObject({
+      replayEntries: 1,
+      ledgerEntries: 1,
+      ledgerBytes: expect.any(Number),
+    });
+    session.destroy();
+    expect(session.getStats()).toEqual({
+      replayEntries: 0,
+      ledgerEntries: 0,
+      ledgerBytes: 0,
+    });
+    expect(session.finalize(pending.finalizeToken!)).toBe(false);
+    expect(() => session.captureApply(
+      setFrameRequest('destroyed_capture', 1, 900),
+    )).toThrow(/destroyed/);
   });
 
   it('keeps opaque captures bound to their originating session', () => {

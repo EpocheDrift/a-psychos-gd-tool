@@ -3,9 +3,9 @@
 // fetches, and every layer cooks without page errors.
 // Usage: node scripts/factory-check.mjs [url]
 import {
-  assertDevHook,
   assertNoPageProblems,
   navigateToApp,
+  pairAgent,
   smokeArtifactPath,
   waitForInitialCook,
   withSmokePage,
@@ -13,31 +13,33 @@ import {
 
 await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems }) => {
   await navigateToApp(page, url);
-  await assertDevHook(page);
   await waitForInitialCook(page, { width: 2480, height: 3508 });
+  await pairAgent(page, { scopes: ['read'] });
 
   const state = await page.evaluate(() => {
-    const current = globalThis.__app.getState();
+    const current = globalThis.gfxAgent.getDocument({
+      include: ['frame', 'layers', 'nodes', 'edges'],
+    });
     return {
-      frame: current.doc.frame,
-      layers: current.doc.layers.map((layer) => ({
+      frame: current.frame,
+      trust: current.trust,
+      layers: current.layers.map((layer) => ({
         id: layer.id,
         name: layer.name,
-        nodes: Object.keys(layer.graph.nodes).length,
+        nodes: layer.graph.nodes.length,
         edges: layer.graph.edges.length,
       })),
-      totalNodes: current.doc.layers.reduce((sum, layer) => sum + Object.keys(layer.graph.nodes).length, 0),
-      totalEdges: current.doc.layers.reduce((sum, layer) => sum + layer.graph.edges.length, 0),
-      active: current.activeLayerId,
-      imageSrcs: current.doc.layers.flatMap((layer) =>
-        Object.values(layer.graph.nodes).filter((node) => node.type === 'Image').map((node) => node.params.src)),
+      totalNodes: current.layers.reduce((sum, layer) => sum + layer.graph.nodes.length, 0),
+      totalEdges: current.layers.reduce((sum, layer) => sum + layer.graph.edges.length, 0),
+      imageSrcs: current.layers.flatMap((layer) =>
+        layer.graph.nodes.filter((node) => node.type === 'Image').map((node) => node.params.src)),
     };
   });
   console.log('frame:', JSON.stringify(state.frame));
   console.log('layers:', JSON.stringify(state.layers));
-  console.log('active layer:', state.active);
   console.log('image srcs:', JSON.stringify(state.imageSrcs));
 
+  if (state.trust !== 'untrusted-document-content') throw new Error('document trust label missing');
   if (state.frame.width !== 2480 || state.frame.height !== 3508) throw new Error('wrong frame');
   const expectedLayers = [
     { id: 'layer_2', nodes: 6, edges: 5 },

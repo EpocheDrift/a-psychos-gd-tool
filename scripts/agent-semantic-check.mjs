@@ -6,6 +6,7 @@ import axe from 'axe-core';
 import {
   assertNoPageProblems,
   navigateToApp,
+  pairAgent,
   withSmokePage,
 } from './smoke/browser.mjs';
 
@@ -282,9 +283,7 @@ async function deleteNode(page, nodeId) {
 
 async function capturePreview(page, terminal, format = 'png') {
   return page.evaluate(async ({ revision, attempt, requestedFormat }) => {
-    const hook = globalThis.__render;
-    if (!hook?.capturePreview) throw new Error('Read-only preview hook unavailable');
-    const result = await hook.capturePreview({
+    const result = await globalThis.gfxAgent.capturePreview({
       revision,
       attempt,
       maxWidth: 768,
@@ -292,6 +291,8 @@ async function capturePreview(page, terminal, format = 'png') {
       format: requestedFormat,
       includeMetrics: true,
     });
+    const response = await fetch(result.image.url);
+    const imageByteLength = (await response.arrayBuffer()).byteLength;
     return {
       requestedRevision: result.requestedRevision,
       revision: result.revision,
@@ -304,7 +305,8 @@ async function capturePreview(page, terminal, format = 'png') {
       byteLength: result.byteLength,
       contentHash: result.contentHash,
       rgbaSha256: result.rgbaSha256,
-      imageByteLength: result.image.bytes.byteLength,
+      imageKind: result.image.kind,
+      imageByteLength,
       imageTrust: result.image.trust,
       metrics: result.metrics,
     };
@@ -326,6 +328,7 @@ function assertPreview(preview, terminal, expectedMimeType = 'image/png') {
     || preview.mimeType !== expectedMimeType
     || preview.byteLength <= 0
     || preview.byteLength > 4 * 1024 * 1024
+    || preview.imageKind !== 'browser-object-url-v1'
     || preview.imageByteLength !== preview.byteLength
     || preview.imageTrust !== 'untrusted-document-render'
     || !/^[0-9a-f]{64}$/.test(preview.contentHash)
@@ -346,7 +349,7 @@ function assertPreview(preview, terminal, expectedMimeType = 'image/png') {
 async function assertStalePreviewRejected(page, terminal) {
   const rejected = await page.evaluate(async ({ revision, attempt }) => {
     try {
-      await globalThis.__render.capturePreview({
+      await globalThis.gfxAgent.capturePreview({
         revision,
         attempt,
         maxWidth: 256,
@@ -355,8 +358,8 @@ async function assertStalePreviewRejected(page, terminal) {
       return null;
     } catch (error) {
       return {
-        code: error?.code,
-        message: error instanceof Error ? error.message : String(error),
+        code: error?.error?.code,
+        message: error?.error?.message ?? String(error),
       };
     }
   }, {
@@ -369,7 +372,9 @@ async function assertStalePreviewRejected(page, terminal) {
 }
 
 async function accessibilityAudit(page, stateName) {
-  await page.addScriptTag({ content: axe.source });
+  // CDP test instrumentation evaluates Axe without weakening the page CSP or
+  // adding an application eval surface.
+  await page.evaluate(axe.source);
   const result = await page.evaluate(async () => {
     const axeResult = await globalThis.axe.run(document, {
       resultTypes: ['violations'],
@@ -468,6 +473,7 @@ async function runFiftyRoundGate() {
       if (initial.documentRevision !== 0) {
         throw new Error(`Unexpected initial revision: ${JSON.stringify(initial)}`);
       }
+      await pairAgent(page, { scopes: ['preview'] });
       const output = (await semanticNodeIds(page)).find(
         (node) => node.type === 'Output',
       );

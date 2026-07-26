@@ -269,6 +269,10 @@ export function computePreviewMetrics(
   }
 
   const alphaCoverage = alphaSum / (255 * pixelCount);
+  const luminanceMean = Math.min(
+    luminanceMax,
+    Math.max(luminanceMin, luminanceSum / pixelCount),
+  );
   const background = dominantBorderBackground(pixels, checkpoint);
   let minX = pixels.width;
   let minY = pixels.height;
@@ -313,7 +317,7 @@ export function computePreviewMetrics(
     luminance: {
       min: luminanceMin,
       max: luminanceMax,
-      mean: luminanceSum / pixelCount,
+      mean: luminanceMean,
     },
     perceptualHash: perceptualHash(
       luminance,

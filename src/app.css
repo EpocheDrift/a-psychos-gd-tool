@@ -1,6 +1,14 @@
 /* Styling adapted from the rotorelief lab theme: light, neutral grayscale,
    sharp corners, uppercase letter-spaced labels, Kulim Park, backdrop-blur
    panels, with deep-pink / royal-blue data accents. */
+@font-face {
+  font-family: 'Gfx UI';
+  src: url('/fonts/JetBrainsMono-Regular.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: block;
+}
+
 :root {
   --bg: #fafafa;
   --panel: rgba(255, 255, 255, 0.85);
@@ -39,7 +47,7 @@
 }
 
 body {
-  font-family: 'Kulim Park', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-family: 'Gfx UI', ui-monospace, monospace;
   background: var(--bg);
   color: var(--text);
   font-size: 12px;

@@ -34,6 +34,7 @@ import type {
 import { DEFAULT_AGENT_LIMITS } from './domain/limits';
 
 const FONT_URLS = ['/fonts/Inter-Regular.otf', '/fonts/JetBrainsMono-Regular.ttf', '/fonts/local-fallback.ttf'];
+const AGENT_MODE = __GFX_AGENT_BUILD__;
 
 // only show the loading overlay once a cook has run this long — keeps quick
 // re-cooks (most param tweaks) from flashing it
@@ -103,7 +104,9 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    loadLocalFontsIfGranted(); // fire-and-forget; boot doesn't wait on the list
+    if (!AGENT_MODE) {
+      loadLocalFontsIfGranted(); // fire-and-forget; boot doesn't wait on the list
+    }
     (async () => {
       const gpu = await GpuContext.init();
       if (cancelled) {
@@ -241,6 +244,7 @@ export default function App() {
   // above. Also runs when `localFonts` arrives so a saved document's fonts
   // load right at startup.
   useEffect(() => {
+    if (AGENT_MODE) return;
     const { fonts: loaded, loadLocalFont } = useApp.getState();
     for (const layer of doc.layers) {
       for (const node of Object.values(layer.graph.nodes)) {

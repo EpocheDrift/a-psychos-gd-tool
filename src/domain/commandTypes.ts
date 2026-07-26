@@ -158,6 +158,12 @@ export interface RuntimeDocumentState {
 
 export interface CommandApplication {
   result: TransactionResult;
+  /**
+   * Fully validated proposed state for internal policy inspection. Dry runs
+   * expose it only to the in-process host; it is never part of the public
+   * TransactionResult and is never committed.
+   */
+  proposed?: RuntimeDocumentState;
   next?: RuntimeDocumentState;
 }
 

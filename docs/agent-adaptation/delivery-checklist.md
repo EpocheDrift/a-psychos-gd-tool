@@ -13,7 +13,7 @@ Integration branch: `agent/agent-ready-v1`
 | PR 2 — Pure command and transaction service | Complete | Commit [`ccd7227`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/ccd7227f4a55a9e22972066430890a1b47877800) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 3 — Revisioned render coordinator | Complete | Commit [`ca930fb`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/ca930fb2380c2ceac1e5a5ab1fc075a9039ad099) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 4 — Preview evidence and stable UI automation | Complete | Commit [`a257449`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/a257449) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
-| PR 5 — Gated browser AgentController | Not started | Blocked by sequence. |
+| PR 5 — Gated browser AgentController | In progress | Implementation and all local contract/artifact/WebGPU gates pass; commit/push evidence remains. |
 | PR 6 — Local MCP companion | Not started | No MCP write permission may be exposed before all prerequisite gates pass. |
 | PR 7 — Asset and persistence boundary | Not started | Asset/model tools remain disabled. |
 | PR 8 — Agent evals and high-level helpers | Not started | Blocked by sequence. |
@@ -184,15 +184,68 @@ Integration branch: `agent/agent-ready-v1`
   preview/resource, UI/accessibility, and scope/documentation audits.
 - [x] Commit and push the stage to the fork and update the Draft integration PR.
 
-## Open risks carried beyond PR 4
+## PR 5 checklist
+
+- [x] Add an explicit `--mode agent` static artifact while keeping the default
+  production artifact free of Agent globals and making Vite source-development
+  Agent mode fail closed.
+- [x] Gate the browser bridge on the exact top-level secure loopback page realm
+  and fixed origin, with HTTP `Host`/WebSocket `Origin` enforcement explicitly
+  deferred to the PR 6 transport.
+- [x] Add a short-lived one-shot 256-bit pairing claim, nonce binding,
+  fingerprinted client identity, replay/expiry/revoke handling, one-owner
+  policy, in-memory secrets, and per-session transaction state destruction.
+- [x] Declare all six scopes while allowing only `read`, `preview`, and `edit`
+  in PR 5; require browser-trusted selection/approval/revoke controls and
+  document that this is not physical-user proof against CDP input.
+- [x] Expose only the frozen named `getCapabilities`, `getDocument`,
+  `validateDocument`, `applyTransaction`, `getRenderStatus`, `awaitRender`,
+  `capturePreview`, and `revertTransaction` methods after pairing.
+- [x] Preserve one command/validation layer for UI and Agent writes, enforce
+  revision/idempotency/rollback policy, linearize authorization before commit,
+  and destroy replay/ledger state on session teardown.
+- [x] Project compact capabilities and redacted document snapshots; sanitize
+  and bound transaction, validation, render, and controller diagnostics,
+  including hostile Proxy traps, data/blob URIs, secret fields, and oversized
+  unknown keys.
+- [x] Return preview bytes only through a bounded revocable object-URL handle,
+  retain exact revision/attempt/hash/metrics evidence, and clear handles on
+  revoke, expiry, replacement, or TTL.
+- [x] Keep model scope disabled and block preloaded model-backed documents
+  before GPU/worker/model execution until the PR 7 integrity gate.
+- [x] Add a visible, keyboard-accessible pairing/connected/revoke UI with
+  focus restoration, immutable granted scopes, bidi-safe labels, six-scope
+  availability disclosure, and no overlap with editor/frame controls.
+- [x] Self-host UI fonts; apply restrictive CSP, Referrer-Policy,
+  Permissions-Policy, COOP/CORP, no-store, nosniff, and frame denial; preserve
+  legacy embedded-image compatibility without granting `fetch(data:)`.
+- [x] Remove `__app` and `__render` from all source/artifacts/smokes; migrate
+  browser checks to the paired controller and semantic DOM.
+- [x] Build and scan poisoned default plus explicit Agent artifacts; in real
+  Chrome dynamically import the loaded same-origin JS modules and prove the
+  Agent HTML entry exports no Zustand `getState`/`setState` authority.
+- [x] Run final typecheck, 443 unit tests across 43 files, both production
+  builds, the real-Chrome module/runtime gate, all nine browser/WebGPU smoke
+  checks, and the 50-round semantic/accessibility/collision gate.
+- [x] Close all P0/P1 findings from independent controller/resource,
+  security/scope, UI/accessibility, artifact, and documentation audits.
+- [ ] Commit and push the stage to the fork and update the Draft integration PR.
+
+## Open risks carried beyond PR 5
 
 - The WebGPU suite is a required manual gate until CI has a real, reliable GPU
   runner; ordinary `ubuntu-latest` browser success is not rendering evidence.
-- Preview evidence is implemented internally, but its transferable
-  `ArrayBuffer` handle is intentionally not a production Agent API.
-  Controller authorization, bridge authentication, asset isolation, and Agent
-  evals have not landed yet. MCP write tools remain unavailable until those
-  gates pass.
+- Preview `ArrayBuffer` bytes remain internal; the browser controller exposes a
+  bounded, revocable object-URL handle. The HTTP/WebSocket MCP transport, asset
+  isolation, and Agent evals have not landed. MCP tools remain unavailable
+  until their rollout gates pass.
+- Browser-trusted `Event.isTrusted` rejects page-script synthetic approval but
+  does not prove a physical human when an attacker controls CDP/input. PR 6
+  must expose no CDP, navigation, browser-input, or page-evaluation tool; a
+  stronger threat model requires out-of-band native/WebAuthn/OS confirmation.
+- PR 5 verifies the owning page realm and Vite preview host. PR 6 must enforce
+  exact HTTP `Host`, WebSocket upgrade `Origin`, authentication, message/rate/
+  concurrency budgets, and these response headers in its production host.
 - Browser-native `OffscreenCanvas.convertToBlob` cannot be interrupted from
   inside the call; cancellation terminates and replaces the bounded preview
   worker. DCT pHash is similarity evidence and may vary at floating-point
@@ -225,6 +278,6 @@ Integration branch: `agent/agent-ready-v1`
   geometry can still have an uninterruptible tail. Failed GPU attempts destroy
   newly created textures; reused targets rely on every internal path fully
   overwriting them before publication.
-- `globalThis.__app` is a development-only smoke hook, not a public Agent API;
-  production builds do not expose it and PR 5 must not expand it into raw store
-  access.
+- Default and Agent artifacts expose neither `globalThis.__app` nor
+  `globalThis.__render`; CI and real-browser artifact gates must continue to
+  reject legacy globals and ESM namespace exports carrying raw store authority.

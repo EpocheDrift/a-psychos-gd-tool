@@ -5,10 +5,10 @@
 // Usage: node scripts/fringe-check.mjs [url]
 import { readFile, writeFile } from 'node:fs/promises';
 import {
-  assertDevHook,
   assertNoPageProblems,
   captureExportPng,
   navigateToApp,
+  pairAgent,
   smokeArtifactPath,
   waitForInitialCook,
   withSmokePage,
@@ -20,20 +20,43 @@ const graph = JSON.parse(
 
 await withSmokePage({ storage: { mode: 'legacy', graph } }, async ({ page, url, problems }) => {
   await navigateToApp(page, url);
-  await assertDevHook(page);
   await waitForInitialCook(page, { width: 320, height: 240 });
+  await pairAgent(page, { scopes: ['read', 'edit'] });
 
   const before = await page.evaluate(() => {
-    const app = globalThis.__app;
-    app.getState().selectLayer('layer_1');
-    const layer = app.getState().doc.layers.find((candidate) => candidate.id === 'layer_1');
-    if (!layer?.graph.nodes.text || !layer.graph.nodes.out) throw new Error('legacy fringe nodes missing');
+    const snapshot = globalThis.gfxAgent.getDocument({
+      layerIds: ['layer_1'],
+      include: ['nodes'],
+    });
+    const layer = snapshot.layers?.[0];
+    const ids = layer?.graph.nodes.map((node) => node.id) ?? [];
+    if (!ids.includes('text') || !ids.includes('out')) throw new Error('legacy fringe nodes missing');
     return {
-      nodes: Object.keys(layer.graph.nodes).sort(),
+      revision: snapshot.revision,
+      nodes: ids.sort(),
       log: [...document.querySelectorAll('[data-agent-cook-event]')].map((item) => item.textContent).join('|'),
     };
   });
-  await page.evaluate(() => globalThis.__app.getState().setParam('out', 'background', '#ffffff'));
+  const transaction = await page.evaluate(async (expectedRevision) => {
+    const result = await globalThis.gfxAgent.applyTransaction({
+      requestId: 'smoke_fringe_white_background',
+      expectedRevision,
+      commands: [{
+        op: 'set_node_params',
+        layerId: 'layer_1',
+        nodeId: 'out',
+        patch: { background: '#ffffff' },
+      }],
+    });
+    if (!result.ok) throw new Error(`fringe transaction failed: ${JSON.stringify(result)}`);
+    const rendered = await globalThis.gfxAgent.awaitRender({
+      revision: result.revision,
+    });
+    return { result, rendered };
+  }, before.revision);
+  if (transaction.rendered.state !== 'complete') {
+    throw new Error(`fringe render failed: ${JSON.stringify(transaction)}`);
+  }
 
   await page.waitForFunction((previousLog) => {
     if (document.querySelector('[data-agent-render-error]')) return true;
@@ -46,10 +69,17 @@ await withSmokePage({ storage: { mode: 'legacy', graph } }, async ({ page, url, 
   }, {}, before.log);
   const renderedPng = await captureExportPng(page);
   const rendered = await page.evaluate(async (png) => {
-    const app = globalThis.__app;
-    const layer = app.getState().doc.layers.find((candidate) => candidate.id === 'layer_1');
-    const response = await fetch(`data:image/png;base64,${png}`);
-    const bitmap = await createImageBitmap(await response.blob());
+    const documentSnapshot = globalThis.gfxAgent.getDocument({
+      layerIds: ['layer_1'],
+      include: ['nodes'],
+    });
+    const layer = documentSnapshot.layers[0];
+    const out = layer.graph.nodes.find((node) => node.id === 'out');
+    const binary = atob(png);
+    const bytes = Uint8Array.from(binary, (value) => value.charCodeAt(0));
+    const bitmap = await createImageBitmap(
+      new Blob([bytes], { type: 'image/png' }),
+    );
     const snapshot = new OffscreenCanvas(bitmap.width, bitmap.height);
     const context = snapshot.getContext('2d', { willReadFrequently: true });
     context.drawImage(bitmap, 0, 0);
@@ -62,8 +92,8 @@ await withSmokePage({ storage: { mode: 'legacy', graph } }, async ({ page, url, 
       if (channel < 230) dark++;
     }
     return {
-      nodes: Object.keys(layer.graph.nodes).sort(),
-      background: layer.graph.nodes.out.params.background,
+      nodes: layer.graph.nodes.map((node) => node.id).sort(),
+      background: out?.params.background,
       pixels: data.length / 4,
       dark,
       darkest,

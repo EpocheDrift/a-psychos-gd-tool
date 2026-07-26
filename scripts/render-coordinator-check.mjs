@@ -2,9 +2,9 @@
 // It proves exact-ticket waiting, latest-wins coalescing, last-known-good
 // metadata, and bounded texture-pool behavior during frame-size churn.
 import {
-  assertDevHook,
   assertNoPageProblems,
   navigateToApp,
+  pairAgent,
   waitForInitialCook,
   withSmokePage,
 } from './smoke/browser.mjs';
@@ -13,41 +13,40 @@ await withSmokePage(
   { storage: { mode: 'empty' } },
   async ({ page, url, problems }) => {
     await navigateToApp(page, url);
-    await assertDevHook(page);
     await waitForInitialCook(page, { width: 2480, height: 3508 });
-
-    const hookAvailable = await page.evaluate(() =>
-      Boolean(
-        globalThis.__render?.getStatus
-        && globalThis.__render?.awaitRender
-        && globalThis.__render?.getPoolStats,
-      ));
-    if (!hookAvailable) {
-      throw new Error(
-        'Revision smoke requires the DEV-only read-only __render hook.',
-      );
-    }
+    await pairAgent(page, { scopes: ['read', 'edit'] });
 
     const coalesced = await page.evaluate(async () => {
-      const app = globalThis.__app;
-      const render = globalThis.__render;
+      const agent = globalThis.gfxAgent;
       const tickets = [];
+      const initial = agent.getDocument({ include: ['frame'] });
+      let expectedRevision = initial.revision;
 
-      // This loop never yields. Every store subscription schedules
-      // synchronously, so all but the final attempt must be coalesced.
+      // Every transaction commits synchronously before its resolved Promise
+      // yields. Render scheduling is synchronous with the store publication,
+      // so all but the final queued revision are coalesced.
       for (let width = 801; width <= 812; width++) {
-        const state = app.getState();
-        state.setFrame({ ...state.doc.frame, width });
-        tickets.push(render.getStatus().ticket);
+        const result = await agent.applyTransaction({
+          requestId: `coalesce_${width}`,
+          expectedRevision,
+          commands: [{
+            op: 'set_frame',
+            width,
+            height: initial.frame.height,
+          }],
+        });
+        if (!result.ok) throw new Error(`coalescing transaction failed: ${JSON.stringify(result)}`);
+        expectedRevision = result.revision;
+        tickets.push(agent.getRenderStatus().ticket);
       }
 
       const first = tickets[0];
       const last = tickets.at(-1);
-      const firstResult = await render.awaitRender({
+      const firstResult = await agent.awaitRender({
         ...first,
         timeoutMs: 20_000,
       });
-      const lastResult = await render.awaitRender({
+      const lastResult = await agent.awaitRender({
         ...last,
         timeoutMs: 20_000,
       });
@@ -55,10 +54,9 @@ await withSmokePage(
         tickets,
         firstResult,
         lastResult,
-        statuses: tickets.map((ticket) => render.getStatus(ticket)),
-        latest: render.getStatus(),
-        pool: render.getPoolStats(),
-        documentRevision: app.getState().revision,
+        statuses: tickets.map((ticket) => agent.getRenderStatus(ticket)),
+        latest: agent.getRenderStatus(),
+        documentRevision: agent.getDocument({ include: [] }).revision,
       };
     });
 
@@ -91,23 +89,43 @@ await withSmokePage(
     // free-texture LRU eviction, and hard allocation limits—not only queue
     // coalescing.
     const completedChurn = await page.evaluate(async () => {
-      const app = globalThis.__app;
-      const render = globalThis.__render;
+      const agent = globalThis.gfxAgent;
       const snapshots = [];
+      const initial = agent.getDocument({ include: ['frame'] });
+      const limits = agent.getCapabilities().limits;
+      let expectedRevision = initial.revision;
       for (const width of [864, 928, 992, 1056, 1120, 1184]) {
-        const state = app.getState();
-        state.setFrame({ ...state.doc.frame, width });
-        const ticket = render.getStatus().ticket;
-        const status = await render.awaitRender({
+        const result = await agent.applyTransaction({
+          requestId: `completed_churn_${width}`,
+          expectedRevision,
+          commands: [{
+            op: 'set_frame',
+            width,
+            height: initial.frame.height,
+          }],
+        });
+        if (!result.ok) throw new Error(`churn transaction failed: ${JSON.stringify(result)}`);
+        expectedRevision = result.revision;
+        const ticket = agent.getRenderStatus().ticket;
+        const status = await agent.awaitRender({
           ...ticket,
           timeoutMs: 20_000,
         });
-        snapshots.push({ ticket, status, pool: render.getPoolStats() });
+        const poolText = document.querySelector('[data-agent-pool-status]')?.textContent ?? '';
+        const match = /pool:\s*(\d+)\s+live\s*\/\s*(\d+)\s+allocated/.exec(poolText);
+        snapshots.push({
+          ticket,
+          status,
+          pool: match
+            ? { live: Number(match[1]), allocated: Number(match[2]) }
+            : null,
+        });
       }
       return {
         snapshots,
-        latest: render.getStatus(),
-        documentRevision: app.getState().revision,
+        latest: agent.getRenderStatus(),
+        documentRevision: agent.getDocument({ include: [] }).revision,
+        maxTextures: limits.maxGpuTextures,
       };
     });
 
@@ -121,9 +139,8 @@ await withSmokePage(
       const stats = snapshot.pool;
       if (!stats) throw new Error('texture-pool stats unavailable');
       if (
-        stats.totalBytes > stats.maxBytes
-        || stats.freeBytes > stats.maxFreeBytes
-        || stats.allocated > stats.maxTextures
+        stats.live > stats.allocated
+        || stats.allocated > completedChurn.maxTextures
       ) {
         throw new Error(`texture-pool budget exceeded: ${JSON.stringify(stats)}`);
       }

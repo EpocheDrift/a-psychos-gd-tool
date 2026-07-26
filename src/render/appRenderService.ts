@@ -1,11 +1,10 @@
 import { DEFAULT_AGENT_LIMITS } from '../domain/limits';
+import { modelNodeTypesInDocument } from '../domain/modelExecutionPolicy';
 import {
   RenderCoordinator,
-  type AwaitRenderRequest,
   type RenderExecutionResult,
   type RenderJob,
   type RenderStatus,
-  type RenderStatusRequest,
   type RenderTicket,
 } from '../domain/renderCoordinator';
 import {
@@ -55,6 +54,21 @@ export class ExactRenderUnavailableError extends Error {
   }
 }
 
+export class AgentModelExecutionBlockedError extends Error {
+  readonly code = 'MODEL_DOWNLOAD_REQUIRED' as const;
+  readonly recoverable = true;
+  readonly phase = 'agent-model-policy';
+  readonly details: { nodeTypes: string[]; rolloutGate: 'PR7' };
+
+  constructor(nodeTypes: string[]) {
+    super(
+      'Model execution is blocked in Agent mode until model bytes are pinned, self-hosted, and integrity-verified.',
+    );
+    this.name = 'AgentModelExecutionBlockedError';
+    this.details = { nodeTypes: [...nodeTypes], rolloutGate: 'PR7' };
+  }
+}
+
 export const appRenderCoordinator = new RenderCoordinator<AppRenderInput>({
   defaultDeadlineMs: DEFAULT_AGENT_LIMITS.renderDeadlineMs,
 });
@@ -75,7 +89,6 @@ let storeBindingStarted = false;
 let onDeviceLostCallback: ((error: Error) => void) | null = null;
 let gpuOperationTail: Promise<void> = Promise.resolve();
 let previewTeardownHandler: ((reason: Error) => void) | null = null;
-let devPreviewCapture: ((request: unknown) => Promise<unknown>) | null = null;
 
 function sameTicket(left: RenderTicket, right: RenderTicket): boolean {
   return left.revision === right.revision && left.attempt === right.attempt;
@@ -186,6 +199,12 @@ export function configureAppRenderer(
     job: RenderJob<AppRenderInput>,
   ): Promise<RenderExecutionResult> => withGpuLock(job, async () => {
     throwIfCookInterrupted(job);
+    if (__GFX_AGENT_BUILD__) {
+      const modelNodeTypes = modelNodeTypesInDocument(job.input.document);
+      if (modelNodeTypes.length > 0) {
+        throw new AgentModelExecutionBlockedError(modelNodeTypes);
+      }
+    }
     const poolCheckpoint = configuredGpu.pool.checkpoint();
     // The canvas swapchain already contains the last-known-good pixels. Once a
     // newer attempt owns the GPU lock, its old composite is no longer a valid
@@ -385,12 +404,6 @@ export function registerPreviewLifecycle(
   previewTeardownHandler = teardown;
 }
 
-export function registerDevPreviewCapture(
-  capture: ((request: unknown) => Promise<unknown>) | null,
-): void {
-  if (import.meta.env?.DEV) devPreviewCapture = capture;
-}
-
 export async function readbackExact(
   ticket: RenderTicket,
   control: Omit<CookControl, 'revision'> = {},
@@ -566,23 +579,4 @@ function releaseRendererResources(activeGpu: GpuContext): void {
   disposeEvaluators(evaluators, activeGpu);
   resetTraceWorker(new CookCancelledError());
   resetBooleanWorker(new CookCancelledError());
-}
-
-// Development-only, read-only observability for the real WebGPU smoke suite.
-// The public Agent boundary lands in PR 5 and must not expose the coordinator,
-// Zustand, GPU handles, or arbitrary callbacks.
-if (import.meta.env?.DEV) {
-  (globalThis as Record<string, unknown>).__render = Object.freeze({
-    getStatus: (request: number | RenderStatusRequest = {}) =>
-      appRenderCoordinator.getRenderStatus(request),
-    awaitRender: (request: AwaitRenderRequest) =>
-      appRenderCoordinator.awaitRender(request),
-    getPoolStats: () => gpu?.pool.stats() ?? null,
-    capturePreview: (request: unknown) => {
-      if (!devPreviewCapture) {
-        return Promise.reject(new Error('Preview capture is not initialized.'));
-      }
-      return devPreviewCapture(request);
-    },
-  });
 }

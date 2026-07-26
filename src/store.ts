@@ -42,7 +42,11 @@ import {
   type ProjectImportResult,
 } from './domain/projectCodec';
 import { validateSerializedProject } from './domain/semanticValidation';
-import { TransactionSession } from './domain/transactionSession';
+import {
+  TransactionSession,
+  type SessionFinalizeToken,
+  type TransactionPolicy,
+} from './domain/transactionSession';
 import { factoryDoc } from './factoryDoc';
 import { registry } from './nodes';
 import { extractFace, faceCount } from './util/sfnt';
@@ -750,133 +754,181 @@ export const useApp = create<AppStore>((set, get) => ({
   },
 
   applyTransaction: (request) => {
-    // Raw caller data is fully captured before entering a Zustand updater.
-    // Proxy traps may re-enter the store here, but the updater below will then
-    // observe the resulting latest revision and reject stale expectedRevision.
-    const captured = transactionSession.captureApply(request);
-    let response = transactionHostFailure(get().revision, undefined);
-    let finalized = false;
-    try {
-      set((s) => {
-        const application = transactionSession.prepareApply(
-          runtimeDocumentState(s),
-          captured,
-        );
-        response = application.result;
-        if (!application.next) {
-          if (
-            application.finalizeToken
-            && !transactionSession.finalize(application.finalizeToken)
-          ) {
-            response = transactionHostFailure(s.revision, response.requestId);
-            return s;
-          }
-          finalized = application.finalizeToken !== null;
-          return s;
-        }
-
-        // Build every allocation and potentially throwing host artifact before
-        // publishing the replay/ledger record. After finalize, returning this
-        // already-complete replacement is the only remaining action.
-        const replacement: AppStore = {
-          ...s,
-          ...buildHistorySnapshot(s),
-          documentId: application.next.documentId,
-          doc: application.next.document,
-          assets: application.next.assets,
-          revision: application.next.revision,
-          ...revalidate(s, application.next.document),
-        };
-        const latest = get();
-        if (latest !== s) {
-          response = transactionHostFailure(
-            latest.revision,
-            response.requestId,
-            'Store state changed while the transaction commit was being prepared.',
-          );
-          return latest;
-        }
-        if (
-          !application.finalizeToken
-          || !transactionSession.finalize(application.finalizeToken)
-        ) {
-          const current = get();
-          response = transactionHostFailure(current.revision, response.requestId);
-          return current;
-        }
-        lastEdit = null;
-        finalized = true;
-        return replacement;
-      }, true);
-      return response;
-    } catch {
-      // A listener can throw after Zustand has installed the replacement. In
-      // that case finalize already succeeded, so report the committed result.
-      if (finalized) return response;
-      return transactionHostFailure(get().revision, response.requestId);
-    }
+    return applyStoreTransaction(transactionSession, request);
   },
 
   revertTransaction: (request) => {
-    const captured = transactionSession.captureRevert(request);
-    let response = transactionHostFailure(get().revision, undefined);
-    let finalized = false;
-    try {
-      set((s) => {
-        const application = transactionSession.prepareRevert(
-          runtimeDocumentState(s),
-          captured,
-        );
-        response = application.result;
-        if (!application.next) {
-          if (
-            application.finalizeToken
-            && !transactionSession.finalize(application.finalizeToken)
-          ) {
-            response = transactionHostFailure(s.revision, response.requestId);
-            return s;
-          }
-          finalized = application.finalizeToken !== null;
-          return s;
-        }
-
-        const replacement: AppStore = {
-          ...s,
-          ...buildHistorySnapshot(s),
-          documentId: application.next.documentId,
-          doc: application.next.document,
-          assets: application.next.assets,
-          revision: application.next.revision,
-          ...revalidate(s, application.next.document),
-        };
-        const latest = get();
-        if (latest !== s) {
-          response = transactionHostFailure(
-            latest.revision,
-            response.requestId,
-            'Store state changed while the transaction revert was being prepared.',
-          );
-          return latest;
-        }
-        if (
-          !application.finalizeToken
-          || !transactionSession.finalize(application.finalizeToken)
-        ) {
-          const current = get();
-          response = transactionHostFailure(current.revision, response.requestId);
-          return current;
-        }
-        lastEdit = null;
-        finalized = true;
-        return replacement;
-      }, true);
-      return response;
-    } catch {
-      if (finalized) return response;
-      return transactionHostFailure(get().revision, response.requestId);
-    }
+    return revertStoreTransaction(transactionSession, request);
   },
 }));
+
+export interface StoreTransactionOptions {
+  policy?: TransactionPolicy;
+  /**
+   * Trusted, non-reentrant authorization check at the transaction
+   * linearization point. Throwing prevents both state and session settlement.
+   */
+  beforeFinalize?: () => void;
+}
+
+/**
+ * Shared atomic host for the legacy in-process API and each paired Agent's
+ * private TransactionSession. Raw input is captured before the Zustand updater
+ * and the final session settlement remains the last non-trivial commit action.
+ */
+export function applyStoreTransaction(
+  session: TransactionSession,
+  request: unknown,
+  options: StoreTransactionOptions = {},
+): TransactionResult {
+  const captured = session.captureApply(request);
+  let response = transactionHostFailure(useApp.getState().revision, undefined);
+  let finalized = false;
+  let pendingFinalizeToken: SessionFinalizeToken | null = null;
+  try {
+    useApp.setState((s) => {
+      const application = session.prepareApply(
+        runtimeDocumentState(s),
+        captured,
+        options.policy,
+      );
+      response = application.result;
+      pendingFinalizeToken = application.finalizeToken;
+      if (!application.next) {
+        if (application.finalizeToken) options.beforeFinalize?.();
+        if (
+          application.finalizeToken
+          && !session.finalize(application.finalizeToken)
+        ) {
+          response = transactionHostFailure(s.revision, response.requestId);
+          return s;
+        }
+        finalized = application.finalizeToken !== null;
+        pendingFinalizeToken = null;
+        return s;
+      }
+
+      const replacement: AppStore = {
+        ...s,
+        ...buildHistorySnapshot(s),
+        documentId: application.next.documentId,
+        doc: application.next.document,
+        assets: application.next.assets,
+        revision: application.next.revision,
+        ...revalidate(s, application.next.document),
+      };
+      const latest = useApp.getState();
+      if (latest !== s) {
+        response = transactionHostFailure(
+          latest.revision,
+          response.requestId,
+          'Store state changed while the transaction commit was being prepared.',
+        );
+        if (application.finalizeToken) session.discard(application.finalizeToken);
+        pendingFinalizeToken = null;
+        return latest;
+      }
+      options.beforeFinalize?.();
+      if (
+        !application.finalizeToken
+        || !session.finalize(application.finalizeToken)
+      ) {
+        const current = useApp.getState();
+        response = transactionHostFailure(current.revision, response.requestId);
+        return current;
+      }
+      lastEdit = null;
+      finalized = true;
+      pendingFinalizeToken = null;
+      return replacement;
+    }, true);
+    return response;
+  } catch {
+    if (pendingFinalizeToken) session.discard(pendingFinalizeToken);
+    if (finalized) return response;
+    return transactionHostFailure(
+      useApp.getState().revision,
+      response.requestId,
+    );
+  }
+}
+
+export function revertStoreTransaction(
+  session: TransactionSession,
+  request: unknown,
+  options: StoreTransactionOptions = {},
+): TransactionResult {
+  const captured = session.captureRevert(request);
+  let response = transactionHostFailure(useApp.getState().revision, undefined);
+  let finalized = false;
+  let pendingFinalizeToken: SessionFinalizeToken | null = null;
+  try {
+    useApp.setState((s) => {
+      const application = session.prepareRevert(
+        runtimeDocumentState(s),
+        captured,
+        options.policy,
+      );
+      response = application.result;
+      pendingFinalizeToken = application.finalizeToken;
+      if (!application.next) {
+        if (application.finalizeToken) options.beforeFinalize?.();
+        if (
+          application.finalizeToken
+          && !session.finalize(application.finalizeToken)
+        ) {
+          response = transactionHostFailure(s.revision, response.requestId);
+          return s;
+        }
+        finalized = application.finalizeToken !== null;
+        pendingFinalizeToken = null;
+        return s;
+      }
+
+      const replacement: AppStore = {
+        ...s,
+        ...buildHistorySnapshot(s),
+        documentId: application.next.documentId,
+        doc: application.next.document,
+        assets: application.next.assets,
+        revision: application.next.revision,
+        ...revalidate(s, application.next.document),
+      };
+      const latest = useApp.getState();
+      if (latest !== s) {
+        response = transactionHostFailure(
+          latest.revision,
+          response.requestId,
+          'Store state changed while the transaction revert was being prepared.',
+        );
+        if (application.finalizeToken) session.discard(application.finalizeToken);
+        pendingFinalizeToken = null;
+        return latest;
+      }
+      options.beforeFinalize?.();
+      if (
+        !application.finalizeToken
+        || !session.finalize(application.finalizeToken)
+      ) {
+        const current = useApp.getState();
+        response = transactionHostFailure(current.revision, response.requestId);
+        return current;
+      }
+      lastEdit = null;
+      finalized = true;
+      pendingFinalizeToken = null;
+      return replacement;
+    }, true);
+    return response;
+  } catch {
+    if (pendingFinalizeToken) session.discard(pendingFinalizeToken);
+    if (finalized) return response;
+    return transactionHostFailure(
+      useApp.getState().revision,
+      response.requestId,
+    );
+  }
+}
 
 interface PersistenceSnapshot {
   documentId: string;
@@ -1000,9 +1052,4 @@ if (canPersist) {
   if (typeof window !== 'undefined') {
     window.addEventListener('pagehide', flushPendingAutosave);
   }
-}
-
-// dev/verify handle — scripts/verify.mjs builds graphs through this
-if (import.meta.env?.DEV) {
-  (globalThis as Record<string, unknown>).__app = useApp;
 }

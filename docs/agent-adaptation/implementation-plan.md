@@ -238,14 +238,22 @@ possible to prove that existing projects still load and render.
 - expose it through an explicit build/runtime gate;
 - add nonce/token handshake and allowed-origin checks;
 - add an in-app pairing/revoke flow and visible connected/scope state;
-- support explicit `read`, `preview`, `edit`, `assets`, `model`, and `export`
-  scopes that only the human can grant;
+- declare the `read`, `preview`, `edit`, `assets`, `model`, and `export` scope
+  vocabulary; PR 5 may grant only `read`, `preview`, and `edit`, while the
+  remaining scopes stay disabled behind later rollout gates;
+- require scope selection and approval through browser-trusted in-app events.
+  This rejects page-script synthetic events, but is not proof of physical user
+  presence; the production companion must never expose CDP input, navigation,
+  or page evaluation to the Agent;
 - expose named allowlisted methods only;
 - redact sensitive/large data from diagnostics;
 - self-host UI fonts in Agent mode and add restrictive CSP, Referrer-Policy,
   Permissions-Policy, and `frame-ancestors` headers;
-- migrate smoke tests from raw `__app` state access to the controller;
-- retain `__app` only during a deprecation window, then remove it.
+- migrate all smoke tests from raw `__app`/`__render` access to the paired
+  controller and app-owned semantic DOM;
+- remove both legacy globals and fail the artifact gate if either returns;
+- support Agent mode only as an explicit static artifact, never through Vite's
+  source-development server.
 
 ### Acceptance
 
@@ -253,7 +261,9 @@ possible to prove that existing projects still load and render.
 - enabled builds expose no Zustand setters, GPU handles, Font objects, or
   generic JavaScript evaluation;
 - an unauthenticated bridge call fails;
-- wrong Host/Origin, expired/replayed token, and revoked session calls fail;
+- a wrong owning-page realm/origin, expired/replayed token, or revoked session
+  fails closed; per-request HTTP `Host` and WebSocket `Origin` enforcement
+  belongs to the PR 6 transport;
 - document text/preview payloads are marked untrusted and cannot change scopes;
 - controller requests and responses survive structured cloning/JSON encoding;
 - all controller writes pass through transaction validation and policy;
@@ -265,6 +275,8 @@ possible to prove that existing projects still load and render.
 
 - add a workspace/package for an stdio MCP server;
 - host the Agent-enabled app and WebSocket on loopback/same origin;
+- validate the exact HTTP `Host` on every request and the exact `Origin` on
+  every WebSocket upgrade; reject wildcard, `null`, and cross-origin values;
 - launch or attach to a supported Chrome with WebGPU and pair through the
   authenticated bridge;
 - expose the initial MCP tools listed in the architecture document;
@@ -293,8 +305,8 @@ Asset tools remain disabled until PR 7 policy is complete.
 - invalid wiring returns `TYPE_MISMATCH` and leaves revision unchanged;
 - a duplicate tool retry does not duplicate mutations;
 - preview returned by MCP matches the committed/rendered revision;
-- the server listens only where documented and rejects an invalid session
-  token/Origin;
+- the server listens only where documented and rejects an invalid HTTP `Host`,
+  WebSocket `Origin`, or connection/session token;
 - no tool offers generic page evaluation, shell, or filesystem traversal.
 - the first rollout can expose read/preview tools without enabling write scope.
 
@@ -408,8 +420,9 @@ reviewed screenshots.
 
 ### Gate A — Internal API
 
-Enable controller only in tests/development. Exit criteria: schema,
-transactions, history, and non-GPU contract tests are stable.
+Enable the controller only in tests and the explicit static Agent artifact.
+The default artifact and Vite source-development mode fail closed. Exit
+criteria: schema, transactions, history, and non-GPU contract tests are stable.
 
 ### Gate B — Read-only MCP
 

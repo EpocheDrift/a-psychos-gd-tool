@@ -52,6 +52,14 @@ describe('preview metrics v1', () => {
     expect(metrics.perceptualHash).toBe('0000000000000000');
   });
 
+  it('preserves min/mean/max ordering after uniform-frame accumulation', () => {
+    const metrics = computePreviewMetrics(
+      pixels(257, 192, [19, 35, 51, 255]),
+    );
+    expect(metrics.luminance.mean).toBeGreaterThanOrEqual(metrics.luminance.min);
+    expect(metrics.luminance.mean).toBeLessThanOrEqual(metrics.luminance.max);
+  });
+
   it('finds non-background bounds and uses mean normalized alpha coverage', () => {
     const image = pixels(5, 4);
     for (let y = 1; y <= 2; y++) {

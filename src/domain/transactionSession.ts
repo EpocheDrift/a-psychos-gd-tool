@@ -54,6 +54,21 @@ export interface TransactionSessionOptions {
   registry?: Registry;
 }
 
+export interface TransactionPolicyContext {
+  kind: 'apply' | 'revert';
+  current: RuntimeDocumentState;
+  proposed: RuntimeDocumentState;
+  requestId: string;
+}
+
+/**
+ * Trusted in-process policy invoked after command/schema validation but before
+ * replay settlement, ledger publication, history, persistence, or rendering.
+ */
+export type TransactionPolicy = (
+  context: TransactionPolicyContext,
+) => AgentFailure | null;
+
 interface ReplayEntry {
   fingerprint: string;
   result: TransactionResult;
@@ -460,6 +475,7 @@ export class TransactionSession {
   private nextTransactionSequence = 1;
   private ledgerBytes = 0;
   private generation = 0;
+  private destroyed = false;
 
   constructor(options: TransactionSessionOptions = {}) {
     this.limits = resolveAgentLimits(options.limits);
@@ -472,6 +488,7 @@ export class TransactionSession {
    * mutation.
    */
   captureApply(request: unknown): CapturedApplyRequest {
+    if (this.destroyed) throw new Error('Transaction session is destroyed.');
     const normalized = normalizeTransactionRequest(request, 0, {
       limits: this.limits,
     });
@@ -482,6 +499,7 @@ export class TransactionSession {
 
   /** Capture and clone all caller-controlled revert data outside the updater. */
   captureRevert(request: unknown): CapturedRevertRequest {
+    if (this.destroyed) throw new Error('Transaction session is destroyed.');
     const normalized = normalizeRevertRequest(request, 0, this.limits);
     const captured = opaqueToken<CapturedRevertRequest>();
     capturedRevertRequests.set(captured, { owner: this, value: normalized });
@@ -491,6 +509,7 @@ export class TransactionSession {
   prepareApply(
     current: RuntimeDocumentState,
     captured: CapturedApplyRequest,
+    policy?: TransactionPolicy,
   ): SessionApplication {
     const capture = capturedApplyRequests.get(captured);
     if (!capture || capture.owner !== this) {
@@ -561,7 +580,30 @@ export class TransactionSession {
       ...(this.registry ? { registry: this.registry } : {}),
       ...(transactionId ? { transactionId } : {}),
     });
-    if (!application.result.ok || !application.next) {
+    if (!application.result.ok || !application.proposed) {
+      return this.prepareSettlement(
+        normalizedRequest.requestId,
+        fingerprint,
+        application.result,
+      );
+    }
+    const policyFailure = this.evaluatePolicy(
+      policy,
+      {
+        kind: 'apply',
+        current,
+        proposed: application.proposed,
+        requestId: normalizedRequest.requestId,
+      },
+    );
+    if (policyFailure) {
+      return this.prepareSettlement(
+        normalizedRequest.requestId,
+        fingerprint,
+        policyFailure,
+      );
+    }
+    if (!application.next) {
       return this.prepareSettlement(
         normalizedRequest.requestId,
         fingerprint,
@@ -614,6 +656,7 @@ export class TransactionSession {
   prepareRevert(
     current: RuntimeDocumentState,
     captured: CapturedRevertRequest,
+    policy?: TransactionPolicy,
   ): SessionApplication {
     const capture = capturedRevertRequests.get(captured);
     if (!capture || capture.owner !== this) {
@@ -732,6 +775,22 @@ export class TransactionSession {
       assets: restored.assets,
       revision: current.revision + 1,
     };
+    const policyFailure = this.evaluatePolicy(
+      policy,
+      {
+        kind: 'revert',
+        current,
+        proposed: next,
+        requestId: normalizedRequest.requestId,
+      },
+    );
+    if (policyFailure) {
+      return this.prepareSettlement(
+        normalizedRequest.requestId,
+        fingerprint,
+        policyFailure,
+      );
+    }
     const record: TransactionRecord = {
       transactionId,
       requestId: normalizedRequest.requestId,
@@ -786,6 +845,7 @@ export class TransactionSession {
    * prebuilt state replacement.
    */
   finalize(token: SessionFinalizeToken): boolean {
+    if (this.destroyed) return false;
     if ((typeof token !== 'object' && typeof token !== 'function') || token === null) {
       return false;
     }
@@ -825,6 +885,32 @@ export class TransactionSession {
     return true;
   }
 
+  /** Release an abandoned host preparation without publishing any state. */
+  discard(token: SessionFinalizeToken): boolean {
+    if ((typeof token !== 'object' && typeof token !== 'function') || token === null) {
+      return false;
+    }
+    const pending = pendingFinalizations.get(token);
+    if (!pending || pending.owner !== this) return false;
+    pendingFinalizations.delete(token);
+    return true;
+  }
+
+  /**
+   * Irreversibly release session-owned replay/rollback material and invalidate
+   * every prepared finalization. A revoked Agent can retain a facade, but it
+   * cannot retain document snapshots through this session.
+   */
+  destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.replayCache.clear();
+    this.ledger.clear();
+    this.ledgerBytes = 0;
+    this.nextTransactionSequence = 1;
+    this.generation++;
+  }
+
   /** Test/debug-only bounded counts; no project or request content is exposed. */
   getStats(): Readonly<{
     replayEntries: number;
@@ -836,6 +922,32 @@ export class TransactionSession {
       ledgerEntries: this.ledger.size,
       ledgerBytes: this.ledgerBytes,
     });
+  }
+
+  private evaluatePolicy(
+    policy: TransactionPolicy | undefined,
+    context: TransactionPolicyContext,
+  ): AgentFailure | null {
+    if (!policy) return null;
+    let failure: AgentFailure | null;
+    try {
+      failure = policy(context);
+    } catch {
+      failure = makeFailure(
+        context.current.revision,
+        'INTERNAL',
+        'The transaction policy failed closed.',
+        {
+          requestId: context.requestId,
+          recoverable: false,
+        },
+      );
+    }
+    if (!failure) return null;
+    const cloned = cloneResult(failure);
+    cloned.revision = context.current.revision;
+    cloned.requestId = context.requestId;
+    return cloned;
   }
 
   private nextTransactionId(

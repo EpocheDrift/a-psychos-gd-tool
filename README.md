@@ -108,11 +108,15 @@ Evaluation is pull-based from Output with hash-keyed memoization: a node's key i
 - `src/editor/` — xyflow canvas + custom node component; handles and wires colored by socket type.
 - `src/util/` — font parsing (sfnt), expression evaluation, color, noise.
 
-### AI agent adaptation proposal
+### AI agent adaptation — in progress
 
-The current app is automatable in development but does not yet expose a supported
-Agent/MCP tool surface. A readiness audit, target architecture, security model,
-and staged implementation plan live in
+The default production artifact exposes no Agent global. An explicit
+loopback-only static Agent artifact now provides a paired, scope-gated browser
+controller with eight JSON-safe methods; the local MCP companion remains the
+next rollout stage. Its in-app approval rejects page-script synthetic events,
+but is not physical-user proof, so the MCP surface must never expose CDP input
+or page evaluation. The readiness audit, target architecture, security model,
+and staged implementation/evidence live in
 [`docs/agent-adaptation/`](docs/agent-adaptation/README.md).
 
 ### Dev scripts
@@ -124,6 +128,11 @@ session. Start the fixed local server, then run the whole suite:
 npm run smoke:serve
 npm run smoke:all
 ```
+
+`smoke:serve` builds `dist-agent` and serves that static artifact at the fixed
+loopback origin; it does not run an Agent source-development server. Use
+`npm run check:agent-build` to build both artifacts and run the production
+module/runtime security gate.
 
 The checks cover the reviewed small-frame render, factory load, frame/cache
 behavior, blur/fringe regressions, canvas interactions, revision-coordinator
@@ -156,8 +165,9 @@ individual commands, fixtures, prerequisites, and artifact policy.
 ## Contributing
 
 Issues and PRs are welcome. CI runs `npm run typecheck`, `npm test`, and
-`npm run build` — please make sure all three pass locally. Rendering changes
-also require the documented [WebGPU smoke suite](docs/testing/browser-smoke.md).
+`npm run check:agent-artifacts`; please make sure all three pass locally.
+Rendering and Agent runtime changes also require `npm run check:agent-build`
+and the documented [WebGPU smoke suite](docs/testing/browser-smoke.md).
 
 ## License
 

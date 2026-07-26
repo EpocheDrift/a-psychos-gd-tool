@@ -2012,18 +2012,16 @@ function applyNormalizedTransactionCore(
     if (!dryRun && !result.transactionId) {
       throw new CommandProblem('INTERNAL', 'Committed transaction requires a transactionId.');
     }
+    const proposed: RuntimeDocumentState = {
+      documentId: state.documentId,
+      document: draft,
+      assets: state.assets,
+      revision: proposedRevision,
+    };
     return {
       result,
-      ...(!dryRun
-        ? {
-            next: {
-              documentId: state.documentId,
-              document: draft,
-              assets: state.assets,
-              revision: proposedRevision,
-            },
-          }
-        : {}),
+      proposed,
+      ...(!dryRun ? { next: proposed } : {}),
     };
   } catch (error) {
     const problem = error instanceof CommandProblem

@@ -665,6 +665,7 @@ Replace the raw store global with a narrow controller:
 ```ts
 declare global {
   interface Window {
+    gfxAgentPairing?: AgentPairingBootstrap;
     gfxAgent?: AgentController;
   }
 }
@@ -672,16 +673,21 @@ declare global {
 
 Enable it only when all configured conditions hold, for example:
 
-- development/test build, or a local build hosted by the companion;
+- an explicit static Agent artifact hosted on the fixed loopback origin;
 - an explicit in-app “Connect Agent” pairing action;
 - a short-lived, in-memory session credential;
-- exact Host/Origin, same-origin WebSocket, and loopback checks.
+- an exact top-level, secure owning-page realm/origin and loopback check.
+
+Before pairing, only the narrow `gfxAgentPairing` bootstrap exists and
+`gfxAgent` is `undefined`. PR 5 can validate the page realm and the bundled
+preview host. PR 6 owns per-request HTTP `Host`, WebSocket upgrade `Origin`,
+connection authentication, and transport budgets.
 
 Do not expose generic `call(methodName, args)` dispatch. Export named,
 allowlisted methods so the callable surface is auditable.
 
-The existing `__app` hook can remain temporarily for legacy smoke tests, then be
-removed once those tests use the controller.
+Default and Agent artifacts expose neither `__app` nor `__render`; all browser
+tests use the paired controller or app-owned semantic UI.
 
 ## MCP adapter
 
@@ -748,10 +754,15 @@ Grant capabilities per paired session:
 | `model` | execution of an already approved/pinned model |
 | `export` | creation of a user-approved external artifact |
 
-An Agent cannot grant itself a scope. Scope elevation occurs only through the
-human UI. Agents may not request Local Font Access, enumerate unapproved local
-font families, navigate the browser, evaluate JavaScript, issue arbitrary
-network requests, or access generic files/shell commands.
+Scope elevation occurs only through an in-app control and a browser-trusted
+event. This rejects page-script synthetic events; `Event.isTrusted` is not
+cryptographic proof of a physical human because CDP can synthesize trusted
+input. The MCP threat boundary therefore must not expose CDP input, navigation,
+or page evaluation to the Agent. A product that must resist an Agent already
+controlling the browser needs an out-of-band native/WebAuthn/OS confirmation.
+Agents may not request Local Font Access, enumerate unapproved local font
+families, navigate the browser, evaluate JavaScript, issue arbitrary network
+requests, or access generic files/shell commands.
 
 Document strings, asset metadata, and preview contents are labeled as untrusted
 content in tool results. Instructions rendered inside a poster must never

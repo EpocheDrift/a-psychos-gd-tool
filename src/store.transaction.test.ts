@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Doc } from './engine/graph';
 import type { TransactionResult } from './domain/commandTypes';
-import { endGesture, useApp } from './store';
+import { TransactionSession } from './domain/transactionSession';
+import {
+  applyStoreTransaction,
+  endGesture,
+  revertStoreTransaction,
+  useApp,
+} from './store';
 
 function documentWithOutput(): Doc {
   return {
@@ -105,6 +111,53 @@ describe('store Agent transaction integration', () => {
     });
     expect(useApp.getState().doc.layers[0].graph.nodes.shape_1.params.width).toBe(640);
     expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('isolates replay IDs and revert ledgers between paired Agent sessions', () => {
+    const firstSession = new TransactionSession();
+    const first = applyStoreTransaction(firstSession, {
+      requestId: 'same_request_id',
+      expectedRevision: 0,
+      commands: [{ op: 'set_frame', width: 640, height: 480 }],
+    });
+    expect(first).toMatchObject({
+      ok: true,
+      transactionId: 'transaction_1',
+      revision: 1,
+    });
+
+    reset();
+    const secondSession = new TransactionSession();
+    const crossSessionRevert = revertStoreTransaction(secondSession, {
+      requestId: 'cross_session_revert',
+      expectedRevision: 0,
+      transactionId: 'transaction_1',
+    });
+    expect(crossSessionRevert).toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_ARGUMENT' },
+    });
+    expect(useApp.getState().revision).toBe(0);
+
+    const second = applyStoreTransaction(secondSession, {
+      requestId: 'same_request_id',
+      expectedRevision: 0,
+      commands: [{ op: 'set_frame', width: 800, height: 600 }],
+    });
+    expect(second).toMatchObject({
+      ok: true,
+      transactionId: 'transaction_1',
+      revision: 1,
+    });
+    expect(useApp.getState().doc.frame).toEqual({ width: 800, height: 600 });
+    expect(firstSession.getStats()).toMatchObject({
+      replayEntries: 1,
+      ledgerEntries: 1,
+    });
+    expect(secondSession.getStats()).toMatchObject({
+      replayEntries: 2,
+      ledgerEntries: 1,
+    });
   });
 
   it('leaves every store reference untouched when any command fails', () => {
@@ -409,6 +462,38 @@ describe('store Agent transaction integration', () => {
     });
     expect(useApp.getState().revision).toBe(1);
     expect(useApp.getState().doc.frame).toEqual({ width: 640, height: 480 });
+  });
+
+  it('runs the final authorization hook before settling or mutating state', () => {
+    const session = new TransactionSession();
+    const request = {
+      requestId: 'authorization_linearization',
+      expectedRevision: 0,
+      commands: [{ op: 'set_frame', width: 640, height: 480 }],
+    };
+    const denied = applyStoreTransaction(session, request, {
+      beforeFinalize: () => {
+        throw new Error('lease expired');
+      },
+    });
+    expect(denied).toMatchObject({
+      ok: false,
+      revision: 0,
+      error: { code: 'INTERNAL' },
+    });
+    expect(useApp.getState().revision).toBe(0);
+    expect(useApp.getState().doc.frame).toEqual({ width: 320, height: 240 });
+    expect(session.getStats()).toEqual({
+      replayEntries: 0,
+      ledgerEntries: 0,
+      ledgerBytes: 0,
+    });
+
+    expect(applyStoreTransaction(session, request)).toMatchObject({
+      ok: true,
+      transactionId: 'transaction_1',
+      revision: 1,
+    });
   });
 
   it('aborts an outer commit if history preparation re-enters an Agent write', () => {

@@ -14,6 +14,7 @@ describe('semantic Agent GUI gate source', () => {
       /waitForTimeout/,
       /force\s*:/,
       /__app/,
+      /__render/,
     ]) {
       expect(source).not.toMatch(forbidden);
     }

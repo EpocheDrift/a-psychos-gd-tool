@@ -14,6 +14,8 @@ import { validateImageSource } from '../domain/paramCodecs';
 import { getParamPublicMetadata } from '../domain/publicNodeMetadata';
 import { endGesture, localFontsSupported, selectActiveGraph, useApp } from '../store';
 
+const AGENT_MODE = __GFX_AGENT_BUILD__;
+
 // Type ladder colors — a bright 2000s computer palette, one unique hue per type,
 // matching the wire colors. Sockets (the circles) and the wires that leave them
 // read as the same color.
@@ -596,7 +598,12 @@ function FontSelect({
   const ref = useRef<HTMLDivElement>(null);
   const listboxId = useId();
 
-  const options = Array.from(new Set(['default', value, ...Object.keys(fonts), ...localFonts]));
+  const options = Array.from(new Set([
+    'default',
+    value,
+    ...Object.keys(fonts),
+    ...(!AGENT_MODE ? localFonts : []),
+  ]));
   const q = query.trim().toLowerCase();
   const filtered = q ? options.filter((f) => f.toLowerCase().includes(q)) : options;
 
@@ -622,7 +629,7 @@ function FontSelect({
     onChange(f);
     // start parsing right away instead of waiting for the graph→effect
     // round-trip; no-ops for 'default' and already-loaded fonts
-    loadLocalFont(f);
+    if (!AGENT_MODE) loadLocalFont(f);
     close();
   };
 
@@ -716,7 +723,7 @@ function FontSelect({
         >
           ▾
         </button>
-        {localFontsSupported && (
+        {!AGENT_MODE && localFontsSupported && (
           <button
             type="button"
             className="num-arrow"

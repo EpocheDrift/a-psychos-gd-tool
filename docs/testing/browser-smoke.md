@@ -1,24 +1,23 @@
-# Browser and WebGPU smoke tests
+# Browser, Agent-controller, and WebGPU smoke tests
 
-The browser checks freeze the pre-Agent human editing and rendering baseline.
-They run against an isolated temporary Chrome context and explicitly seed or
-clear `gfx.document.v1` and `gfx.document.v2`, so results never depend on a
-developer's existing localStorage.
+The browser checks freeze the human editing/rendering baseline and exercise the
+paired Agent controller. They run against an isolated temporary Chrome context
+and explicitly seed or clear `gfx.document.v1` and `gfx.document.v2`, so results
+never depend on a developer's existing localStorage.
 
-The shared harness also isolates optional font network behavior. It serves the
-missing `/fonts/Inter-Regular.otf` request with the already bundled fallback
-font bytes and answers the Google Fonts stylesheet request with empty CSS.
-That reproduces the clean-checkout render fallback without changing product
-code or depending on internet access; all other requests continue normally.
+The shared harness also isolates network behavior. It serves the historical
+same-origin `/fonts/Inter-Regular.otf` request with the bundled JetBrains Mono
+fallback and blocks every cross-origin request. Production artifact checks also
+forbid Google Fonts URLs and third-party scripts.
 
 ## Prerequisites
 
 - Node.js 20.19+ or 22+ and dependencies installed with `npm ci`;
 - Chrome or Chromium with a working WebGPU adapter;
 - a localhost or HTTPS URL, because WebGPU requires a secure context;
-- the Vite development build for checks that use the temporary read-only
-  `__render` evidence hook or the legacy `__app` smoke hook. A production URL
-  intentionally exposes neither hook.
+- the explicit built Agent artifact. `smoke:serve` builds `dist-agent` and uses
+  Vite preview; Vite source-development Agent mode fails closed. No check uses
+  `__app`, `__render`, or a raw store binding.
 
 The launcher checks `CHROME` first, then common Chrome/Chromium locations on
 macOS, Linux, and Windows. It never adds `--no-sandbox`.
@@ -37,7 +36,8 @@ npm run smoke:all
 
 `smoke:serve` is the canonical local test server:
 `http://127.0.0.1:5199/`, with a strict port so a collision fails rather than
-silently moving the server.
+silently moving the server. It serves the static Agent artifact with the
+production CSP and security headers.
 
 Individual checks:
 
@@ -45,6 +45,7 @@ Individual checks:
 | --- | --- |
 | `npm run smoke:baseline` | Renders the reviewed 256×192 Shape fixture; checks PNG dimensions, colors, alpha coverage, bounds, tolerant pixel drift, and page/console errors. |
 | `npm run smoke:factory` | Boots from empty storage; checks the 4-layer, 42-node, 38-edge factory document and bundled image. |
+| `npm run smoke:controller` | Verifies headers, paired scope grant, token replay/failure paths, revoke, session-local transactions, exact preview handles, absence of legacy globals/secrets, and fail-closed model execution. |
 | `npm run smoke:frame` | Changes the factory frame through the human UI; asserts the 1024×3508 canvas plus expected frame-independent HITs and frame-aware MISSes. |
 | `npm run smoke:blur` | Edits `blur1` in its explicit layer, waits for a cache miss, and proves no phantom node was created. |
 | `npm run smoke:fringe` | Loads the legacy v1 fixture, renders white-on-white, and rejects any dark fringe in the native PNG readback. |
@@ -82,7 +83,16 @@ diagnostic and the semantic color/bounds checks still gate the run.
 
 ## CI status
 
-Every pull request runs typecheck, Vitest, and the production build. WebGPU
-smokes remain a required local/manual gate until a reliable GPU runner is
-configured; `ubuntu-latest` must not be treated as evidence that a real WebGPU
-render occurred.
+Every pull request runs typecheck, Vitest, and `check:agent-artifacts`, which
+builds and scans both the default and Agent production artifacts. The local
+`check:agent-build` additionally uses real Chrome to verify the default/wrong
+origin paths and prove that dynamically importing the Agent HTML entry exposes
+no raw store namespace. WebGPU smokes remain a required local/manual gate until
+a reliable GPU runner is configured; `ubuntu-latest` must not be treated as
+evidence that a real WebGPU render occurred.
+
+The scope UI relies on browser-trusted events to reject page-script synthetic
+approval. That is not physical-user proof: CDP input can also be trusted. The
+production MCP companion must therefore expose neither CDP/browser input nor
+page evaluation; stronger browser-controller threat models require an
+out-of-band native, WebAuthn, or OS confirmation.
