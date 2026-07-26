@@ -108,6 +108,13 @@ Evaluation is pull-based from Output with hash-keyed memoization: a node's key i
 - `src/editor/` — xyflow canvas + custom node component; handles and wires colored by socket type.
 - `src/util/` — font parsing (sfnt), expression evaluation, color, noise.
 
+### AI agent adaptation proposal
+
+The current app is automatable in development but does not yet expose a supported
+Agent/MCP tool surface. A readiness audit, target architecture, security model,
+and staged implementation plan live in
+[`docs/agent-adaptation/`](docs/agent-adaptation/README.md).
+
 ### Dev scripts
 
 Two Puppeteer smoke-test scripts drive a real (headed) Chrome against a running dev server, since WebGPU needs a GPU:
