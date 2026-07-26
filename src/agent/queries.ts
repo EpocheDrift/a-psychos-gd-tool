@@ -16,12 +16,14 @@ import {
   type JsonValue,
 } from '../domain/json';
 import { DEFAULT_AGENT_LIMITS } from '../domain/limits';
+import { PR7_DEFERRED_AGENT_NODE_TYPES } from '../domain/modelExecutionPolicy';
 import { decodeBinds } from '../domain/paramCodecs';
 import type { RenderStatus } from '../domain/renderCoordinator';
 import { sha256Hex } from '../domain/sha256';
 import { validateSerializedProject } from '../domain/semanticValidation';
 import type {
   CapabilityInclude,
+  AgentCapabilityProfile,
   CapabilityRequest,
   CapabilitySnapshot,
   DocumentInclude,
@@ -73,6 +75,10 @@ const VALIDATION_MODES = new Set<ValidationMode>([
 ]);
 const MAX_PUBLIC_RENDER_EVENTS = 256;
 const DATA_URI = /^data:/i;
+const PR7_DEFERRED_AGENT_NODES = new Set<string>([
+  ...PR7_DEFERRED_AGENT_NODE_TYPES,
+  'RemoveBackground',
+]);
 
 function dataUriMimeType(value: string): string {
   const header = value.slice(5, Math.min(
@@ -105,6 +111,7 @@ function exactJsonEqual(left: JsonValue, right: JsonValue): boolean {
 export function getCapabilitiesQuery(
   raw: CapabilityRequest | undefined,
   revision: number,
+  profile: AgentCapabilityProfile = { mcp: false },
 ): CapabilitySnapshot {
   const request = captureJsonObject(raw, {
     optional: true,
@@ -154,7 +161,19 @@ export function getCapabilitiesQuery(
       ...(requested.has('traits')
         ? {
             description: node.description,
-            traits: asJson(node.traits) as JsonObject,
+            traits: {
+              ...(asJson(node.traits) as JsonObject),
+              agentExecution: asJson(
+                PR7_DEFERRED_AGENT_NODES.has(node.type)
+                  ? {
+                      available: false,
+                      rolloutGate: 'PR7',
+                      reason:
+                        'Deferred until asset/model/resource policy is complete.',
+                    }
+                  : { available: true },
+              ),
+            },
             execution: asJson(node.execution) as JsonObject,
           }
         : {}),
@@ -186,8 +205,14 @@ export function getCapabilitiesQuery(
     socketTypes: [...CAPABILITY_MANIFEST.socketTypes],
     nodes,
     limits: { ...CAPABILITY_MANIFEST.limits },
-    features: { ...CAPABILITY_MANIFEST.features },
+    features: {
+      ...CAPABILITY_MANIFEST.features,
+      mcp: profile.mcp,
+    },
     preview: asJson(CAPABILITY_MANIFEST.preview) as JsonObject,
+    ...(profile.transport
+      ? { transport: publicJsonClone(profile.transport) }
+      : {}),
     scopeAvailability,
     omitted,
   });

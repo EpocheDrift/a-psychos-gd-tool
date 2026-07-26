@@ -2,11 +2,16 @@ import { StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { AgentConnectionPanel } from './AgentConnectionPanel';
 import { createBrowserControllerDependencies } from './browserDependencies';
-import { createAgentController } from './controller';
+import {
+  createAgentController,
+  type AgentCompanionController,
+} from './controller';
 import type {
   AgentController,
   AgentPairingBootstrap,
+  AgentSessionSummary,
   CompletePairingRequest,
+  PairingResult,
   PairingRequest,
 } from './contracts';
 import { bridgeError } from './faults';
@@ -16,6 +21,12 @@ import {
 } from './runtimeGate';
 import { AgentSessionManager } from './sessionManager';
 import type { PreviewHandleVault } from './previewVault';
+import {
+  hasLocalCompanionMarker,
+  installLocalCompanionBridge,
+} from './localCompanionBridge';
+import { companionTransportCapabilities } from '../../packages/mcp-companion/src/protocol';
+import type { JsonObject } from '../domain/json';
 
 interface InternalInstallation {
   manager: AgentSessionManager;
@@ -23,6 +34,7 @@ interface InternalInstallation {
   panelHost: HTMLDivElement;
   unsubscribe: () => void;
   onPageHide: () => void;
+  companionCleanup: () => void;
 }
 
 let installation: InternalInstallation | null = null;
@@ -64,12 +76,13 @@ export function installBrowserAgentBridge(
   });
   const dependencies = createBrowserControllerDependencies();
   let activeController: AgentController | undefined;
+  let activeCompanionController: AgentCompanionController | undefined;
   let activePreviewVault: PreviewHandleVault | null = null;
+  const companionMode = hasLocalCompanionMarker(target.document);
 
-  const pairing = frozenNamedObject<AgentPairingBootstrap>({
-    requestPairing: (request: PairingRequest) =>
-      manager.requestPairing(request),
-    completePairing: (request: CompletePairingRequest) => {
+  const completePairing = (
+    request: CompletePairingRequest,
+  ): PairingResult<AgentSessionSummary> => {
       const result = manager.completePairing(request);
       if (!result.ok) return result;
       if (
@@ -90,12 +103,24 @@ export function installBrowserAgentBridge(
         manager,
         result.value.lease,
         dependencies,
+        undefined,
+        companionMode
+          ? {
+              mcp: true,
+              transport: companionTransportCapabilities() as JsonObject,
+            }
+          : { mcp: false },
       );
       activePreviewVault?.clear();
       activePreviewVault = created.previewVault;
       activeController = created.controller;
+      activeCompanionController = created.companionController;
       return { ok: true, value: result.value.summary };
-    },
+  };
+  const pairing = frozenNamedObject<AgentPairingBootstrap>({
+    requestPairing: (request: PairingRequest) =>
+      manager.requestPairing(request),
+    completePairing,
   });
 
   Object.defineProperty(target, 'gfxAgentPairing', {
@@ -114,11 +139,19 @@ export function installBrowserAgentBridge(
   const unsubscribe = manager.subscribe(() => {
     if (manager.getSnapshot().phase === 'connected') return;
     activeController = undefined;
+    activeCompanionController = undefined;
     activePreviewVault?.clear();
     activePreviewVault = null;
   });
   const onPageHide = () => manager.revoke('pagehide');
   target.addEventListener('pagehide', onPageHide);
+  const companionCleanup = installLocalCompanionBridge(target, {
+    manager,
+    completePairing,
+    getController: () => activeController,
+    getCompanionController: () => activeCompanionController,
+    getPreviewVault: () => activePreviewVault,
+  });
 
   const panelHost = target.document.createElement('div');
   panelHost.id = 'agent-connection-root';
@@ -135,5 +168,6 @@ export function installBrowserAgentBridge(
     panelHost,
     unsubscribe,
     onPageHide,
+    companionCleanup,
   };
 }

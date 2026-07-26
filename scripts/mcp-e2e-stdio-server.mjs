@@ -1,0 +1,228 @@
+// Test-only stdio child. Puppeteer is used solely to perform the trusted
+// approval/revoke clicks that a human performs in normal companion use.
+import process from 'node:process';
+import puppeteer from 'puppeteer-core';
+import {
+  AGENT_ALLOWED_ORIGIN,
+  AGENT_COOKIE_NAME,
+} from '../packages/mcp-companion/dist/agentSecurity.js';
+import {
+  resolveChromeExecutable,
+} from '../packages/mcp-companion/dist/browserSession.js';
+import {
+  createBoundedStdio,
+} from '../packages/mcp-companion/dist/boundedStdio.js';
+import {
+  CompanionRuntime,
+} from '../packages/mcp-companion/dist/runtime.js';
+import {
+  createToolServer,
+} from '../packages/mcp-companion/dist/tools.js';
+
+const diagnostics = (message) => {
+  process.stderr.write(`[gfx-mcp-e2e] ${message}\n`);
+};
+
+let browser;
+let context;
+let page;
+let server;
+let stdio;
+let shuttingDown;
+const browserProblems = [];
+
+const runtime = new CompanionRuntime({
+  allowEdit: true,
+  headless: true,
+  launchBrowser: async ({ bootstrapToken, onDisconnected }) => {
+    const executablePath = await resolveChromeExecutable();
+    browser = await puppeteer.launch({
+      executablePath,
+      pipe: true,
+      headless: true,
+      defaultViewport: {
+        width: 1280,
+        height: 800,
+        deviceScaleFactor: 1,
+      },
+      args: [
+        '--enable-unsafe-webgpu',
+        '--hide-scrollbars',
+        '--window-size=1280,800',
+      ],
+    });
+    try {
+      context = await browser.createBrowserContext();
+      page = await context.newPage();
+      page.setDefaultTimeout(20_000);
+      page.on('pageerror', (error) => {
+        browserProblems.push(`pageerror: ${error.message}`);
+      });
+      page.on('console', (message) => {
+        if (message.type() !== 'error') return;
+        const location = message.location().url;
+        // The app deliberately probes this optional font before falling back to
+        // the bundled JetBrains Mono face.
+        if (!location.endsWith('/fonts/Inter-Regular.otf')) {
+          browserProblems.push(`console.error: ${message.text()}`);
+        }
+      });
+      await page.setCookie({
+        name: AGENT_COOKIE_NAME,
+        value: bootstrapToken,
+        url: AGENT_ALLOWED_ORIGIN,
+        path: '/',
+        httpOnly: true,
+        secure: false,
+        sameSite: 'Strict',
+      });
+      await page.goto(AGENT_ALLOWED_ORIGIN, {
+        waitUntil: 'domcontentloaded',
+      });
+      if (onDisconnected) browser.once('disconnected', onDisconnected);
+
+      const tokenEscaped = await page.evaluate((token) => {
+        const storageValues = [];
+        for (const storage of [localStorage, sessionStorage]) {
+          for (let index = 0; index < storage.length; index++) {
+            const key = storage.key(index) ?? '';
+            storageValues.push(`${key}=${storage.getItem(key) ?? ''}`);
+          }
+        }
+        return [
+          location.href,
+          document.documentElement.outerHTML,
+          ...storageValues,
+        ].some((value) => value.includes(token));
+      }, bootstrapToken);
+      if (tokenEscaped) {
+        throw new Error(
+          'The transport token escaped into URL, DOM, or web storage.',
+        );
+      }
+
+      await page.waitForSelector(
+        '[data-agent-action="open-agent-pairing"]',
+      );
+      await page.click('[data-agent-action="open-agent-pairing"]');
+      await page.waitForFunction(() =>
+        document.querySelector('[data-agent-pairing-panel]')
+          ?.getAttribute('data-agent-pairing-state') === 'pending');
+      for (const scope of ['read', 'preview', 'edit']) {
+        await page.click(`[data-agent-scope="${scope}"]`);
+      }
+      await page.click('[data-agent-action="approve-agent-pairing"]');
+      await page.waitForFunction(() =>
+        document.querySelector('[data-agent-pairing-panel]')
+          ?.getAttribute('data-agent-pairing-state') === 'connected');
+
+      return {
+        close: async () => {
+          await context?.close().catch(() => undefined);
+          await browser?.close().catch(() => undefined);
+        },
+      };
+    } catch (error) {
+      await context?.close().catch(() => undefined);
+      await browser?.close().catch(() => undefined);
+      context = undefined;
+      browser = undefined;
+      page = undefined;
+      throw error;
+    }
+  },
+  onBridgeTerminated: (reason) => {
+    diagnostics(`bridge terminal: ${reason}`);
+  },
+});
+
+const shutdown = (reason) => {
+  shuttingDown ??= (async () => {
+    diagnostics(`shutdown: ${reason}`);
+    stdio?.detach();
+    await server?.close().catch(() => undefined);
+    await runtime.close();
+    if (browserProblems.length > 0) {
+      throw new Error(browserProblems.join(' | '));
+    }
+  })();
+  return shuttingDown;
+};
+
+process.once('SIGUSR1', () => {
+  void (async () => {
+    if (!page) throw new Error('The E2E page is unavailable.');
+    await page.click('[data-agent-action="revoke-agent-session"]');
+    const deadline = Date.now() + 5_000;
+    while (
+      runtime.bridge.healthState() !== 'failed'
+      && runtime.bridge.healthState() !== 'closed'
+      && Date.now() < deadline
+    ) {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+    }
+    if (
+      runtime.bridge.healthState() !== 'failed'
+      && runtime.bridge.healthState() !== 'closed'
+    ) {
+      throw new Error('The revoked bridge did not become terminal.');
+    }
+    diagnostics('CONTROL_REVOKED');
+  })().catch((error) => {
+    diagnostics(
+      `CONTROL_ERROR: ${
+        error instanceof Error ? error.message : 'unknown control failure'
+      }`,
+    );
+    process.exitCode = 1;
+  });
+});
+
+process.once('SIGINT', () => {
+  void shutdown('SIGINT').finally(() => process.exit(process.exitCode ?? 0));
+});
+process.once('SIGTERM', () => {
+  void shutdown('SIGTERM').finally(() => process.exit(process.exitCode ?? 0));
+});
+process.stdin.once('end', () => {
+  void shutdown('stdio EOF').catch((error) => {
+    diagnostics(error instanceof Error ? error.message : 'shutdown failed');
+    process.exitCode = 1;
+  });
+});
+
+try {
+  await runtime.start();
+  await new Promise((resolveReady, rejectReady) => {
+    const deadline = Date.now() + 5_000;
+    const inspect = () => {
+      if (runtime.bridge.healthState() === 'ready') {
+        resolveReady();
+      } else if (Date.now() >= deadline) {
+        rejectReady(new Error('The E2E bridge did not become ready.'));
+      } else {
+        setTimeout(inspect, 10);
+      }
+    };
+    inspect();
+  });
+  server = createToolServer({
+    bridge: runtime.bridge,
+    allowEdit: true,
+  });
+  stdio = createBoundedStdio();
+  stdio.input.once('error', (error) => {
+    diagnostics(`stdio input error: ${error.message}`);
+    void shutdown('invalid stdio input');
+  });
+  stdio.output.once('error', (error) => {
+    diagnostics(`stdio output error: ${error.message}`);
+    void shutdown('invalid stdio output');
+  });
+  await server.connect(stdio.transport);
+  diagnostics('CONTROL_READY');
+} catch (error) {
+  diagnostics(error instanceof Error ? error.message : 'E2E startup failed');
+  await shutdown('startup failure').catch(() => undefined);
+  process.exitCode = 1;
+}

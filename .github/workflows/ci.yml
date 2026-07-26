@@ -17,4 +17,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm run build
+      - run: npm run check:mcp:authority
+      - run: node scripts/mcp-e2e-check.mjs
+      - run: npm run check:mcp:stdio
       - run: npm run check:agent-artifacts

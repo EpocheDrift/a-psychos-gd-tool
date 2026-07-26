@@ -286,6 +286,48 @@ describe('AgentController', () => {
     expect(structuredClone(result)).toEqual(result);
   });
 
+  it('keeps transport cancellation on a private companion controller', async () => {
+    const session = paired(['read']);
+    const fake = dependencies();
+    let observedSignal: AbortSignal | undefined;
+    const aborted = vi.fn();
+    fake.deps.awaitRender = async (request) => {
+      observedSignal = request.signal;
+      return new Promise((resolve, reject) => {
+        const onAbort = () => {
+          aborted();
+          reject(request.signal?.reason);
+        };
+        request.signal?.addEventListener('abort', onAbort, { once: true });
+        if (request.signal?.aborted) onAbort();
+        void resolve;
+      });
+    };
+    const { controller, companionController } = createAgentController(
+      session.manager,
+      session.lease,
+      fake.deps,
+      vault(),
+    );
+    expect(controller).not.toHaveProperty('companionController');
+    expect(controller).not.toHaveProperty('signal');
+
+    const transport = new AbortController();
+    const pending = companionController.awaitRender(
+      { revision: 0 },
+      transport.signal,
+    );
+    await expect.poll(() => observedSignal).toBeInstanceOf(AbortSignal);
+    expect(observedSignal).not.toBe(transport.signal);
+    transport.abort(new DOMException('cancelled by MCP', 'AbortError'));
+
+    await expect(pending).rejects.toMatchObject({
+      error: { code: 'INTERNAL' },
+    });
+    expect(aborted).toHaveBeenCalledOnce();
+    expect(observedSignal?.aborted).toBe(true);
+  });
+
   it('fails retained controller references after human revoke', () => {
     const session = paired(['read']);
     const fake = dependencies();
@@ -478,6 +520,34 @@ describe('AgentController', () => {
       scopes: new Set<AgentScope>(['edit', 'model']),
     })(context)).toMatchObject({
       error: { code: 'MODEL_DOWNLOAD_REQUIRED' },
+    });
+  });
+
+  it('keeps tracing nodes behind the PR7 resource-policy gate', () => {
+    const context: TransactionPolicyContext = {
+      kind: 'apply',
+      current: {
+        documentId: 'document_1',
+        document: documentWith(),
+        revision: 0,
+      },
+      proposed: {
+        documentId: 'document_1',
+        document: documentWith('Trace'),
+        revision: 1,
+      },
+      requestId: 'trace',
+    };
+    expect(createModelTransactionPolicy({
+      scopes: new Set<AgentScope>(['edit']),
+    })(context)).toMatchObject({
+      error: {
+        code: 'PERMISSION_REQUIRED',
+        details: {
+          nodeTypes: ['Trace'],
+          rolloutGate: 'PR7',
+        },
+      },
     });
   });
 

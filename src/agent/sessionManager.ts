@@ -643,7 +643,14 @@ export class AgentSessionManager {
     }
   }
 
-  revoke(reason: 'human' | 'pagehide' | 'origin' | 'dispose' = 'human'): void {
+  revoke(
+    reason:
+      | 'human'
+      | 'pagehide'
+      | 'origin'
+      | 'transport'
+      | 'dispose' = 'human',
+  ): void {
     const active = this.active;
     if (active && !active.controller.signal.aborted) {
       active.controller.abort(

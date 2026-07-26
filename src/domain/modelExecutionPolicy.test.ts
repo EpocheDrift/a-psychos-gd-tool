@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Doc } from '../engine/graph';
-import { modelNodeTypesInDocument } from './modelExecutionPolicy';
+import {
+  deferredAgentNodeTypesInDocument,
+  modelNodeTypesInDocument,
+} from './modelExecutionPolicy';
 
 function documentWith(nodeTypes: string[]): Doc {
   return {
@@ -33,5 +36,11 @@ describe('model execution policy', () => {
       documentWith(['Output', 'RemoveBackground', 'RemoveBackground']),
     )).toEqual(['RemoveBackground']);
     expect(modelNodeTypesInDocument(documentWith(['Noise', 'Output']))).toEqual([]);
+  });
+
+  it('detects tracing nodes deferred to the PR7 resource gate', () => {
+    expect(deferredAgentNodeTypesInDocument(
+      documentWith(['Trace', 'OutlineImage', 'Noise']),
+    )).toEqual(['OutlineImage', 'Trace']);
   });
 });

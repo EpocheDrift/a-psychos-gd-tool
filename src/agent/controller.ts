@@ -9,13 +9,18 @@ import type {
 } from '../domain/transactionSession';
 import { DEFAULT_AGENT_LIMITS } from '../domain/limits';
 import type { PreviewCaptureControl, PreviewResult } from '../render/preview';
-import { modelNodeTypesInDocument } from '../domain/modelExecutionPolicy';
+import {
+  deferredAgentNodeTypesInDocument,
+  modelNodeTypesInDocument,
+} from '../domain/modelExecutionPolicy';
 import type {
   AgentController,
+  AgentCapabilityProfile,
   AgentScope,
   PublicAwaitRenderRequest,
   PublicPreviewRequest,
   PublicPreviewResult,
+  PublicRenderStatus,
   PublicRenderStatusRequest,
 } from './contracts';
 import { controllerFault, normalizeControllerFailure } from './faults';
@@ -67,41 +72,67 @@ export function createModelTransactionPolicy(
   lease: Pick<AgentSessionLease, 'scopes'>,
 ): TransactionPolicy {
   return (context): AgentFailure | null => {
-    const nodeTypes = modelNodeTypesInDocument(context.proposed.document);
-    if (nodeTypes.length === 0) return null;
-    if (!lease.scopes.has('model')) {
+    const modelNodeTypes = modelNodeTypesInDocument(
+      context.proposed.document,
+    );
+    if (modelNodeTypes.length > 0) {
+      if (!lease.scopes.has('model')) {
+        return {
+          ok: false,
+          requestId: context.requestId,
+          revision: context.current.revision,
+          error: {
+            code: 'PERMISSION_REQUIRED',
+            message: 'The proposed document can execute a model-backed node.',
+            path: '/commands',
+            details: {
+              requiredScope: 'model',
+              nodeTypes: modelNodeTypes,
+            },
+            recoverable: true,
+            suggestedFix:
+              'Remove model-backed nodes. Model scope is unavailable until the PR7 integrity gate.',
+          },
+        };
+      }
       return {
         ok: false,
         requestId: context.requestId,
         revision: context.current.revision,
         error: {
-          code: 'PERMISSION_REQUIRED',
-          message: 'The proposed document can execute a model-backed node.',
+          code: 'MODEL_DOWNLOAD_REQUIRED',
+          message:
+            'Model execution remains blocked until model bytes are pinned, self-hosted, and integrity-verified.',
           path: '/commands',
           details: {
-            requiredScope: 'model',
-            nodeTypes,
+            nodeTypes: modelNodeTypes,
+            rolloutGate: 'PR7',
           },
           recoverable: true,
-          suggestedFix:
-            'Remove model-backed nodes. Model scope is unavailable until the PR7 integrity gate.',
         },
       };
     }
+
+    const deferredNodeTypes = deferredAgentNodeTypesInDocument(
+      context.proposed.document,
+    );
+    if (deferredNodeTypes.length === 0) return null;
     return {
       ok: false,
       requestId: context.requestId,
       revision: context.current.revision,
       error: {
-        code: 'MODEL_DOWNLOAD_REQUIRED',
+        code: 'PERMISSION_REQUIRED',
         message:
-          'Model execution remains blocked until model bytes are pinned, self-hosted, and integrity-verified.',
+          'Worker tracing remains disabled until the PR7 resource-policy gate.',
         path: '/commands',
         details: {
-          nodeTypes,
+          nodeTypes: deferredNodeTypes,
           rolloutGate: 'PR7',
         },
         recoverable: true,
+        suggestedFix:
+          'Remove Trace and OutlineImage nodes until the PR7 rollout gate is complete.',
       },
     };
   };
@@ -131,13 +162,26 @@ function captureRevert(
   }) as Record<string, unknown>;
 }
 
+export interface AgentCompanionController {
+  awaitRender(
+    request: PublicAwaitRenderRequest,
+    signal: AbortSignal,
+  ): Promise<PublicRenderStatus>;
+  capturePreview(
+    request: PublicPreviewRequest,
+    signal: AbortSignal,
+  ): Promise<PublicPreviewResult>;
+}
+
 export function createAgentController(
   manager: AgentSessionManager,
   lease: AgentSessionLease,
   dependencies: AgentControllerDependencies,
   previewVault = new PreviewHandleVault(),
+  capabilityProfile: AgentCapabilityProfile = { mcp: false },
 ): {
   controller: AgentController;
+  companionController: AgentCompanionController;
   previewVault: PreviewHandleVault;
 } {
   const revision = () => dependencies.getDocumentState().revision;
@@ -186,11 +230,153 @@ export function createAgentController(
     manager.assertActive(lease, currentRevision, scope);
     return currentRevision;
   };
+  const withOperationSignal = async <T>(
+    signal: AbortSignal | undefined,
+    operation: (combinedSignal: AbortSignal) => Promise<T>,
+  ): Promise<T> => {
+    if (!signal || signal === lease.signal) {
+      return operation(lease.signal);
+    }
+    if (lease.signal.aborted) return operation(lease.signal);
+    if (signal.aborted) return operation(signal);
+
+    // AbortSignal.any() is unavailable in supported Chrome 113–115. Relay
+    // both cancellation sources explicitly and always remove the listeners.
+    const combined = new AbortController();
+    const relayLease = () => combined.abort(lease.signal.reason);
+    const relayTransport = () => combined.abort(signal.reason);
+    lease.signal.addEventListener('abort', relayLease, { once: true });
+    signal.addEventListener('abort', relayTransport, { once: true });
+    if (lease.signal.aborted) relayLease();
+    else if (signal.aborted) relayTransport();
+    try {
+      return await operation(combined.signal);
+    } finally {
+      lease.signal.removeEventListener('abort', relayLease);
+      signal.removeEventListener('abort', relayTransport);
+    }
+  };
+  const awaitRender = (
+    request: PublicAwaitRenderRequest,
+    signal?: AbortSignal,
+  ): Promise<PublicRenderStatus> =>
+    publicAsync('read', async () => {
+      const currentRevision = guard('read');
+      const captured = captureJsonObject(request, {
+        allowedKeys: ['revision', 'attempt', 'timeoutMs'],
+        revision: currentRevision,
+        label: 'Await-render request',
+        maxBytes: 16 * 1024,
+      });
+      const requestedRevision = optionalNonNegativeInteger(
+        captured,
+        'revision',
+        currentRevision,
+      );
+      if (requestedRevision === undefined) {
+        throw controllerFault(
+          currentRevision,
+          'INVALID_ARGUMENT',
+          'revision is required.',
+          { path: '/revision' },
+        );
+      }
+      const attempt = optionalPositiveInteger(
+        captured,
+        'attempt',
+        currentRevision,
+      );
+      const timeoutMs = optionalPositiveInteger(
+        captured,
+        'timeoutMs',
+        currentRevision,
+      );
+      if (
+        timeoutMs !== undefined
+        && timeoutMs > DEFAULT_AGENT_LIMITS.renderDeadlineMs
+      ) {
+        throw controllerFault(
+          currentRevision,
+          'RESOURCE_LIMIT',
+          `timeoutMs cannot exceed ${DEFAULT_AGENT_LIMITS.renderDeadlineMs}.`,
+          { path: '/timeoutMs' },
+        );
+      }
+      manager.assertActive(lease, revision(), 'read');
+      const status = await withOperationSignal(
+        signal,
+        (combinedSignal) => dependencies.awaitRender({
+          revision: requestedRevision,
+          ...(attempt === undefined ? {} : { attempt }),
+          ...(timeoutMs === undefined ? {} : { timeoutMs }),
+          signal: combinedSignal,
+        }),
+      );
+      manager.assertActive(lease, revision(), 'read');
+      return publicRenderStatus(status, false);
+    });
+  const capturePreview = (
+    request: PublicPreviewRequest,
+    signal?: AbortSignal,
+  ): Promise<PublicPreviewResult> =>
+    publicAsync('preview', async () => {
+      const currentRevision = guard('preview');
+      const captured = captureJsonObject(request, {
+        allowedKeys: [
+          'revision',
+          'attempt',
+          'maxWidth',
+          'maxHeight',
+          'format',
+          'includeMetrics',
+        ],
+        revision: currentRevision,
+        label: 'Preview request',
+        maxBytes: 16 * 1024,
+      });
+      manager.assertActive(lease, revision(), 'preview');
+      const result = await withOperationSignal(
+        signal,
+        (combinedSignal) => dependencies.capturePreview(
+          captured,
+          {
+            signal: combinedSignal,
+            deadline:
+              dependencies.nowPerformance()
+              + DEFAULT_AGENT_LIMITS.previewDeadlineMs,
+          },
+        ),
+      );
+      manager.assertActive(lease, revision(), 'preview');
+      const handle = previewVault.store(result, result.revision);
+      const output: PublicPreviewResult = {
+        trust: 'untrusted-document-render',
+        requestedRevision: result.requestedRevision,
+        revision: result.revision,
+        attempt: result.attempt,
+        sourceWidth: result.sourceWidth,
+        sourceHeight: result.sourceHeight,
+        width: result.width,
+        height: result.height,
+        mimeType: result.mimeType,
+        byteLength: result.byteLength,
+        contentHash: result.contentHash,
+        rgbaSha256: result.rgbaSha256,
+        capturePolicy: result.capturePolicy,
+        image: handle,
+        ...(result.metrics ? { metrics: result.metrics } : {}),
+      };
+      return publicJsonClone(output);
+    });
 
   const methods: AgentController = {
     getCapabilities: (request) => publicSync('read', () => {
       const currentRevision = guard('read');
-      const result = getCapabilitiesQuery(request, currentRevision);
+      const result = getCapabilitiesQuery(
+        request,
+        currentRevision,
+        capabilityProfile,
+      );
       manager.assertActive(lease, revision(), 'read');
       return result;
     }),
@@ -239,107 +425,9 @@ export function createAgentController(
       return result;
     }),
 
-    awaitRender: (request: PublicAwaitRenderRequest) =>
-      publicAsync('read', async () => {
-      const currentRevision = guard('read');
-      const captured = captureJsonObject(request, {
-          allowedKeys: ['revision', 'attempt', 'timeoutMs'],
-          revision: currentRevision,
-          label: 'Await-render request',
-          maxBytes: 16 * 1024,
-        });
-        const requestedRevision = optionalNonNegativeInteger(
-          captured,
-          'revision',
-          currentRevision,
-        );
-        if (requestedRevision === undefined) {
-          throw controllerFault(
-            currentRevision,
-            'INVALID_ARGUMENT',
-            'revision is required.',
-            { path: '/revision' },
-          );
-        }
-        const attempt = optionalPositiveInteger(
-          captured,
-          'attempt',
-          currentRevision,
-        );
-        const timeoutMs = optionalPositiveInteger(
-          captured,
-          'timeoutMs',
-          currentRevision,
-        );
-        if (
-          timeoutMs !== undefined
-          && timeoutMs > DEFAULT_AGENT_LIMITS.renderDeadlineMs
-        ) {
-          throw controllerFault(
-            currentRevision,
-            'RESOURCE_LIMIT',
-            `timeoutMs cannot exceed ${DEFAULT_AGENT_LIMITS.renderDeadlineMs}.`,
-            { path: '/timeoutMs' },
-          );
-        }
-        manager.assertActive(lease, revision(), 'read');
-        const status = await dependencies.awaitRender({
-          revision: requestedRevision,
-          ...(attempt === undefined ? {} : { attempt }),
-          ...(timeoutMs === undefined ? {} : { timeoutMs }),
-          signal: lease.signal,
-        });
-        manager.assertActive(lease, revision(), 'read');
-        return publicRenderStatus(status, false);
-    }),
+    awaitRender: (request) => awaitRender(request),
 
-    capturePreview: (request: PublicPreviewRequest) =>
-      publicAsync('preview', async () => {
-      const currentRevision = guard('preview');
-      const captured = captureJsonObject(request, {
-          allowedKeys: [
-            'revision',
-            'attempt',
-            'maxWidth',
-            'maxHeight',
-            'format',
-            'includeMetrics',
-          ],
-          revision: currentRevision,
-          label: 'Preview request',
-          maxBytes: 16 * 1024,
-        });
-        manager.assertActive(lease, revision(), 'preview');
-        const result = await dependencies.capturePreview(
-          captured,
-          {
-            signal: lease.signal,
-            deadline:
-              dependencies.nowPerformance()
-              + DEFAULT_AGENT_LIMITS.previewDeadlineMs,
-          },
-        );
-        manager.assertActive(lease, revision(), 'preview');
-        const handle = previewVault.store(result, result.revision);
-        const output: PublicPreviewResult = {
-          trust: 'untrusted-document-render',
-          requestedRevision: result.requestedRevision,
-          revision: result.revision,
-          attempt: result.attempt,
-          sourceWidth: result.sourceWidth,
-          sourceHeight: result.sourceHeight,
-          width: result.width,
-          height: result.height,
-          mimeType: result.mimeType,
-          byteLength: result.byteLength,
-          contentHash: result.contentHash,
-          rgbaSha256: result.rgbaSha256,
-          capturePolicy: result.capturePolicy,
-          image: handle,
-          ...(result.metrics ? { metrics: result.metrics } : {}),
-        };
-        return publicJsonClone(output);
-    }),
+    capturePreview: (request) => capturePreview(request),
 
     revertTransaction: (request) => publicAsync('edit', async () => {
         const beforeCapture = guard('edit');
@@ -367,8 +455,19 @@ export function createAgentController(
       value: method,
     });
   }
+  const companionController: AgentCompanionController = Object.freeze({
+    awaitRender: (
+      request: PublicAwaitRenderRequest,
+      signal: AbortSignal,
+    ) => awaitRender(request, signal),
+    capturePreview: (
+      request: PublicPreviewRequest,
+      signal: AbortSignal,
+    ) => capturePreview(request, signal),
+  });
   return {
     controller: Object.freeze(controller),
+    companionController,
     previewVault,
   };
 }

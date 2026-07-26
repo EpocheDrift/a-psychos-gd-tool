@@ -153,6 +153,7 @@ export interface CapabilitySnapshot {
     mcp: boolean;
   };
   preview: JsonObject;
+  transport?: JsonObject;
   scopeAvailability: Record<
     AgentScope,
     {
@@ -161,6 +162,11 @@ export interface CapabilitySnapshot {
     }
   >;
   omitted: string[];
+}
+
+export interface AgentCapabilityProfile {
+  mcp: boolean;
+  transport?: JsonObject;
 }
 
 export type DocumentInclude =

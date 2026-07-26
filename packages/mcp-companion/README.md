@@ -1,0 +1,159 @@
+# Local MCP companion
+
+The companion is the authenticated local adapter for the explicit Agent build.
+It starts one fixed loopback app host, launches an isolated Chrome context, and
+maps MCP stdio calls to the eight named `AgentController` operations through a
+same-origin WebSocket:
+
+```text
+MCP client ↔ bounded stdio ↔ local companion
+                              ↕ authenticated WebSocket
+                         Chrome + AgentController
+```
+
+It does not expose Puppeteer, CDP, page evaluation, navigation, pointer input,
+shell commands, arbitrary URLs, or general filesystem access as tools.
+
+## Build and run
+
+From the repository root:
+
+```sh
+npm install
+npm run build:agent
+npm run build:mcp
+npm run mcp:start
+```
+
+The default profile requests only `read` and `preview`. To make the two write
+tools available, opt in when configuring the MCP process:
+
+```sh
+npm run mcp:start -- --allow-edit
+```
+
+The companion opens a headed Chrome window. Click **Connect Agent**, review the
+requested scopes, select the scopes you intend to grant, and approve them. The
+MCP tools fail with a structured `PAIRING_NOT_APPROVED` outcome until this
+happens. Approval is required again after process restart, page reload,
+30-minute session expiry, transport loss, or **Revoke now**.
+
+`--headless` exists for the automated E2E gate and is not useful for ordinary
+operation because the approval UI is then invisible.
+
+## MCP client configuration
+
+Point the client at the built bin using an absolute repository path. The
+read/preview profile is:
+
+```json
+{
+  "command": "node",
+  "args": [
+    "/absolute/path/to/a-psychos-gd-tool/packages/mcp-companion/dist/index.js"
+  ]
+}
+```
+
+For bounded writes, append `"--allow-edit"` to `args`. An explicit Chrome can
+be selected with `--chrome /absolute/path/to/chrome` or the `CHROME`
+environment variable. The first release launches a new isolated Chrome
+session; it does not attach to an existing user profile.
+
+Node.js 20.19 or newer and a WebGPU-capable Chrome/Chromium are required. The
+host is intentionally fixed at `http://127.0.0.1:5199`; a port conflict is a
+startup error, not a reason to widen or dynamically change the origin.
+
+## Tool profiles
+
+The default profile exposes six tools:
+
+- `gfx_get_capabilities`
+- `gfx_get_document`
+- `gfx_get_render_status`
+- `gfx_validate_document`
+- `gfx_await_render`
+- `gfx_capture_preview`
+
+`--allow-edit` additionally exposes:
+
+- `gfx_apply_transaction`
+- `gfx_revert_transaction`
+
+Asset, model, project replacement, arbitrary fetch, filesystem export, and
+per-node tools are absent. `Trace`, `OutlineImage`, and `RemoveBackground`
+remain machine-readably blocked behind PR7 policy even in an edit session.
+
+Writes still require a human-approved `edit` scope. Every transaction carries
+an `expectedRevision` and stable `requestId`, commits atomically, and is
+conflict-safe and idempotent. MCP tool annotations are discovery hints only;
+the browser controller remains the authorization and validation authority.
+Every tool success or failure, including pre-handler SDK schema rejection, uses
+the common machine-readable `structuredContent.outcome` envelope.
+
+## Startup and health
+
+Startup and lifecycle diagnostics go only to stderr. Stdout is reserved for
+newline-delimited MCP JSON-RPC. The companion never logs tokens, tool
+arguments, document content, preview bytes, Chrome paths, or pairing secrets.
+
+The minimal health endpoint is:
+
+```sh
+curl --fail http://127.0.0.1:5199/healthz
+```
+
+It reports only the package version and one bridge state:
+`waiting-for-browser`, `waiting-for-human`, `ready`, `closed`, or `failed`.
+The hosted app itself requires a process-local HttpOnly cookie that Puppeteer
+sets before the fixed navigation.
+
+## Security and lifecycle
+
+- HTTP listens only on literal `127.0.0.1:5199`.
+- Every HTTP request requires exactly `Host: 127.0.0.1:5199`.
+- Every WebSocket upgrade additionally requires the exact same-origin
+  `Origin`, fixed path, fixed subprotocol, and a 256-bit process-local HttpOnly
+  cookie.
+- Static resources are pre-enumerated from the packaged Agent artifact; there
+  is no request-controlled filesystem traversal or directory listing.
+- The WebSocket has one owner, a pre-auth hello deadline, strict per-direction
+  sequence numbers, compression disabled, heartbeat expiry, and explicit
+  message/rate/concurrency/preview budgets.
+- Preview object URLs never leave the page. The lexical adapter resolves the
+  private vault bytes, verifies SHA-256 and length, sends one bounded binary
+  frame, and removes the handle. MCP receives image content plus separate
+  untrusted metadata.
+- The stable MCP SDK's unbounded pre-newline stdio reader is placed behind a
+  bounded line transform and streaming UTF-8/JSON resource scanner; oversized,
+  over-deep, or over-populated requests terminate the session before entering
+  the SDK parser.
+- Closing stdin or SIGINT/SIGTERM shuts down MCP, the host, and the Chrome
+  session. Chrome disconnect, WebSocket loss, page hide, expiry, human revoke,
+  or a hard bridge deadline destroys the browser session and releases the
+  loopback host. Stdio remains open so the MCP client can receive structured
+  terminal failures and close the process normally; no new browser authority
+  can be acquired in that process.
+
+Browser `Event.isTrusted` blocks page-script synthetic approval, but it is not
+cryptographic proof that a physical person clicked. This is why the MCP surface
+never makes CDP, navigation, evaluation, or browser input available to the
+Agent. A stronger attacker model requires an out-of-band native, OS, WebAuthn,
+or equivalent confirmation.
+
+## Verification
+
+```sh
+npm run typecheck
+npm test
+npm run check:mcp
+```
+
+`check:mcp` builds the packaged Agent app and companion, performs an AST
+authority scan with negative fixtures, then uses a real child stdio server,
+WebGPU Chrome, and the official MCP client. It exercises the in-app
+browser-trusted approval flow, executes all eight handlers, and verifies
+capability discovery, an atomic Text → Outline → Rasterize → Output
+transaction, structured `TYPE_MISMATCH` with no revision change,
+duplicate-request idempotency, exact render/preview bytes and hash,
+conflict-safe revert, revoke, and clean process teardown.

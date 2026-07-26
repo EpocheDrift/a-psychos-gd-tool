@@ -23,9 +23,10 @@ You'll get a default graph cooking to the artboard. Add nodes from the palette, 
 Other commands:
 
 ```sh
-npm test              # headless engine tests (vitest) — cache, pool, layout; no GPU needed
-npm run typecheck     # tsc -b
-npm run build         # production build to dist/
+npm test              # app + companion unit/authority gates; no GPU needed
+npm run typecheck     # app + companion TypeScript projects
+npm run build         # default app, Agent app, and local MCP companion
+npm run check:mcp     # real child stdio + Chrome/WebGPU Agent round-trip
 ```
 
 ## Core ideas
@@ -112,11 +113,14 @@ Evaluation is pull-based from Output with hash-keyed memoization: a node's key i
 
 The default production artifact exposes no Agent global. An explicit
 loopback-only static Agent artifact now provides a paired, scope-gated browser
-controller with eight JSON-safe methods; the local MCP companion remains the
-next rollout stage. Its in-app approval rejects page-script synthetic events,
-but is not physical-user proof, so the MCP surface must never expose CDP input
-or page evaluation. The readiness audit, target architecture, security model,
-and staged implementation/evidence live in
+controller with eight JSON-safe methods and an authenticated local stdio MCP
+companion. The default companion profile is read/preview; bounded edit tools
+require both `--allow-edit` and explicit in-app `edit` approval. Its approval
+rejects page-script synthetic events but is not physical-user proof, so the MCP
+surface exposes no CDP input, navigation, page evaluation, shell, arbitrary
+fetch, or general filesystem access. Build/run details are in the
+[companion guide](packages/mcp-companion/README.md); the readiness audit,
+target architecture, security model, and staged implementation/evidence live in
 [`docs/agent-adaptation/`](docs/agent-adaptation/README.md).
 
 ### Dev scripts
@@ -164,9 +168,10 @@ individual commands, fixtures, prerequisites, and artifact policy.
 
 ## Contributing
 
-Issues and PRs are welcome. CI runs `npm run typecheck`, `npm test`, and
-`npm run check:agent-artifacts`; please make sure all three pass locally.
-Rendering and Agent runtime changes also require `npm run check:agent-build`
+Issues and PRs are welcome. CI runs typecheck, all unit/authority tests, both
+app builds, the compiled MCP build, real child-stdio MCP/Chrome round-trips,
+stdio lifecycle profiles, and Agent artifact checks. Rendering and Agent
+runtime changes also require `npm run check:mcp`, `npm run check:agent-build`,
 and the documented [WebGPU smoke suite](docs/testing/browser-smoke.md).
 
 ## License

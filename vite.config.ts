@@ -6,7 +6,7 @@ import {
   AGENT_HOST,
   AGENT_PORT,
   AGENT_SECURITY_HEADERS,
-} from './agent-security';
+} from './packages/mcp-companion/src/agentSecurity';
 
 export default defineConfig(({ command, isPreview, mode }) => {
   const agentMode = mode === 'agent';

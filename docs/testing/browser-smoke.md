@@ -83,16 +83,21 @@ diagnostic and the semantic color/bounds checks still gate the run.
 
 ## CI status
 
-Every pull request runs typecheck, Vitest, and `check:agent-artifacts`, which
-builds and scans both the default and Agent production artifacts. The local
-`check:agent-build` additionally uses real Chrome to verify the default/wrong
-origin paths and prove that dynamically importing the Agent HTML entry exposes
-no raw store namespace. WebGPU smokes remain a required local/manual gate until
-a reliable GPU runner is configured; `ubuntu-latest` must not be treated as
-evidence that a real WebGPU render occurred.
+Every pull request runs typecheck, Vitest, the default and Agent production
+builds, the compiled MCP authority gate, a real child-process stdio-to-browser
+MCP E2E, the compiled companion stdio lifecycle check, and
+`check:agent-artifacts`. The MCP E2E exercises all eight tools through the
+official stdio client transport, including the in-app browser-trusted approval
+flow, exact preview bytes, revert, revoke, and teardown. The local
+`check:agent-build` additionally uses real Chrome to verify the
+default/wrong-origin paths and prove that dynamically importing the Agent HTML
+entry exposes no raw store namespace. Full WebGPU visual smokes remain a
+required local/manual gate until a reliable GPU runner is configured;
+`ubuntu-latest` must not be treated as evidence that a real WebGPU render
+occurred.
 
 The scope UI relies on browser-trusted events to reject page-script synthetic
 approval. That is not physical-user proof: CDP input can also be trusted. The
-production MCP companion must therefore expose neither CDP/browser input nor
-page evaluation; stronger browser-controller threat models require an
-out-of-band native, WebAuthn, or OS confirmation.
+MCP companion exposes neither CDP/browser input nor page evaluation; stronger
+browser-controller threat models require an out-of-band native, WebAuthn, or OS
+confirmation.

@@ -75,6 +75,31 @@ describe('Agent queries', () => {
     });
     expect(JSON.parse(JSON.stringify(detailed))).toEqual(detailed);
     expect(structuredClone(detailed)).toEqual(detailed);
+
+    const deferred = getCapabilitiesQuery({
+      nodeTypes: ['Trace', 'RemoveBackground'],
+      include: ['traits'],
+    }, 4);
+    expect(deferred.nodes).toMatchObject([
+      {
+        type: 'Trace',
+        traits: {
+          agentExecution: {
+            available: false,
+            rolloutGate: 'PR7',
+          },
+        },
+      },
+      {
+        type: 'RemoveBackground',
+        traits: {
+          agentExecution: {
+            available: false,
+            rolloutGate: 'PR7',
+          },
+        },
+      },
+    ]);
   });
 
   it('projects only public document fields and redacts embedded image data', () => {

@@ -7,10 +7,11 @@ rollout gates; phase-by-phase implementation evidence lives in
 ## Executive summary
 
 `a-psychos-gd-tool` now has a versioned command/validation layer, exact
-revision/render/preview evidence, and a paired narrow browser controller in an
-explicit loopback-only static Agent artifact. The default artifact exposes no
-Agent global, and neither artifact exposes the raw Zustand store. The local MCP
-transport, isolated asset boundary, and broader Agent evals remain staged work.
+revision/render/preview evidence, a paired narrow browser controller, and an
+authenticated local stdio MCP companion in an explicit loopback-only static
+Agent artifact. The default artifact exposes no Agent global, and neither
+artifact exposes the raw Zustand store. The isolated asset/persistence boundary
+and broader Agent evals remain staged work.
 
 The codebase is unusually well-positioned for adaptation:
 
@@ -47,7 +48,7 @@ An external agent should be able to:
 | L0 | Screenshot-only GUI control | Available, but brittle |
 | L1 | Internal automation/test hook | Replaced by semantic UI + paired controller tests |
 | L2 | Stable, validated command/query API | Implemented |
-| L3 | External tool adapter (MCP/browser bridge) | Browser controller implemented; MCP pending |
+| L3 | External tool adapter (MCP/browser bridge) | Implemented with human-approved read/preview and opt-in edit profiles |
 | L4 | Closed-loop visual planning and verification | Proposed after L3 |
 
 The first delivery target is **L3**, with enough preview and render feedback to

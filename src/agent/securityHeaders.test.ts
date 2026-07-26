@@ -4,7 +4,7 @@ import {
   AGENT_ALLOWED_ORIGIN,
   AGENT_CONTENT_SECURITY_POLICY,
   AGENT_SECURITY_HEADERS,
-} from '../../agent-security';
+} from '../../packages/mcp-companion/src/agentSecurity';
 
 describe('Agent build security policy', () => {
   it('uses an exact loopback origin and restrictive response headers', () => {

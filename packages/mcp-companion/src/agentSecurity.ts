@@ -1,6 +1,16 @@
 export const AGENT_HOST = '127.0.0.1';
 export const AGENT_PORT = 5199;
 export const AGENT_ALLOWED_ORIGIN = `http://${AGENT_HOST}:${AGENT_PORT}`;
+export const AGENT_EXPECTED_HOST = `${AGENT_HOST}:${AGENT_PORT}`;
+export const AGENT_COMPANION_META_NAME = 'gfx-agent-companion';
+export const AGENT_COMPANION_META_VALUE = 'local-v1';
+export const AGENT_HEALTH_PATH = '/healthz';
+export const AGENT_WEBSOCKET_PATH = '/__gfx_agent_bridge_v1';
+// The fixed companion origin is plain loopback HTTP. Do not use a __Host- or
+// __Secure- prefix: those require a Secure cookie and would not be portable
+// over this intentionally local, non-TLS origin.
+export const AGENT_COOKIE_NAME = 'gfx_agent_bootstrap';
+export const AGENT_WEBSOCKET_PROTOCOL = 'gfx-agent-bridge-v1';
 
 export const AGENT_CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
@@ -16,7 +26,9 @@ export const AGENT_CONTENT_SECURITY_POLICY = [
   "style-src-attr 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self'",
-  "connect-src 'self' blob:",
+  // 'self' covers the same-origin WebSocket in current browsers; spelling the
+  // exact endpoint out keeps the intended companion authority auditable.
+  `connect-src 'self' blob: ws://${AGENT_HOST}:${AGENT_PORT}`,
   "worker-src 'self' blob:",
   "media-src 'none'",
   "manifest-src 'self'",
