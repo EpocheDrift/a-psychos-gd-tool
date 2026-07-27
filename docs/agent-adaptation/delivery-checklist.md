@@ -6,17 +6,28 @@ only from `README.md`, `readiness-audit.md`, `architecture.md`, and
 
 Integration branch: `agent/agent-ready-v1`
 
+## Owner approval
+
+The project owner approved Agent-ready v1 on **2026-07-27** and authorized the
+integration PR to move from Draft to Ready for review. The owner explicitly
+waived an additional full 31-node capability sweep and a current-head remote CI
+record as approval prerequisites.
+
+This records a risk decision, not fabricated evidence: those waived checks are
+not marked as passed. Approval does not itself merge the PR, approve a
+production release, or grant commercial rights for RMBG-1.4.
+
 | Stage | Status | Evidence |
 | --- | --- | --- |
-| PR 0 — Freeze the baseline | Complete | Commit [`083f404`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/083f40480827237e2aa419e70dd8dcda00ec5410) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
-| PR 1 — Versioned schemas and capability manifest | Complete | Commit [`c42d2be`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/c42d2be7be53daa1b44188e2b37a393a9237afd5) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
-| PR 2 — Pure command and transaction service | Complete | Commit [`ccd7227`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/ccd7227f4a55a9e22972066430890a1b47877800) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
-| PR 3 — Revisioned render coordinator | Complete | Commit [`ca930fb`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/ca930fb2380c2ceac1e5a5ab1fc075a9039ad099) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
-| PR 4 — Preview evidence and stable UI automation | Complete | Commit [`a257449`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/a257449) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
-| PR 5 — Gated browser AgentController | Complete | Commit [`a02f74f`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/a02f74f6f83158d706dda14923147a321c63bcb5) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
-| PR 6 — Local MCP companion | Complete | Commit [`1a2a833`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/1a2a8339bd60056797963904291b6dd5c8855dbd) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
-| PR 7 — Asset and persistence boundary | Complete | Commit [`f22ff34`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/f22ff34cd3fe5be8876b21af56a72e2f633aee3d) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
-| PR 8 — Agent evals and high-level helpers | Complete | Commit [`ea7c863`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/ea7c8637251a6f6ad3e335d316f65b690ad3db88) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); seven real MCP scenarios pass with 49 tool calls, 4 verified recoveries, and 3 reviewed PNGs. |
+| PR 0 — Freeze the baseline | Complete | Commit [`083f404`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/083f40480827237e2aa419e70dd8dcda00ec5410) is pushed and tracked in integration PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
+| PR 1 — Versioned schemas and capability manifest | Complete | Commit [`c42d2be`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/c42d2be7be53daa1b44188e2b37a393a9237afd5) is pushed and tracked in integration PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
+| PR 2 — Pure command and transaction service | Complete | Commit [`ccd7227`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/ccd7227f4a55a9e22972066430890a1b47877800) is pushed and tracked in integration PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
+| PR 3 — Revisioned render coordinator | Complete | Commit [`ca930fb`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/ca930fb2380c2ceac1e5a5ab1fc075a9039ad099) is pushed and tracked in integration PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
+| PR 4 — Preview evidence and stable UI automation | Complete | Commit [`a257449`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/a257449) is pushed and tracked in integration PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
+| PR 5 — Gated browser AgentController | Complete | Commit [`a02f74f`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/a02f74f6f83158d706dda14923147a321c63bcb5) is pushed and tracked in integration PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
+| PR 6 — Local MCP companion | Complete | Commit [`1a2a833`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/1a2a8339bd60056797963904291b6dd5c8855dbd) is pushed and tracked in integration PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
+| PR 7 — Asset and persistence boundary | Complete | Commit [`f22ff34`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/f22ff34cd3fe5be8876b21af56a72e2f633aee3d) is pushed and tracked in integration PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
+| PR 8 — Agent evals and high-level helpers | Complete | Commit [`ea7c863`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/ea7c8637251a6f6ad3e335d316f65b690ad3db88) is pushed and tracked in integration PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); seven real MCP scenarios pass with 49 tool calls, 4 verified recoveries, and 3 reviewed PNGs. |
 
 ## PR 0 checklist
 
@@ -397,9 +408,13 @@ Integration branch: `agent/agent-ready-v1`
 
 ## Residual risks after Agent-ready v1
 
+- The current PR head has no GitHub Actions status rollup. The owner waived a
+  remote CI record as an approval prerequisite; this is not a claim that
+  remote CI passed, and reviewers or release owners may still require it.
 - The CI eval is real browser/WebGPU regression evidence, but it is not
-  cross-vendor or hardware-GPU release approval; the hardware GPU suite remains
-  a required manual gate until CI has a reliable representative runner.
+  cross-vendor or hardware-GPU release approval. The owner waived an additional
+  hardware sweep as an approval prerequisite; target-environment validation
+  remains a production-release risk.
 - Preview and asset bytes remain private to their explicitly bounded binary
   paths. Project replacement, filesystem export, arbitrary fetch, and general
   filesystem tools remain absent. The delivered seven-scenario eval exercises

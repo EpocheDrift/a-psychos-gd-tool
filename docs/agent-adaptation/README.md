@@ -1,8 +1,11 @@
 # AI Agent Adaptation
 
-Status: **Agent-ready v1 implementation complete through PR 8** — these
-documents define the delivered contract and rollout gates; phase-by-phase
-implementation evidence lives in
+Status: **Agent-ready v1 implementation complete through PR 8 and
+owner-approved on 2026-07-27**. The owner waived an additional full capability
+sweep and a current-head remote CI record as approval prerequisites. This is
+not a claim that those checks ran, and it does not itself approve merge,
+production release, or commercial RMBG-1.4 use. Phase-by-phase implementation
+evidence and the remaining disclosed risks live in
 [`delivery-checklist.md`](./delivery-checklist.md).
 
 ## Executive summary
@@ -94,8 +97,8 @@ architecture, security, implementation, and review record.
 
 ## Documents
 
-- [中文审批简报](./approval-brief.zh-CN.md) — 精简后的审批决定、推荐选项、
-  风险分层和下一步 Web UI/MCP 实操验收计划。
+- [中文审批简报](./approval-brief.zh-CN.md) — 所有者的最终批准、明确豁免的
+  额外验收项、风险分层和不在批准范围内的事项。
 - [Readiness audit](./readiness-audit.md) — original baseline gap analysis and
   the enduring threat model.
 - [Target architecture](./architecture.md) — components, command/query

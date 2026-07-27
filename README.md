@@ -124,7 +124,7 @@ Evaluation is pull-based from Output with hash-keyed memoization: a node's key i
 - `src/editor/` — xyflow canvas + custom node component; handles and wires colored by socket type.
 - `src/util/` — font parsing (sfnt), expression evaluation, color, noise.
 
-### AI agent adaptation — Agent-ready v1 complete
+### AI agent adaptation — Agent-ready v1 complete and owner-approved
 
 The default production artifact exposes no Agent global. An explicit
 loopback-only static Agent artifact provides a paired, scope-gated browser
@@ -147,6 +147,8 @@ physical-user proof. Build/run details are in the
 [companion guide](packages/mcp-companion/README.md); the readiness audit,
 target architecture, security model, and staged implementation/evidence live
 in [`docs/agent-adaptation/`](docs/agent-adaptation/README.md).
+The project owner approved this v1 scope on 2026-07-27; that approval does not
+by itself merge the integration PR or approve production/commercial release.
 
 ### Dev scripts
 
