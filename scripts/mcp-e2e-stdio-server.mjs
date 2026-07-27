@@ -110,12 +110,11 @@ const runtime = new CompanionRuntime({
         '--enable-unsafe-webgpu',
         ...(process.platform === 'linux'
           ? [
-              // Hosted Linux runners have no hardware adapter. Initialize the
-              // headless Vulkan path and select Dawn's SwiftShader fallback.
-              '--use-angle=vulkan',
-              '--enable-features=Vulkan',
-              '--disable-vulkan-surface',
+              // Match Chromium's WebGPU SwiftShader test profile: force the
+              // fallback adapter and initialize ANGLE for Dawn in headless CI.
               '--use-webgpu-adapter=swiftshader',
+              '--use-gpu-in-tests',
+              '--enable-accelerated-2d-canvas',
             ]
           : []),
         '--hide-scrollbars',
