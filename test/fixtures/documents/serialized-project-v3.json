@@ -1,0 +1,111 @@
+{
+  "format": "a-psychos-gd-tool",
+  "schemaVersion": 3,
+  "documentId": "fixture_project",
+  "document": {
+    "frame": {
+      "width": 320,
+      "height": 240
+    },
+    "layers": [
+      {
+        "id": "base",
+        "name": "Connected base",
+        "visible": true,
+        "opacity": 0.8,
+        "blendMode": "multiply",
+        "graph": {
+          "nodes": {
+            "shape": {
+              "id": "shape",
+              "type": "Shape",
+              "params": {
+                "kind": "rect",
+                "width": 120,
+                "height": 80,
+                "sides": 6,
+                "filled": true,
+                "fill": "#ff1493",
+                "stroke": false,
+                "strokeColor": "#000000",
+                "strokeWidth": 4,
+                "strokeAlign": "center"
+              },
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            "raster": {
+              "id": "raster",
+              "type": "Rasterize",
+              "params": {},
+              "position": {
+                "x": 220,
+                "y": 0
+              }
+            },
+            "out": {
+              "id": "out",
+              "type": "Output",
+              "params": {
+                "transparent": false,
+                "background": "#204060"
+              },
+              "position": {
+                "x": 440,
+                "y": 0
+              }
+            }
+          },
+          "edges": [
+            {
+              "from": {
+                "node": "shape",
+                "socket": "out"
+              },
+              "to": {
+                "node": "raster",
+                "socket": "vector"
+              }
+            },
+            {
+              "from": {
+                "node": "raster",
+                "socket": "out"
+              },
+              "to": {
+                "node": "out",
+                "socket": "in"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "overlay",
+        "name": "Transparent overlay",
+        "visible": false,
+        "opacity": 0.5,
+        "blendMode": "screen",
+        "graph": {
+          "nodes": {
+            "out": {
+              "id": "out",
+              "type": "Output",
+              "params": {
+                "transparent": true,
+                "background": "#ffffff"
+              },
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          },
+          "edges": []
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,449 @@
+{
+  "frame": {
+    "width": 320,
+    "height": 240
+  },
+  "layers": [
+    {
+      "id": "all_node_types",
+      "name": "Every built-in node",
+      "visible": true,
+      "opacity": 1,
+      "blendMode": "normal",
+      "graph": {
+        "nodes": {
+          "text_1": {
+            "id": "text_1",
+            "type": "Text",
+            "params": {
+              "content": "PSYCHO",
+              "fontSize": 160,
+              "font": "default",
+              "weight": 400,
+              "fill": "#000000",
+              "stroke": false,
+              "strokeColor": "#000000",
+              "strokeWidth": 4,
+              "strokeAlign": "center"
+            },
+            "position": {
+              "x": 0,
+              "y": 0
+            }
+          },
+          "shape_2": {
+            "id": "shape_2",
+            "type": "Shape",
+            "params": {
+              "kind": "ellipse",
+              "width": 300,
+              "height": 300,
+              "sides": 6,
+              "filled": true,
+              "fill": "#000000",
+              "stroke": false,
+              "strokeColor": "#000000",
+              "strokeWidth": 4,
+              "strokeAlign": "center"
+            },
+            "position": {
+              "x": 240,
+              "y": 0
+            }
+          },
+          "image_3": {
+            "id": "image_3",
+            "type": "Image",
+            "params": {
+              "assetId": "",
+              "fit": "contain",
+              "scaleX": 1,
+              "scaleY": 1,
+              "offsetX": 0,
+              "offsetY": 0,
+              "rotation": 0,
+              "opacity": 1
+            },
+            "position": {
+              "x": 480,
+              "y": 0
+            }
+          },
+          "noise_4": {
+            "id": "noise_4",
+            "type": "Noise",
+            "params": {
+              "mode": "value",
+              "scale": 64,
+              "seed": 7
+            },
+            "position": {
+              "x": 720,
+              "y": 0
+            }
+          },
+          "split_5": {
+            "id": "split_5",
+            "type": "Split",
+            "params": {
+              "by": "characters"
+            },
+            "position": {
+              "x": 960,
+              "y": 0
+            }
+          },
+          "displace_6": {
+            "id": "displace_6",
+            "type": "Displace",
+            "params": {
+              "amount": 8,
+              "scale": 40,
+              "seed": 0
+            },
+            "position": {
+              "x": 1200,
+              "y": 0
+            }
+          },
+          "warp_7": {
+            "id": "warp_7",
+            "type": "Warp",
+            "params": {
+              "axis": "y",
+              "amplitude": 20,
+              "wavelength": 250,
+              "phase": 0
+            },
+            "position": {
+              "x": 0,
+              "y": 180
+            }
+          },
+          "boolean_8": {
+            "id": "boolean_8",
+            "type": "Boolean",
+            "params": {
+              "op": "subtract"
+            },
+            "position": {
+              "x": 240,
+              "y": 180
+            }
+          },
+          "blur_9": {
+            "id": "blur_9",
+            "type": "Blur",
+            "params": {
+              "radius": 8
+            },
+            "position": {
+              "x": 480,
+              "y": 180
+            }
+          },
+          "dither_10": {
+            "id": "dither_10",
+            "type": "Dither",
+            "params": {
+              "levels": 2,
+              "scale": 2
+            },
+            "position": {
+              "x": 720,
+              "y": 180
+            }
+          },
+          "ascii_11": {
+            "id": "ascii_11",
+            "type": "ASCII",
+            "params": {
+              "cell": 8
+            },
+            "position": {
+              "x": 960,
+              "y": 180
+            }
+          },
+          "recolor_12": {
+            "id": "recolor_12",
+            "type": "Recolor",
+            "params": {
+              "dark": "#1c1240",
+              "light": "#ffd27f"
+            },
+            "position": {
+              "x": 1200,
+              "y": 180
+            }
+          },
+          "chromakey_13": {
+            "id": "chromakey_13",
+            "type": "ChromaKey",
+            "params": {
+              "key": "#ffffff",
+              "tolerance": 0.2,
+              "softness": 0.1
+            },
+            "position": {
+              "x": 0,
+              "y": 360
+            }
+          },
+          "grid_14": {
+            "id": "grid_14",
+            "type": "Grid",
+            "params": {
+              "columns": 6,
+              "rows": 4,
+              "gapX": 0,
+              "gapY": 0,
+              "padding": "x/y",
+              "padX": 48,
+              "padY": 48,
+              "padTop": 48,
+              "padRight": 48,
+              "padBottom": 48,
+              "padLeft": 48,
+              "distX": "uniform",
+              "distY": "uniform",
+              "ratioX": 1.618,
+              "ratioY": 1.618,
+              "weightsX": "1,1,2,3,5",
+              "weightsY": "1,1,2,3,5",
+              "exprX": "1 + sin(t*pi)",
+              "exprY": "1 + sin(t*pi)",
+              "reverseX": "no",
+              "reverseY": "no",
+              "stagger": "none",
+              "flow": "rows"
+            },
+            "position": {
+              "x": 240,
+              "y": 360
+            }
+          },
+          "samplepath_15": {
+            "id": "samplepath_15",
+            "type": "SamplePath",
+            "params": {
+              "gap": 40,
+              "offset": 0,
+              "tangent": "rotate"
+            },
+            "position": {
+              "x": 480,
+              "y": 360
+            }
+          },
+          "function_16": {
+            "id": "function_16",
+            "type": "Function",
+            "params": {
+              "fn": "circle",
+              "gap": 40,
+              "radius": 200,
+              "turns": 3,
+              "width": 600
+            },
+            "position": {
+              "x": 720,
+              "y": 360
+            }
+          },
+          "random_17": {
+            "id": "random_17",
+            "type": "Random",
+            "params": {
+              "distribution": "uniform",
+              "spacing": 100,
+              "areaWidth": 600,
+              "areaHeight": 400,
+              "offset": 0,
+              "rotate": 0,
+              "scaleJitter": 0,
+              "seed": 1
+            },
+            "position": {
+              "x": 960,
+              "y": 360
+            }
+          },
+          "weight_18": {
+            "id": "weight_18",
+            "type": "Weight",
+            "params": {
+              "source": "noise",
+              "seed": 1,
+              "expr": "1 - progress"
+            },
+            "position": {
+              "x": 1200,
+              "y": 360
+            }
+          },
+          "filter_19": {
+            "id": "filter_19",
+            "type": "Filter",
+            "params": {
+              "mode": "every-nth",
+              "n": 2,
+              "channel": "weight",
+              "comparison": "above",
+              "threshold": 0.5,
+              "keep": 0.5,
+              "seed": 1
+            },
+            "position": {
+              "x": 0,
+              "y": 540
+            }
+          },
+          "duplicator_20": {
+            "id": "duplicator_20",
+            "type": "Duplicator",
+            "params": {
+              "count": 12
+            },
+            "position": {
+              "x": 240,
+              "y": 540
+            }
+          },
+          "place_21": {
+            "id": "place_21",
+            "type": "Place",
+            "params": {
+              "distribute": "by-order",
+              "offsetX": 0,
+              "offsetY": 0,
+              "order": "source",
+              "reverse": "no",
+              "seed": 0,
+              "binds": "[]"
+            },
+            "position": {
+              "x": 480,
+              "y": 540
+            }
+          },
+          "outline_22": {
+            "id": "outline_22",
+            "type": "Outline",
+            "params": {},
+            "position": {
+              "x": 720,
+              "y": 540
+            }
+          },
+          "rasterize_23": {
+            "id": "rasterize_23",
+            "type": "Rasterize",
+            "params": {},
+            "position": {
+              "x": 960,
+              "y": 540
+            }
+          },
+          "trace_24": {
+            "id": "trace_24",
+            "type": "Trace",
+            "params": {
+              "method": "fill",
+              "smoothness": 1,
+              "minArea": 8,
+              "threshold": 100,
+              "ignoreLight": "yes"
+            },
+            "position": {
+              "x": 1200,
+              "y": 540
+            }
+          },
+          "removebackground_25": {
+            "id": "removebackground_25",
+            "type": "RemoveBackground",
+            "params": {},
+            "position": {
+              "x": 0,
+              "y": 720
+            }
+          },
+          "outlineimage_26": {
+            "id": "outlineimage_26",
+            "type": "OutlineImage",
+            "params": {
+              "thickness": 6,
+              "threshold": 128,
+              "smoothness": 1,
+              "minArea": 8
+            },
+            "position": {
+              "x": 240,
+              "y": 720
+            }
+          },
+          "toalpha_27": {
+            "id": "toalpha_27",
+            "type": "ToAlpha",
+            "params": {
+              "source": "luminance",
+              "invert": "no",
+              "threshold": 0.5,
+              "softness": 0
+            },
+            "position": {
+              "x": 480,
+              "y": 720
+            }
+          },
+          "drawlayout_28": {
+            "id": "drawlayout_28",
+            "type": "DrawLayout",
+            "params": {
+              "size": 8
+            },
+            "position": {
+              "x": 720,
+              "y": 720
+            }
+          },
+          "flatten_29": {
+            "id": "flatten_29",
+            "type": "Flatten",
+            "params": {},
+            "position": {
+              "x": 960,
+              "y": 720
+            }
+          },
+          "composite_30": {
+            "id": "composite_30",
+            "type": "Composite",
+            "params": {
+              "mode": "normal",
+              "opacity": 1
+            },
+            "position": {
+              "x": 1200,
+              "y": 720
+            }
+          },
+          "output_31": {
+            "id": "output_31",
+            "type": "Output",
+            "params": {
+              "transparent": false,
+              "background": "#ffffff"
+            },
+            "position": {
+              "x": 0,
+              "y": 900
+            }
+          }
+        },
+        "edges": []
+      }
+    }
+  ]
+}

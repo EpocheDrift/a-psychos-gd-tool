@@ -1,0 +1,32 @@
+{
+  "frame": {
+    "width": 256,
+    "height": 192
+  },
+  "layers": [
+    {
+      "id": "semantic_layer",
+      "name": "Semantic test layer",
+      "visible": true,
+      "opacity": 1,
+      "blendMode": "normal",
+      "graph": {
+        "nodes": {
+          "semantic_output": {
+            "id": "semantic_output",
+            "type": "Output",
+            "params": {
+              "transparent": false,
+              "background": "#102030"
+            },
+            "position": {
+              "x": 600,
+              "y": 200
+            }
+          }
+        },
+        "edges": []
+      }
+    }
+  ]
+}

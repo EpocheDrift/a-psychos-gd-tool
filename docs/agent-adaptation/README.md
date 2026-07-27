@@ -1,15 +1,25 @@
 # AI Agent Adaptation
 
-Status: **proposed** — this directory is an architecture and delivery plan, not
-an implementation claim.
+Status: **Agent-ready v1 implementation complete through PR 8 and
+owner-approved on 2026-07-27**. The owner waived an additional full capability
+sweep and a current-head remote CI record as approval prerequisites. This is
+not a claim that those checks ran, and it does not itself approve merge,
+production release, or commercial RMBG-1.4 use. Phase-by-phase implementation
+evidence and the remaining disclosed risks live in
+[`delivery-checklist.md`](./delivery-checklist.md).
 
 ## Executive summary
 
-`a-psychos-gd-tool` is not currently agent-native. A vision-capable browser
-agent can operate parts of the UI, and development scripts can mutate the
-Zustand store through `globalThis.__app`, but there is no supported tool
-protocol, command contract, deep document validator, render synchronization
-API, or security boundary for an external agent.
+`a-psychos-gd-tool` now has a versioned command/validation layer, exact
+revision/render/preview evidence, a paired narrow browser controller, and an
+authenticated local stdio MCP companion in an explicit loopback-only static
+Agent artifact. The default artifact exposes no Agent global, and neither
+artifact exposes the raw Zustand store. The isolated content-addressed asset
+boundary, portable project save/load, and human-approved pinned RMBG-1.4 model
+path are implemented. The seven-scenario Agent evaluation suite is the
+final delivered stage: it runs through the real MCP/stdio/WebSocket/browser
+path, verifies three creative workflows and four recovery workflows, and emits
+reviewed visual evidence plus redacted metrics.
 
 The codebase is unusually well-positioned for adaptation:
 
@@ -21,13 +31,12 @@ The codebase is unusually well-positioned for adaptation:
 - rendering already emits cache events and user-visible errors;
 - Puppeteer smoke tests already exercise the app through a real WebGPU browser.
 
-The recommended path is to make the existing domain model a supported tool
-surface, rather than teaching an agent to drag small sockets by screen
-coordinates.
+The implementation makes the existing domain model the supported tool surface,
+so an agent does not need to drag small sockets by screen coordinates.
 
-## Target outcome
+## Delivered v1 outcome
 
-An external agent should be able to:
+An external agent can:
 
 1. discover every supported node and parameter;
 2. inspect a compact, revisioned document snapshot;
@@ -39,18 +48,27 @@ An external agent should be able to:
 8. operate through either a browser bridge or a local MCP server without direct
    access to the raw Zustand store.
 
-## Proposed maturity model
+## Delivered maturity model
 
 | Level | Capability | Project status |
 | --- | --- | --- |
 | L0 | Screenshot-only GUI control | Available, but brittle |
-| L1 | Internal automation/test hook | Available in development via `__app` |
-| L2 | Stable, validated command/query API | Proposed |
-| L3 | External tool adapter (MCP/browser bridge) | Proposed |
-| L4 | Closed-loop visual planning and verification | Proposed after L3 |
+| L1 | Internal automation/test hook | Replaced by semantic UI + paired controller tests |
+| L2 | Stable, validated command/query API | Implemented |
+| L3 | External tool adapter (MCP/browser bridge) | Implemented with human-approved read/preview plus independent edit/assets/model profiles |
+| L4 | Closed-loop visual planning and verification | Implemented for the bounded PR 8 workflow suite |
 
-The first delivery target is **L3**, with enough preview and render feedback to
-support a constrained L4 loop.
+Agent-ready v1 delivers **L3** plus the tested, constrained **L4** loop. Broader
+autonomous art direction remains outside the first-release scope.
+
+## Try it
+
+- [Getting started: Web UI and Agent MCP](../getting-started.md)
+- [中文入门：Web UI 与 Agent MCP](../getting-started.zh-CN.md)
+- [Local MCP companion reference](../../packages/mcp-companion/README.md)
+
+The walkthroughs are the user-facing entry point. The documents below are the
+architecture, security, implementation, and review record.
 
 ## Key architecture decisions
 
@@ -68,8 +86,9 @@ support a constrained L4 loop.
    GPU render. Agents can wait for or inspect the requested revision.
 7. **Capability-derived schemas.** Public node schemas are generated from the
    existing registry, extended with descriptions and constraints where needed.
-8. **No raw store exposure.** The development `__app` hook remains a test aid
-   until it can be replaced by a narrow, gated controller.
+8. **No raw store exposure.** Default and Agent artifacts expose neither
+   `__app` nor `__render`; a production artifact gate also checks that the ESM
+   namespace cannot yield Zustand `getState`/`setState`.
 9. **Local-first bridge.** The first MCP implementation binds to loopback,
    authenticates each browser session, and does not require a hosted control
    plane.
@@ -78,12 +97,18 @@ support a constrained L4 loop.
 
 ## Documents
 
-- [Readiness audit](./readiness-audit.md) — current evidence, gaps, risks, and
-  threat model.
+- [中文审批简报](./approval-brief.zh-CN.md) — 所有者的最终批准、明确豁免的
+  额外验收项、风险分层和不在批准范围内的事项。
+- [Readiness audit](./readiness-audit.md) — original baseline gap analysis and
+  the enduring threat model.
 - [Target architecture](./architecture.md) — components, command/query
   contracts, MCP/browser transport, render lifecycle, and error model.
 - [Implementation plan](./implementation-plan.md) — staged PRs, acceptance
   criteria, test matrix, and rollout gates.
+- [Agent evaluation suite](./evaluation-suite.md) — seven real MCP scenarios,
+  golden/preview policy, recovery traces, metrics, and helper decisions.
+- [Delivery evidence](./delivery-checklist.md) — non-normative phase status and
+  reproducible verification links.
 
 ## Non-goals for the first release
 

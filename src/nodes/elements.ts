@@ -10,6 +10,7 @@
 // `index` stays stable identity for its whole life.
 
 import { boundsOfPaths, transformPaths } from '../engine/path';
+import { geometryBudgetFor } from '../engine/geometryBudget';
 import type { NodeDef } from '../engine/registry';
 import {
   readChannel,
@@ -43,8 +44,10 @@ export const SplitNode: NodeDef = {
   inputs: [{ name: 'text', type: 'text' }],
   outputs: [{ name: 'out', type: 'elements' }],
   params: [{ name: 'by', kind: 'select', options: ['characters', 'words'], default: 'characters' }],
-  cook(inputs, params) {
+  cook(inputs, params, ctx) {
+    const budget = geometryBudgetFor(ctx);
     const text = inputs.text as TextValue;
+    budget.assertGeneratedItems(text.glyphs.length);
     const items: Element[] = [];
 
     if (params.by === 'words') {
@@ -72,14 +75,17 @@ export const SplitNode: NodeDef = {
         });
       };
       for (let i = 0; i <= text.content.length; i++) {
+        budget.chargeWork();
         if (i === text.content.length || text.content[i] === ' ') {
           flush(i);
           start = i + 1;
         }
       }
     } else {
-      text.glyphs.forEach((g, i) => {
-        if (text.content[g.index] === ' ') return;
+      for (let i = 0; i < text.glyphs.length; i++) {
+        budget.chargeWork();
+        const g = text.glyphs[i];
+        if (text.content[g.index] === ' ') continue;
         items.push({
           content: {
             kind: 'text',
@@ -95,10 +101,14 @@ export const SplitNode: NodeDef = {
           progress: 0, // filled below once the count is known
           weight: 1,
         });
-      });
+      }
     }
 
-    items.forEach((el, k) => (el.progress = items.length === 1 ? 0 : k / (items.length - 1)));
+    budget.assertGeneratedItems(items.length);
+    for (let k = 0; k < items.length; k++) {
+      budget.chargeWork();
+      items[k].progress = items.length === 1 ? 0 : k / (items.length - 1);
+    }
     const value: ElementsValue = { kind: 'elements', items };
     return { out: value };
   },
@@ -109,12 +119,20 @@ export const DuplicatorNode: NodeDef = {
   inputs: [{ name: 'in', type: ['vector', 'raster', 'text', 'elements'] }],
   outputs: [{ name: 'out', type: 'elements' }],
   params: [{ name: 'count', kind: 'number', default: 12, min: 1, max: 1000, step: 1 }],
-  cook(inputs, params) {
+  cook(inputs, params, ctx) {
+    const budget = geometryBudgetFor(ctx);
     const base = asElements(inputs.in as Value);
     const count = Math.round(Number(params.count));
+    const projected = base.length * count;
+    budget.assertGeneratedItems(
+      Number.isSafeInteger(projected)
+        ? projected
+        : Number.MAX_SAFE_INTEGER,
+    );
     const items: Element[] = [];
     for (let i = 0; i < count; i++) {
       for (const el of base) {
+        budget.chargeWork();
         items.push({
           content: el.content, // copies share content; transforms differ after Place
           transform: { ...el.transform },
@@ -142,19 +160,40 @@ function lerpAngle(a: number, b: number, t: number): number {
  * A closed run wraps across the closing segment so the last slot doesn't double
  * the first.
  */
-function spreadAlongPath(layout: Placement[], closed: boolean, n: number): Placement[] {
+function spreadAlongPath(
+  layout: Placement[],
+  closed: boolean,
+  n: number,
+  ctx: Parameters<typeof geometryBudgetFor>[0] = {},
+): Placement[] {
+  const budget = geometryBudgetFor(ctx);
+  budget.assertGeneratedItems(layout.length);
+  budget.assertGeneratedItems(n);
   // a single sample (or single element) has nothing to space along
   if (layout.length === 1 || n === 1) {
-    return Array.from({ length: n }, (_, i) => ({ ...layout[0], index: i }));
+    const repeated: Placement[] = [];
+    for (let i = 0; i < n; i++) {
+      budget.chargeWork();
+      repeated.push({ ...layout[0], index: i });
+    }
+    return repeated;
   }
 
   const ring = closed ? [...layout, layout[0]] : layout;
   const cum = [0];
   for (let i = 1; i < ring.length; i++) {
+    budget.chargeWork();
     cum.push(cum[i - 1] + Math.hypot(ring[i].x - ring[i - 1].x, ring[i].y - ring[i - 1].y));
   }
   const total = cum[cum.length - 1];
-  if (total === 0) return Array.from({ length: n }, (_, i) => ({ ...layout[0], index: i }));
+  if (total === 0) {
+    const repeated: Placement[] = [];
+    for (let i = 0; i < n; i++) {
+      budget.chargeWork();
+      repeated.push({ ...layout[0], index: i });
+    }
+    return repeated;
+  }
 
   // named channels lerp too; a side missing the name reads as neutral 1
   const lerpChannels = (a: Placement, b: Placement, t: number): Record<string, number> | undefined => {
@@ -169,10 +208,19 @@ function spreadAlongPath(layout: Placement[], closed: boolean, n: number): Place
 
   const out: Placement[] = [];
   for (let i = 0; i < n; i++) {
+    budget.chargeWork();
     // closed: spread over the full loop (i/n); open: endpoints included (i/(n-1))
     const target = (closed ? i / n : i / (n - 1)) * total;
-    let seg = 0;
-    while (seg < ring.length - 2 && cum[seg + 1] < target) seg++;
+    // Lower-bound search removes the former elements×segments scan.
+    let lo = 1;
+    let hi = cum.length - 1;
+    while (lo < hi) {
+      budget.chargeWork();
+      const middle = lo + Math.floor((hi - lo) / 2);
+      if (cum[middle] < target) lo = middle + 1;
+      else hi = middle;
+    }
+    const seg = Math.max(0, lo - 1);
     const span = cum[seg + 1] - cum[seg];
     const local = span === 0 ? 0 : (target - cum[seg]) / span;
     const a = ring[seg], b = ring[seg + 1];
@@ -256,9 +304,12 @@ export const PlaceNode: NodeDef = {
     // The editor renders the rows with an "add channel" button.
     { name: 'binds', kind: 'binds', default: '[]' },
   ],
-  cook(inputs, params) {
+  cook(inputs, params, ctx) {
+    const budget = geometryBudgetFor(ctx);
     const elements = asElements(inputs.elements as Value);
     const layoutValue = inputs.layout as LayoutValue;
+    budget.assertGeneratedItems(elements.length);
+    budget.assertGeneratedItems(layoutValue.placements.length);
     if (elements.length === 0 || layoutValue.placements.length === 0) {
       return { out: { kind: 'elements', items: [] } satisfies ElementsValue };
     }
@@ -277,6 +328,7 @@ export const PlaceNode: NodeDef = {
     if (params.order === 'random') {
       const seed = Number(params.seed);
       for (let i = slots.length - 1; i > 0; i--) {
+        budget.chargeWork();
         const j = Math.floor(latticeHash(i, 31, seed) * (i + 1));
         [slots[i], slots[j]] = [slots[j], slots[i]];
       }
@@ -286,20 +338,32 @@ export const PlaceNode: NodeDef = {
     // spread resamples the (ordered) slot run into exactly one slot per
     // element, evenly by arc length — the element count drives the spacing.
     if (params.distribute === 'spread') {
-      slots = spreadAlongPath(slots, layoutValue.closed ?? false, elements.length);
+      slots = spreadAlongPath(
+        slots,
+        layoutValue.closed ?? false,
+        elements.length,
+        ctx,
+      );
     }
 
-    const byIndex = params.distribute === 'by-index'
-      ? new Map(layoutValue.placements.map((p) => [p.index, p]))
-      : null;
+    let byIndex: Map<number, Placement> | null = null;
+    if (params.distribute === 'by-index') {
+      byIndex = new Map();
+      for (const placement of layoutValue.placements) {
+        budget.chargeWork();
+        byIndex.set(placement.index, placement);
+      }
+    }
 
     const offsetX = Number(params.offsetX ?? 0);
     const offsetY = Number(params.offsetY ?? 0);
     const items: Element[] = [];
-    elements.forEach((e, i) => {
+    for (let i = 0; i < elements.length; i++) {
+      budget.chargeWork();
+      const e = elements[i];
       // keyed join: no slot with this identity → the element sits out
       const p = byIndex ? byIndex.get(e.index) : slots[i % slots.length];
-      if (!p) return;
+      if (!p) continue;
       let scale = e.transform.scale * p.scale;
       let rotation = e.transform.rotation + p.rotation;
       let blur = 0;
@@ -320,8 +384,9 @@ export const PlaceNode: NodeDef = {
         weight: e.weight * p.weight, // density composes; 1 is the identity
         ...(blur > 0 ? { blur } : {}),
       });
-    });
+    }
 
+    budget.assertGeneratedItems(items.length);
     const value: ElementsValue = { kind: 'elements', items };
     return { out: value };
   },
@@ -333,26 +398,48 @@ export const FlattenNode: NodeDef = {
   outputs: [{ name: 'out', type: 'vector' }],
   params: [],
   cook(inputs, _params, ctx) {
+    const budget = geometryBudgetFor(ctx);
     const elements = (inputs.in as ElementsValue).items;
+    budget.assertGeneratedItems(elements.length);
     const paths: PathCmd[][] = [];
     // Flatten collapses to one vector, one style — the first styled content wins
     let style: Style | undefined;
     for (const el of elements) {
-      let content: PathCmd[][];
+      budget.chargeWork();
+      let content: PathCmd[][] = [];
       if (el.content.kind === 'vector') {
         content = el.content.paths;
       } else if (el.content.kind === 'text') {
         const font = ctx.fonts.get(el.content.fontKey);
         if (!font) throw new Error(`font not loaded: ${el.content.fontKey}`);
         const t = el.content;
-        content = t.glyphs.map((g) => font.glyphs.get(g.glyphId).getPath(g.x, g.y, t.fontSize).commands as PathCmd[]);
+        budget.chargeGlyphs(t.glyphs.length);
+        for (const g of t.glyphs) {
+          budget.checkInterrupt();
+          const commands = font.glyphs
+            .get(g.glyphId)
+            .getPath(g.x, g.y, t.fontSize)
+            .commands as PathCmd[];
+          if (commands.length === 0) continue;
+          budget.chargeVectorCommands(commands.length);
+          content.push(commands);
+        }
       } else {
         throw new Error('Flatten: raster element content is not supported yet — Trace it first');
       }
       style ??= el.content.style;
-      paths.push(...transformPaths(content, el.transform));
+      const transformed = transformPaths(content, el.transform, ctx);
+      for (const path of transformed) {
+        budget.chargeWork();
+        paths.push(path);
+      }
     }
-    const value: VectorValue = { kind: 'vector', paths, bounds: boundsOfPaths(paths), style };
+    const value: VectorValue = {
+      kind: 'vector',
+      paths,
+      bounds: boundsOfPaths(paths, ctx),
+      style,
+    };
     return { out: value };
   },
 };

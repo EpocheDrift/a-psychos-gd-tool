@@ -3,6 +3,7 @@
 // kerned positions and index.
 
 import type { ParamValue } from '../engine/graph';
+import { geometryBudgetFor } from '../engine/geometryBudget';
 import type { CookContext, NodeDef } from '../engine/registry';
 import type { PositionedGlyph, StrokeAlign, Style, TextValue } from '../engine/values';
 
@@ -32,8 +33,12 @@ export const TextNode: NodeDef = {
   // hash the font the cook will actually use, not just the `font` param: a
   // cook that ran before the requested font finished loading shaped with the
   // fallback, and only this hash flipping invalidates that cached result
-  hashExtras: (params, ctx) => ({ '@font': resolveFontKey(params, ctx) }),
+  hashExtras: (params, ctx) => ({
+    '@font': resolveFontKey(params, ctx),
+    '@fontEnvironment': String(ctx.environmentRevision ?? 0),
+  }),
   cook(_inputs, params, ctx) {
+    const budget = geometryBudgetFor(ctx);
     const fontKey = resolveFontKey(params, ctx);
     const font = ctx.fonts.get(fontKey);
     if (!font) throw new Error(`font not loaded: ${String(params.font)}`);
@@ -42,9 +47,17 @@ export const TextNode: NodeDef = {
     const scale = fontSize / font.unitsPerEm;
 
     const glyphs: PositionedGlyph[] = [];
+    // OpenType shaping is an opaque synchronous call. Bound its input before
+    // entering the library, then keep the positioned-glyph loop cooperative.
+    budget.chargeGlyphs(content.length);
+    budget.checkInterrupt();
     const shaped = font.stringToGlyphs(content);
+    if (shaped.length > content.length) {
+      budget.chargeGlyphs(shaped.length - content.length);
+    }
     let x = 0;
     for (let i = 0; i < shaped.length; i++) {
+      budget.chargeWork();
       const glyph = shaped[i];
       glyphs.push({ glyphId: glyph.index, x, y: 0, index: i });
       x += (glyph.advanceWidth ?? 0) * scale;

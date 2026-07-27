@@ -1,0 +1,3597 @@
+{
+  "protocolVersion": "1.0",
+  "documentSchemaVersions": [
+    3,
+    4
+  ],
+  "socketTypes": [
+    "text",
+    "vector",
+    "raster",
+    "alpha",
+    "elements",
+    "layout"
+  ],
+  "nodes": [
+    {
+      "type": "Text",
+      "label": "Text",
+      "category": "Assets",
+      "description": "Shapes editable text with a resolved font and emits live text with fill, stroke, and synthetic weight styling.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "text"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "content",
+          "kind": "string",
+          "description": "The Unicode text content to shape.",
+          "default": "PSYCHO",
+          "schema": {
+            "type": "string",
+            "maxLength": 65536,
+            "format": "plain-text-v1",
+            "maxUtf8Bytes": 65536
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "fontSize",
+          "kind": "number",
+          "description": "Configures font size for the Text node.",
+          "default": 160,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 8,
+            "maximum": 400,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "font",
+          "kind": "string",
+          "description": "A human-selected font key available in the current document session.",
+          "default": "default",
+          "schema": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "format": "font-key-v1",
+            "maxUtf8Bytes": 65536
+          },
+          "agentWritable": false
+        },
+        {
+          "name": "weight",
+          "kind": "number",
+          "description": "Configures weight for the Text node.",
+          "default": 400,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 100,
+            "maximum": 900,
+            "x-step": 50
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "fill",
+          "kind": "color",
+          "description": "Configures fill for the Text node.",
+          "default": "#000000",
+          "schema": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "stroke",
+          "kind": "toggle",
+          "description": "Configures stroke for the Text node.",
+          "default": false,
+          "schema": {
+            "type": "boolean"
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "strokeColor",
+          "kind": "color",
+          "description": "Configures stroke color for the Text node.",
+          "default": "#000000",
+          "schema": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "stroke",
+            "in": [
+              true
+            ]
+          }
+        },
+        {
+          "name": "strokeWidth",
+          "kind": "number",
+          "description": "Configures stroke width for the Text node.",
+          "default": 4,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 50,
+            "x-step": 0.5
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "stroke",
+            "in": [
+              true
+            ]
+          }
+        },
+        {
+          "name": "strokeAlign",
+          "kind": "select",
+          "description": "Configures stroke align for the Text node.",
+          "default": "center",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "center",
+              "inside",
+              "outside"
+            ]
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "stroke",
+            "in": [
+              true
+            ]
+          }
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": false,
+        "gpuRequirement": "none",
+        "asynchronous": false,
+        "expensive": false,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "low",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Shape",
+      "label": "Shape",
+      "category": "Assets",
+      "description": "Generates a centered rectangle, ellipse, or polygon as styled vector geometry.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "vector"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "kind",
+          "kind": "select",
+          "description": "Configures kind for the Shape node.",
+          "default": "ellipse",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "rect",
+              "ellipse",
+              "polygon"
+            ]
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "width",
+          "kind": "number",
+          "description": "Configures width for the Shape node.",
+          "default": 300,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 1,
+            "maximum": 2000,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "height",
+          "kind": "number",
+          "description": "Configures height for the Shape node.",
+          "default": 300,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 1,
+            "maximum": 2000,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "sides",
+          "kind": "number",
+          "description": "Configures sides for the Shape node.",
+          "default": 6,
+          "schema": {
+            "type": "integer",
+            "finite": true,
+            "minimum": 3,
+            "maximum": 24,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "filled",
+          "kind": "toggle",
+          "description": "Configures filled for the Shape node.",
+          "default": true,
+          "schema": {
+            "type": "boolean"
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "fill",
+          "kind": "color",
+          "description": "Configures fill for the Shape node.",
+          "default": "#000000",
+          "schema": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "filled",
+            "in": [
+              true
+            ]
+          }
+        },
+        {
+          "name": "stroke",
+          "kind": "toggle",
+          "description": "Configures stroke for the Shape node.",
+          "default": false,
+          "schema": {
+            "type": "boolean"
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "strokeColor",
+          "kind": "color",
+          "description": "Configures stroke color for the Shape node.",
+          "default": "#000000",
+          "schema": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "stroke",
+            "in": [
+              true
+            ]
+          }
+        },
+        {
+          "name": "strokeWidth",
+          "kind": "number",
+          "description": "Configures stroke width for the Shape node.",
+          "default": 4,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 100,
+            "x-step": 0.5
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "stroke",
+            "in": [
+              true
+            ]
+          }
+        },
+        {
+          "name": "strokeAlign",
+          "kind": "select",
+          "description": "Configures stroke align for the Shape node.",
+          "default": "center",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "center",
+              "inside",
+              "outside"
+            ]
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "stroke",
+            "in": [
+              true
+            ]
+          }
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": false,
+        "gpuRequirement": "none",
+        "asynchronous": false,
+        "expensive": false,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "low",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Image",
+      "label": "Image",
+      "category": "Assets",
+      "description": "Decodes an approved embedded or bundled image and fits, transforms, and uploads it to a frame-sized transparent raster.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "assetId",
+          "kind": "image",
+          "description": "An empty value or a content-addressed image asset ID already present in this project.",
+          "default": "",
+          "schema": {
+            "type": "string",
+            "format": "asset-id-v1",
+            "pattern": "^(?:|asset_[0-9a-f]{64})$",
+            "maxLength": 70
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "fit",
+          "kind": "select",
+          "description": "Configures fit for the Image node.",
+          "default": "contain",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "contain",
+              "cover",
+              "stretch",
+              "actual"
+            ]
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "scaleX",
+          "kind": "number",
+          "description": "Configures scale x for the Image node.",
+          "default": 1,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": -8,
+            "maximum": 8,
+            "x-step": 0.01
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "scaleY",
+          "kind": "number",
+          "description": "Configures scale y for the Image node.",
+          "default": 1,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": -8,
+            "maximum": 8,
+            "x-step": 0.01
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "offsetX",
+          "kind": "number",
+          "description": "Configures offset x for the Image node.",
+          "default": 0,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": -4096,
+            "maximum": 4096,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "offsetY",
+          "kind": "number",
+          "description": "Configures offset y for the Image node.",
+          "default": 0,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": -4096,
+            "maximum": 4096,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "rotation",
+          "kind": "number",
+          "description": "Configures rotation for the Image node.",
+          "default": 0,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": -180,
+            "maximum": 180,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "opacity",
+          "kind": "number",
+          "description": "Configures opacity for the Image node.",
+          "default": 1,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 1,
+            "x-step": 0.01
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": true,
+        "requiresGpu": true,
+        "gpuRequirement": "required",
+        "asynchronous": true,
+        "expensive": true,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "asset-read",
+        "cost": "medium",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Noise",
+      "label": "Noise",
+      "category": "Assets",
+      "description": "Generates a deterministic seeded value-noise or grain raster at the document frame size.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "mode",
+          "kind": "select",
+          "description": "Configures mode for the Noise node.",
+          "default": "value",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "value",
+              "grain"
+            ]
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "scale",
+          "kind": "number",
+          "description": "Configures scale for the Noise node.",
+          "default": 64,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 1,
+            "maximum": 256,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "seed",
+          "kind": "number",
+          "description": "Configures seed for the Noise node.",
+          "default": 7,
+          "schema": {
+            "type": "integer",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 9999,
+            "x-step": 1
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": true,
+        "requiresGpu": true,
+        "gpuRequirement": "required",
+        "asynchronous": false,
+        "expensive": true,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "high",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Split",
+      "label": "Split",
+      "category": "Text ops",
+      "description": "Splits live text into character or word elements while preserving shaped positions.",
+      "inputs": [
+        {
+          "name": "text",
+          "types": [
+            "text"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "elements"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "by",
+          "kind": "select",
+          "description": "Configures by for the Split node.",
+          "default": "characters",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "characters",
+              "words"
+            ]
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": false,
+        "gpuRequirement": "none",
+        "asynchronous": false,
+        "expensive": false,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "low",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Displace",
+      "label": "Displace",
+      "category": "Vector ops",
+      "description": "Displaces flattened vector points with deterministic seeded noise.",
+      "inputs": [
+        {
+          "name": "in",
+          "types": [
+            "vector"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "vector"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "amount",
+          "kind": "number",
+          "description": "Configures amount for the Displace node.",
+          "default": 8,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 100,
+            "x-step": 0.5
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "scale",
+          "kind": "number",
+          "description": "Configures scale for the Displace node.",
+          "default": 40,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 2,
+            "maximum": 400,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "seed",
+          "kind": "number",
+          "description": "Configures seed for the Displace node.",
+          "default": 0,
+          "schema": {
+            "type": "integer",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 9999,
+            "x-step": 1
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": false,
+        "gpuRequirement": "none",
+        "asynchronous": false,
+        "expensive": false,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "medium",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Warp",
+      "label": "Warp",
+      "category": "Vector ops",
+      "description": "Applies a sinusoidal warp to vector geometry along the selected axis.",
+      "inputs": [
+        {
+          "name": "in",
+          "types": [
+            "vector"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "vector"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "axis",
+          "kind": "select",
+          "description": "Configures axis for the Warp node.",
+          "default": "y",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "y",
+              "x"
+            ]
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "amplitude",
+          "kind": "number",
+          "description": "Configures amplitude for the Warp node.",
+          "default": 20,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 200,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "wavelength",
+          "kind": "number",
+          "description": "Configures wavelength for the Warp node.",
+          "default": 250,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 10,
+            "maximum": 2000,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "phase",
+          "kind": "number",
+          "description": "Configures phase for the Warp node.",
+          "default": 0,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 6.28,
+            "x-step": 0.01
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": false,
+        "gpuRequirement": "none",
+        "asynchronous": false,
+        "expensive": false,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "medium",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Boolean",
+      "label": "Boolean",
+      "category": "Vector ops",
+      "description": "Combines two vector inputs with union, subtraction, or intersection.",
+      "inputs": [
+        {
+          "name": "a",
+          "types": [
+            "vector"
+          ],
+          "optional": false
+        },
+        {
+          "name": "b",
+          "types": [
+            "vector"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "vector"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "op",
+          "kind": "select",
+          "description": "Configures op for the Boolean node.",
+          "default": "subtract",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "union",
+              "subtract",
+              "intersect"
+            ]
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": false,
+        "gpuRequirement": "none",
+        "asynchronous": false,
+        "expensive": true,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "high",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Blur",
+      "label": "Blur",
+      "category": "Raster ops",
+      "description": "Applies a separable Gaussian blur to a raster.",
+      "inputs": [
+        {
+          "name": "in",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "radius",
+          "kind": "number",
+          "description": "Configures radius for the Blur node.",
+          "default": 8,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 4096,
+            "x-step": 1
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": true,
+        "gpuRequirement": "required",
+        "asynchronous": false,
+        "expensive": true,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "gpu",
+        "network": "none",
+        "cost": "high",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Dither",
+      "label": "Dither",
+      "category": "Raster ops",
+      "description": "Applies ordered Bayer dithering with configurable quantization levels and cell scale.",
+      "inputs": [
+        {
+          "name": "in",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "levels",
+          "kind": "number",
+          "description": "Configures levels for the Dither node.",
+          "default": 2,
+          "schema": {
+            "type": "integer",
+            "finite": true,
+            "minimum": 2,
+            "maximum": 8,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "scale",
+          "kind": "number",
+          "description": "Configures scale for the Dither node.",
+          "default": 2,
+          "schema": {
+            "type": "integer",
+            "finite": true,
+            "minimum": 1,
+            "maximum": 8,
+            "x-step": 1
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": true,
+        "gpuRequirement": "required",
+        "asynchronous": false,
+        "expensive": false,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "gpu",
+        "network": "none",
+        "cost": "medium",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "ASCII",
+      "label": "ASCII",
+      "category": "Raster ops",
+      "description": "Reconstructs a raster with cells sampled through a built-in ASCII glyph ramp.",
+      "inputs": [
+        {
+          "name": "in",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "cell",
+          "kind": "number",
+          "description": "Configures cell for the ASCII node.",
+          "default": 8,
+          "schema": {
+            "type": "integer",
+            "finite": true,
+            "minimum": 4,
+            "maximum": 32,
+            "x-step": 1
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": true,
+        "gpuRequirement": "required",
+        "asynchronous": false,
+        "expensive": false,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "gpu",
+        "network": "none",
+        "cost": "medium",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Recolor",
+      "label": "Recolor",
+      "category": "Raster ops",
+      "description": "Maps raster luminance between configurable dark and light colors.",
+      "inputs": [
+        {
+          "name": "in",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "dark",
+          "kind": "color",
+          "description": "Configures dark for the Recolor node.",
+          "default": "#1c1240",
+          "schema": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "light",
+          "kind": "color",
+          "description": "Configures light for the Recolor node.",
+          "default": "#ffd27f",
+          "schema": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": true,
+        "gpuRequirement": "required",
+        "asynchronous": false,
+        "expensive": false,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "gpu",
+        "network": "none",
+        "cost": "low",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "ChromaKey",
+      "label": "Chroma Key",
+      "category": "Raster ops",
+      "description": "Reduces raster alpha around a selected key color with tolerance and softness.",
+      "inputs": [
+        {
+          "name": "in",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "key",
+          "kind": "color",
+          "description": "Configures key for the ChromaKey node.",
+          "default": "#ffffff",
+          "schema": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "tolerance",
+          "kind": "number",
+          "description": "Configures tolerance for the ChromaKey node.",
+          "default": 0.2,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 1,
+            "x-step": 0.01
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "softness",
+          "kind": "number",
+          "description": "Configures softness for the ChromaKey node.",
+          "default": 0.1,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 1,
+            "x-step": 0.01
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": true,
+        "gpuRequirement": "required",
+        "asynchronous": false,
+        "expensive": false,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "gpu",
+        "network": "none",
+        "cost": "low",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Grid",
+      "label": "Grid",
+      "category": "Layout",
+      "description": "Creates a frame-aware grid layout with configurable tracks, padding, flow, and an optional mask.",
+      "inputs": [
+        {
+          "name": "mask",
+          "types": [
+            "raster",
+            "alpha"
+          ],
+          "optional": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "layout"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "columns",
+          "kind": "number",
+          "description": "Configures columns for the Grid node.",
+          "default": 6,
+          "schema": {
+            "type": "integer",
+            "finite": true,
+            "minimum": 1,
+            "maximum": 64,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "rows",
+          "kind": "number",
+          "description": "Configures rows for the Grid node.",
+          "default": 4,
+          "schema": {
+            "type": "integer",
+            "finite": true,
+            "minimum": 1,
+            "maximum": 64,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "gapX",
+          "kind": "number",
+          "description": "Configures gap x for the Grid node.",
+          "default": 0,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 600,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "gapY",
+          "kind": "number",
+          "description": "Configures gap y for the Grid node.",
+          "default": 0,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 600,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "padding",
+          "kind": "select",
+          "description": "Configures padding for the Grid node.",
+          "default": "x/y",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "x/y",
+              "per-side"
+            ]
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "padX",
+          "kind": "number",
+          "description": "Configures pad x for the Grid node.",
+          "default": 48,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 1000,
+            "x-step": 1
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "padding",
+            "in": [
+              "x/y"
+            ]
+          }
+        },
+        {
+          "name": "padY",
+          "kind": "number",
+          "description": "Configures pad y for the Grid node.",
+          "default": 48,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 1000,
+            "x-step": 1
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "padding",
+            "in": [
+              "x/y"
+            ]
+          }
+        },
+        {
+          "name": "padTop",
+          "kind": "number",
+          "description": "Configures pad top for the Grid node.",
+          "default": 48,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 1000,
+            "x-step": 1
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "padding",
+            "in": [
+              "per-side"
+            ]
+          }
+        },
+        {
+          "name": "padRight",
+          "kind": "number",
+          "description": "Configures pad right for the Grid node.",
+          "default": 48,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 1000,
+            "x-step": 1
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "padding",
+            "in": [
+              "per-side"
+            ]
+          }
+        },
+        {
+          "name": "padBottom",
+          "kind": "number",
+          "description": "Configures pad bottom for the Grid node.",
+          "default": 48,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 1000,
+            "x-step": 1
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "padding",
+            "in": [
+              "per-side"
+            ]
+          }
+        },
+        {
+          "name": "padLeft",
+          "kind": "number",
+          "description": "Configures pad left for the Grid node.",
+          "default": 48,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 1000,
+            "x-step": 1
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "padding",
+            "in": [
+              "per-side"
+            ]
+          }
+        },
+        {
+          "name": "distX",
+          "kind": "select",
+          "description": "Configures dist x for the Grid node.",
+          "default": "uniform",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "uniform",
+              "fibonacci",
+              "golden",
+              "geometric",
+              "custom",
+              "expression"
+            ]
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "distY",
+          "kind": "select",
+          "description": "Configures dist y for the Grid node.",
+          "default": "uniform",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "uniform",
+              "fibonacci",
+              "golden",
+              "geometric",
+              "custom",
+              "expression"
+            ]
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "ratioX",
+          "kind": "number",
+          "description": "Configures ratio x for the Grid node.",
+          "default": 1.618,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0.1,
+            "maximum": 5,
+            "x-step": 0.001
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "distX",
+            "in": [
+              "geometric"
+            ]
+          }
+        },
+        {
+          "name": "ratioY",
+          "kind": "number",
+          "description": "Configures ratio y for the Grid node.",
+          "default": 1.618,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0.1,
+            "maximum": 5,
+            "x-step": 0.001
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "distY",
+            "in": [
+              "geometric"
+            ]
+          }
+        },
+        {
+          "name": "weightsX",
+          "kind": "string",
+          "description": "A comma- or whitespace-separated list of positive horizontal track weights.",
+          "default": "1,1,2,3,5",
+          "schema": {
+            "type": "string",
+            "maxLength": 2048,
+            "format": "positive-number-list-v1",
+            "maxUtf8Bytes": 2048,
+            "maxItems": 64
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "distX",
+            "in": [
+              "custom"
+            ]
+          }
+        },
+        {
+          "name": "weightsY",
+          "kind": "string",
+          "description": "A comma- or whitespace-separated list of positive vertical track weights.",
+          "default": "1,1,2,3,5",
+          "schema": {
+            "type": "string",
+            "maxLength": 2048,
+            "format": "positive-number-list-v1",
+            "maxUtf8Bytes": 2048,
+            "maxItems": 64
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "distY",
+            "in": [
+              "custom"
+            ]
+          }
+        },
+        {
+          "name": "exprX",
+          "kind": "string",
+          "description": "A safe arithmetic expression over i, n, and t for horizontal track weights.",
+          "default": "1 + sin(t*pi)",
+          "schema": {
+            "type": "string",
+            "maxLength": 2048,
+            "format": "math-expression-v1",
+            "maxUtf8Bytes": 2048,
+            "x-expression-language": {
+              "version": "math-expression-v1",
+              "variables": [
+                "i",
+                "n",
+                "t"
+              ],
+              "constants": [
+                "pi",
+                "tau",
+                "e",
+                "phi"
+              ],
+              "functions": [
+                {
+                  "name": "sin",
+                  "arity": 1
+                },
+                {
+                  "name": "cos",
+                  "arity": 1
+                },
+                {
+                  "name": "tan",
+                  "arity": 1
+                },
+                {
+                  "name": "abs",
+                  "arity": 1
+                },
+                {
+                  "name": "sqrt",
+                  "arity": 1
+                },
+                {
+                  "name": "exp",
+                  "arity": 1
+                },
+                {
+                  "name": "log",
+                  "arity": 1
+                },
+                {
+                  "name": "floor",
+                  "arity": 1
+                },
+                {
+                  "name": "ceil",
+                  "arity": 1
+                },
+                {
+                  "name": "round",
+                  "arity": 1
+                },
+                {
+                  "name": "sign",
+                  "arity": 1
+                },
+                {
+                  "name": "min",
+                  "arity": 2
+                },
+                {
+                  "name": "max",
+                  "arity": 2
+                },
+                {
+                  "name": "pow",
+                  "arity": 2
+                },
+                {
+                  "name": "mod",
+                  "arity": 2
+                }
+              ]
+            }
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "distX",
+            "in": [
+              "expression"
+            ]
+          }
+        },
+        {
+          "name": "exprY",
+          "kind": "string",
+          "description": "A safe arithmetic expression over i, n, and t for vertical track weights.",
+          "default": "1 + sin(t*pi)",
+          "schema": {
+            "type": "string",
+            "maxLength": 2048,
+            "format": "math-expression-v1",
+            "maxUtf8Bytes": 2048,
+            "x-expression-language": {
+              "version": "math-expression-v1",
+              "variables": [
+                "i",
+                "n",
+                "t"
+              ],
+              "constants": [
+                "pi",
+                "tau",
+                "e",
+                "phi"
+              ],
+              "functions": [
+                {
+                  "name": "sin",
+                  "arity": 1
+                },
+                {
+                  "name": "cos",
+                  "arity": 1
+                },
+                {
+                  "name": "tan",
+                  "arity": 1
+                },
+                {
+                  "name": "abs",
+                  "arity": 1
+                },
+                {
+                  "name": "sqrt",
+                  "arity": 1
+                },
+                {
+                  "name": "exp",
+                  "arity": 1
+                },
+                {
+                  "name": "log",
+                  "arity": 1
+                },
+                {
+                  "name": "floor",
+                  "arity": 1
+                },
+                {
+                  "name": "ceil",
+                  "arity": 1
+                },
+                {
+                  "name": "round",
+                  "arity": 1
+                },
+                {
+                  "name": "sign",
+                  "arity": 1
+                },
+                {
+                  "name": "min",
+                  "arity": 2
+                },
+                {
+                  "name": "max",
+                  "arity": 2
+                },
+                {
+                  "name": "pow",
+                  "arity": 2
+                },
+                {
+                  "name": "mod",
+                  "arity": 2
+                }
+              ]
+            }
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "distY",
+            "in": [
+              "expression"
+            ]
+          }
+        },
+        {
+          "name": "reverseX",
+          "kind": "select",
+          "description": "Configures reverse x for the Grid node.",
+          "default": "no",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "no",
+              "yes"
+            ]
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "distX",
+            "in": [
+              "fibonacci",
+              "golden",
+              "geometric",
+              "custom",
+              "expression"
+            ]
+          }
+        },
+        {
+          "name": "reverseY",
+          "kind": "select",
+          "description": "Configures reverse y for the Grid node.",
+          "default": "no",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "no",
+              "yes"
+            ]
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "distY",
+            "in": [
+              "fibonacci",
+              "golden",
+              "geometric",
+              "custom",
+              "expression"
+            ]
+          }
+        },
+        {
+          "name": "stagger",
+          "kind": "select",
+          "description": "Configures stagger for the Grid node.",
+          "default": "none",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "none",
+              "rows",
+              "columns"
+            ]
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "flow",
+          "kind": "select",
+          "description": "Configures flow for the Grid node.",
+          "default": "rows",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "rows",
+              "columns",
+              "serpentine"
+            ]
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": true,
+        "requiresGpu": false,
+        "gpuRequirement": "optional",
+        "asynchronous": true,
+        "expensive": true,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "medium",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "SamplePath",
+      "label": "Sample Path",
+      "category": "Layout",
+      "description": "Samples a vector path at even arc-length intervals to produce layout placements.",
+      "inputs": [
+        {
+          "name": "path",
+          "types": [
+            "vector"
+          ],
+          "optional": false
+        },
+        {
+          "name": "mask",
+          "types": [
+            "raster",
+            "alpha"
+          ],
+          "optional": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "layout"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "gap",
+          "kind": "number",
+          "description": "Configures gap for the SamplePath node.",
+          "default": 40,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 1,
+            "maximum": 2000,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "offset",
+          "kind": "number",
+          "description": "Configures offset for the SamplePath node.",
+          "default": 0,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 2000,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "tangent",
+          "kind": "select",
+          "description": "Configures tangent for the SamplePath node.",
+          "default": "rotate",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "rotate",
+              "upright"
+            ]
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": false,
+        "gpuRequirement": "optional",
+        "asynchronous": true,
+        "expensive": true,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "high",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Function",
+      "label": "Math Function",
+      "category": "Layout",
+      "description": "Generates circle, spiral, or wave layout placements at a requested spacing.",
+      "inputs": [
+        {
+          "name": "mask",
+          "types": [
+            "raster",
+            "alpha"
+          ],
+          "optional": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "layout"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "fn",
+          "kind": "select",
+          "description": "Configures fn for the Function node.",
+          "default": "circle",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "circle",
+              "spiral",
+              "wave"
+            ]
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "gap",
+          "kind": "number",
+          "description": "Configures gap for the Function node.",
+          "default": 40,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 1,
+            "maximum": 2000,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "radius",
+          "kind": "number",
+          "description": "Configures radius for the Function node.",
+          "default": 200,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 1,
+            "maximum": 1000,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "turns",
+          "kind": "number",
+          "description": "Configures turns for the Function node.",
+          "default": 3,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0.25,
+            "maximum": 12,
+            "x-step": 0.25
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "width",
+          "kind": "number",
+          "description": "Configures width for the Function node.",
+          "default": 600,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 10,
+            "maximum": 4096,
+            "x-step": 1
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "fn",
+            "in": [
+              "wave"
+            ]
+          }
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": false,
+        "gpuRequirement": "optional",
+        "asynchronous": true,
+        "expensive": true,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "high",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Random",
+      "label": "Random",
+      "category": "Layout",
+      "description": "Generates seeded random placements or jitters an existing layout, optionally constrained by a mask.",
+      "inputs": [
+        {
+          "name": "layout",
+          "types": [
+            "layout"
+          ],
+          "optional": true
+        },
+        {
+          "name": "mask",
+          "types": [
+            "raster",
+            "alpha"
+          ],
+          "optional": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "layout"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "distribution",
+          "kind": "select",
+          "description": "Configures distribution for the Random node.",
+          "default": "uniform",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "uniform",
+              "poisson-disk",
+              "gaussian"
+            ]
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "spacing",
+          "kind": "number",
+          "description": "Configures spacing for the Random node.",
+          "default": 100,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 10,
+            "maximum": 500,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "areaWidth",
+          "kind": "number",
+          "description": "Configures area width for the Random node.",
+          "default": 600,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 10,
+            "maximum": 4096,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "areaHeight",
+          "kind": "number",
+          "description": "Configures area height for the Random node.",
+          "default": 400,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 10,
+            "maximum": 4096,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "offset",
+          "kind": "number",
+          "description": "Configures offset for the Random node.",
+          "default": 0,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 300,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "rotate",
+          "kind": "number",
+          "description": "Configures rotate for the Random node.",
+          "default": 0,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 3.14,
+            "x-step": 0.01
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "scaleJitter",
+          "kind": "number",
+          "description": "Configures scale jitter for the Random node.",
+          "default": 0,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 1,
+            "x-step": 0.01
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "seed",
+          "kind": "number",
+          "description": "Configures seed for the Random node.",
+          "default": 1,
+          "schema": {
+            "type": "integer",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 9999,
+            "x-step": 1
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": false,
+        "gpuRequirement": "optional",
+        "asynchronous": true,
+        "expensive": true,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "high",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Weight",
+      "label": "Weight",
+      "category": "Layout",
+      "description": "Writes a named layout signal from noise, image sampling, geometry, progress, or a safe arithmetic expression.",
+      "inputs": [
+        {
+          "name": "layout",
+          "types": [
+            "layout"
+          ],
+          "optional": false
+        },
+        {
+          "name": "map",
+          "types": [
+            "raster"
+          ],
+          "optional": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "layout"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "source",
+          "kind": "select",
+          "description": "Configures source for the Weight node.",
+          "default": "noise",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "noise",
+              "image luma",
+              "image alpha",
+              "image sat",
+              "progress",
+              "area",
+              "distance",
+              "expression"
+            ]
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "seed",
+          "kind": "number",
+          "description": "Configures seed for the Weight node.",
+          "default": 1,
+          "schema": {
+            "type": "integer",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 9999,
+            "x-step": 1
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "source",
+            "in": [
+              "noise"
+            ]
+          }
+        },
+        {
+          "name": "expr",
+          "kind": "string",
+          "description": "A safe arithmetic expression used to author the selected layout channel.",
+          "default": "1 - progress",
+          "schema": {
+            "type": "string",
+            "maxLength": 2048,
+            "format": "math-expression-v1",
+            "maxUtf8Bytes": 2048,
+            "x-expression-language": {
+              "version": "math-expression-v1",
+              "variables": [
+                "i",
+                "n",
+                "progress",
+                "t",
+                "x",
+                "y",
+                "w"
+              ],
+              "constants": [
+                "pi",
+                "tau",
+                "e",
+                "phi"
+              ],
+              "functions": [
+                {
+                  "name": "sin",
+                  "arity": 1
+                },
+                {
+                  "name": "cos",
+                  "arity": 1
+                },
+                {
+                  "name": "tan",
+                  "arity": 1
+                },
+                {
+                  "name": "abs",
+                  "arity": 1
+                },
+                {
+                  "name": "sqrt",
+                  "arity": 1
+                },
+                {
+                  "name": "exp",
+                  "arity": 1
+                },
+                {
+                  "name": "log",
+                  "arity": 1
+                },
+                {
+                  "name": "floor",
+                  "arity": 1
+                },
+                {
+                  "name": "ceil",
+                  "arity": 1
+                },
+                {
+                  "name": "round",
+                  "arity": 1
+                },
+                {
+                  "name": "sign",
+                  "arity": 1
+                },
+                {
+                  "name": "min",
+                  "arity": 2
+                },
+                {
+                  "name": "max",
+                  "arity": 2
+                },
+                {
+                  "name": "pow",
+                  "arity": 2
+                },
+                {
+                  "name": "mod",
+                  "arity": 2
+                }
+              ]
+            }
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "source",
+            "in": [
+              "expression"
+            ]
+          }
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": false,
+        "gpuRequirement": "optional",
+        "asynchronous": true,
+        "expensive": true,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "medium",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Filter",
+      "label": "Filter",
+      "category": "Layout",
+      "description": "Removes layout placements by interval, signal threshold, or seeded random selection.",
+      "inputs": [
+        {
+          "name": "layout",
+          "types": [
+            "layout"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "layout"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "mode",
+          "kind": "select",
+          "description": "Configures mode for the Filter node.",
+          "default": "every-nth",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "every-nth",
+              "threshold",
+              "random"
+            ]
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "n",
+          "kind": "number",
+          "description": "Configures n for the Filter node.",
+          "default": 2,
+          "schema": {
+            "type": "integer",
+            "finite": true,
+            "minimum": 1,
+            "maximum": 32,
+            "x-step": 1
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "mode",
+            "in": [
+              "every-nth"
+            ]
+          }
+        },
+        {
+          "name": "channel",
+          "kind": "channel",
+          "description": "The built-in or Weight-authored layout channel to test.",
+          "default": "weight",
+          "schema": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "format": "channel-name-v1"
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "mode",
+            "in": [
+              "threshold"
+            ]
+          }
+        },
+        {
+          "name": "comparison",
+          "kind": "select",
+          "description": "Configures comparison for the Filter node.",
+          "default": "above",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "above",
+              "below"
+            ]
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "mode",
+            "in": [
+              "threshold"
+            ]
+          }
+        },
+        {
+          "name": "threshold",
+          "kind": "number",
+          "description": "Configures threshold for the Filter node.",
+          "default": 0.5,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 1,
+            "x-step": 0.01
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "mode",
+            "in": [
+              "threshold"
+            ]
+          }
+        },
+        {
+          "name": "keep",
+          "kind": "number",
+          "description": "Configures keep for the Filter node.",
+          "default": 0.5,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 1,
+            "x-step": 0.01
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "mode",
+            "in": [
+              "random"
+            ]
+          }
+        },
+        {
+          "name": "seed",
+          "kind": "number",
+          "description": "Configures seed for the Filter node.",
+          "default": 1,
+          "schema": {
+            "type": "integer",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 9999,
+            "x-step": 1
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "mode",
+            "in": [
+              "random"
+            ]
+          }
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": false,
+        "gpuRequirement": "none",
+        "asynchronous": false,
+        "expensive": false,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "low",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Duplicator",
+      "label": "Duplicator",
+      "category": "Placement",
+      "description": "Repeats vector, raster, text, or element content into an indexed element collection.",
+      "inputs": [
+        {
+          "name": "in",
+          "types": [
+            "vector",
+            "raster",
+            "text",
+            "elements"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "elements"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "count",
+          "kind": "number",
+          "description": "Configures count for the Duplicator node.",
+          "default": 12,
+          "schema": {
+            "type": "integer",
+            "finite": true,
+            "minimum": 1,
+            "maximum": 1000,
+            "x-step": 1
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": false,
+        "gpuRequirement": "none",
+        "asynchronous": false,
+        "expensive": true,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "high",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Place",
+      "label": "Place",
+      "category": "Placement",
+      "description": "Maps elements onto layout placements and applies channel-driven scale, rotation, or blur bindings.",
+      "inputs": [
+        {
+          "name": "elements",
+          "types": [
+            "elements",
+            "vector",
+            "raster",
+            "text"
+          ],
+          "optional": false
+        },
+        {
+          "name": "layout",
+          "types": [
+            "layout"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "elements"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "distribute",
+          "kind": "select",
+          "description": "Configures distribute for the Place node.",
+          "default": "by-order",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "by-order",
+              "by-index",
+              "spread"
+            ]
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "offsetX",
+          "kind": "number",
+          "description": "Configures offset x for the Place node.",
+          "default": 0,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": -1000,
+            "maximum": 1000,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "offsetY",
+          "kind": "number",
+          "description": "Configures offset y for the Place node.",
+          "default": 0,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": -1000,
+            "maximum": 1000,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "order",
+          "kind": "select",
+          "description": "Configures order for the Place node.",
+          "default": "source",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "source",
+              "x",
+              "y",
+              "progress",
+              "weight",
+              "random"
+            ]
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "distribute",
+            "in": [
+              "by-order",
+              "spread"
+            ]
+          }
+        },
+        {
+          "name": "reverse",
+          "kind": "select",
+          "description": "Configures reverse for the Place node.",
+          "default": "no",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "no",
+              "yes"
+            ]
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "distribute",
+            "in": [
+              "by-order",
+              "spread"
+            ]
+          }
+        },
+        {
+          "name": "seed",
+          "kind": "number",
+          "description": "Configures seed for the Place node.",
+          "default": 0,
+          "schema": {
+            "type": "integer",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 9999,
+            "x-step": 1
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "order",
+            "in": [
+              "random"
+            ]
+          }
+        },
+        {
+          "name": "binds",
+          "kind": "binds",
+          "description": "Structured channel bindings encoded as JSON in persisted version 3 documents.",
+          "default": [],
+          "schema": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "channel",
+                "target",
+                "amount"
+              ],
+              "properties": {
+                "channel": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "format": "channel-name-v1"
+                },
+                "target": {
+                  "type": "string",
+                  "enum": [
+                    "scale",
+                    "rotation",
+                    "blur"
+                  ]
+                },
+                "amount": {
+                  "type": "number",
+                  "finite": true
+                },
+                "invert": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "offset": {
+                  "type": "number",
+                  "finite": true,
+                  "minimum": -1,
+                  "maximum": 1,
+                  "default": 0
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "target": {
+                        "const": "blur"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "amount": {
+                        "minimum": 0,
+                        "maximum": 64,
+                        "x-step": 1
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "amount": {
+                        "minimum": 0,
+                        "maximum": 1,
+                        "x-step": 0.01
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "agentWritable": true,
+          "storageEncoding": "json-string",
+          "codec": {
+            "name": "binds-json-string-v1"
+          }
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": false,
+        "gpuRequirement": "none",
+        "asynchronous": false,
+        "expensive": true,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "high",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Outline",
+      "label": "Outline Text",
+      "category": "Conversion",
+      "description": "Converts live text glyphs into styled vector paths using the resolved font.",
+      "inputs": [
+        {
+          "name": "text",
+          "types": [
+            "text"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "vector"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": false,
+        "gpuRequirement": "none",
+        "asynchronous": false,
+        "expensive": false,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "medium",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Rasterize",
+      "label": "Rasterize",
+      "category": "Conversion",
+      "description": "Centers and paints vector geometry into a frame-sized transparent raster.",
+      "inputs": [
+        {
+          "name": "vector",
+          "types": [
+            "vector"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [],
+      "traits": {
+        "usesFrame": true,
+        "requiresGpu": true,
+        "gpuRequirement": "required",
+        "asynchronous": false,
+        "expensive": false,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "medium",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Trace",
+      "label": "Trace",
+      "category": "Conversion",
+      "description": "Reads back a raster and traces filled regions or Sobel edges into vector paths in a worker.",
+      "inputs": [
+        {
+          "name": "in",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "vector"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "method",
+          "kind": "select",
+          "description": "Configures method for the Trace node.",
+          "default": "fill",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "fill",
+              "sobel"
+            ]
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "smoothness",
+          "kind": "number",
+          "description": "Configures smoothness for the Trace node.",
+          "default": 1,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0.1,
+            "maximum": 10,
+            "x-step": 0.1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "minArea",
+          "kind": "number",
+          "description": "Configures min area for the Trace node.",
+          "default": 8,
+          "schema": {
+            "type": "integer",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 100,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "threshold",
+          "kind": "number",
+          "description": "Configures threshold for the Trace node.",
+          "default": 100,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 500,
+            "x-step": 1
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "method",
+            "in": [
+              "sobel"
+            ]
+          }
+        },
+        {
+          "name": "ignoreLight",
+          "kind": "select",
+          "description": "Configures ignore light for the Trace node.",
+          "default": "yes",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no"
+            ]
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "method",
+            "in": [
+              "fill"
+            ]
+          }
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": true,
+        "gpuRequirement": "required",
+        "asynchronous": true,
+        "expensive": true,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "worker",
+        "network": "none",
+        "cost": "high",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "RemoveBackground",
+      "label": "Remove Background",
+      "category": "Conversion",
+      "description": "Segments the foreground with the RMBG model and writes the mask into raster alpha.",
+      "inputs": [
+        {
+          "name": "in",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": true,
+        "gpuRequirement": "required",
+        "asynchronous": true,
+        "expensive": true,
+        "externalDownload": true
+      },
+      "execution": {
+        "runtime": "model",
+        "network": "model-download",
+        "cost": "high",
+        "deterministic": false
+      }
+    },
+    {
+      "type": "OutlineImage",
+      "label": "Outline Image",
+      "category": "Conversion",
+      "description": "Reads back raster alpha and traces a hollow vector outline around its silhouette in a worker.",
+      "inputs": [
+        {
+          "name": "in",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "vector"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "thickness",
+          "kind": "number",
+          "description": "Configures thickness for the OutlineImage node.",
+          "default": 6,
+          "schema": {
+            "type": "integer",
+            "finite": true,
+            "minimum": 1,
+            "maximum": 40,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "threshold",
+          "kind": "number",
+          "description": "Configures threshold for the OutlineImage node.",
+          "default": 128,
+          "schema": {
+            "type": "integer",
+            "finite": true,
+            "minimum": 1,
+            "maximum": 255,
+            "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "smoothness",
+          "kind": "number",
+          "description": "Configures smoothness for the OutlineImage node.",
+          "default": 1,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0.1,
+            "maximum": 10,
+            "x-step": 0.1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "minArea",
+          "kind": "number",
+          "description": "Configures min area for the OutlineImage node.",
+          "default": 8,
+          "schema": {
+            "type": "integer",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 100,
+            "x-step": 1
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": true,
+        "gpuRequirement": "required",
+        "asynchronous": true,
+        "expensive": true,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "worker",
+        "network": "none",
+        "cost": "high",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "ToAlpha",
+      "label": "To Alpha",
+      "category": "Conversion",
+      "description": "Converts raster luminance or alpha into a thresholded, optionally softened alpha mask.",
+      "inputs": [
+        {
+          "name": "in",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "alpha"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "source",
+          "kind": "select",
+          "description": "Configures source for the ToAlpha node.",
+          "default": "luminance",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "luminance",
+              "alpha"
+            ]
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "invert",
+          "kind": "select",
+          "description": "Configures invert for the ToAlpha node.",
+          "default": "no",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "no",
+              "yes"
+            ]
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "threshold",
+          "kind": "number",
+          "description": "Configures threshold for the ToAlpha node.",
+          "default": 0.5,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 1,
+            "x-step": 0.01
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "softness",
+          "kind": "number",
+          "description": "Configures softness for the ToAlpha node.",
+          "default": 0,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 0.5,
+            "x-step": 0.01
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": true,
+        "gpuRequirement": "required",
+        "asynchronous": false,
+        "expensive": false,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "gpu",
+        "network": "none",
+        "cost": "low",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "DrawLayout",
+      "label": "Draw Layout",
+      "category": "Conversion",
+      "description": "Draws layout cells, points, and rotation ticks as vector geometry.",
+      "inputs": [
+        {
+          "name": "layout",
+          "types": [
+            "layout"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "vector"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "size",
+          "kind": "number",
+          "description": "Configures size for the DrawLayout node.",
+          "default": 8,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 1,
+            "maximum": 64,
+            "x-step": 1
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": false,
+        "gpuRequirement": "none",
+        "asynchronous": false,
+        "expensive": false,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "medium",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Flatten",
+      "label": "Flatten",
+      "category": "Conversion",
+      "description": "Bakes text/vector element transforms into one vector value; raster elements are unsupported.",
+      "inputs": [
+        {
+          "name": "in",
+          "types": [
+            "elements"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "vector"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [],
+      "traits": {
+        "usesFrame": false,
+        "requiresGpu": false,
+        "gpuRequirement": "none",
+        "asynchronous": false,
+        "expensive": true,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "cpu",
+        "network": "none",
+        "cost": "high",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Composite",
+      "label": "Composite",
+      "category": "Composition",
+      "description": "Blends base and overlay raster/elements inputs with opacity and an optional alpha mask.",
+      "inputs": [
+        {
+          "name": "base",
+          "types": [
+            "raster",
+            "elements"
+          ],
+          "optional": false
+        },
+        {
+          "name": "overlay",
+          "types": [
+            "raster",
+            "elements"
+          ],
+          "optional": false
+        },
+        {
+          "name": "mask",
+          "types": [
+            "alpha"
+          ],
+          "optional": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "mode",
+          "kind": "select",
+          "description": "Configures mode for the Composite node.",
+          "default": "normal",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "multiply",
+              "screen",
+              "overlay"
+            ]
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "opacity",
+          "kind": "number",
+          "description": "Configures opacity for the Composite node.",
+          "default": 1,
+          "schema": {
+            "type": "number",
+            "finite": true,
+            "minimum": 0,
+            "maximum": 1,
+            "x-step": 0.01
+          },
+          "agentWritable": true
+        }
+      ],
+      "traits": {
+        "usesFrame": true,
+        "requiresGpu": true,
+        "gpuRequirement": "required",
+        "asynchronous": false,
+        "expensive": false,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "gpu",
+        "network": "none",
+        "cost": "high",
+        "deterministic": true
+      }
+    },
+    {
+      "type": "Output",
+      "label": "Output",
+      "category": "Output",
+      "description": "Renders optional raster or elements content over a solid or transparent frame and serves as the layer root.",
+      "inputs": [
+        {
+          "name": "in",
+          "types": [
+            "raster",
+            "elements"
+          ],
+          "optional": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "types": [
+            "raster"
+          ],
+          "optional": false
+        }
+      ],
+      "params": [
+        {
+          "name": "transparent",
+          "kind": "toggle",
+          "description": "Configures transparent for the Output node.",
+          "default": false,
+          "schema": {
+            "type": "boolean"
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "background",
+          "kind": "color",
+          "description": "Configures background for the Output node.",
+          "default": "#ffffff",
+          "schema": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "agentWritable": true,
+          "x-ui-visible-if": {
+            "param": "transparent",
+            "in": [
+              false
+            ]
+          }
+        }
+      ],
+      "traits": {
+        "usesFrame": true,
+        "requiresGpu": true,
+        "gpuRequirement": "required",
+        "asynchronous": false,
+        "expensive": false,
+        "externalDownload": false
+      },
+      "execution": {
+        "runtime": "gpu",
+        "network": "none",
+        "cost": "medium",
+        "deterministic": true
+      }
+    }
+  ],
+  "limits": {
+    "maxDocumentJsonBytes": 2097152,
+    "maxLayers": 32,
+    "maxNodesPerLayer": 256,
+    "maxNodesPerDocument": 1024,
+    "maxEdgesPerLayer": 1024,
+    "minFrameSide": 16,
+    "maxFrameSide": 4096,
+    "maxFramePixels": 16777216,
+    "maxIdLength": 128,
+    "maxNameLength": 128,
+    "maxStringBytes": 65536,
+    "maxExpressionBytes": 2048,
+    "maxLegacyAssetBytes": 20971520,
+    "maxAssetPixels": 33554432,
+    "maxAssetSide": 8192,
+    "maxLegacyAssetBytesPerDocument": 67108864,
+    "maxAssetChunkBytes": 1048576,
+    "maxAssetChunks": 20,
+    "maxPendingAssetUploads": 1,
+    "assetUploadIdleMs": 60000,
+    "assetUploadDeadlineMs": 300000,
+    "maxBinds": 64,
+    "maxGeneratedItems": 100000,
+    "maxVectorPaths": 250000,
+    "maxVectorCommands": 250000,
+    "maxCanvasPaintPaths": 10000,
+    "maxCanvasPaintCommands": 25000,
+    "maxFlattenedPoints": 1000000,
+    "maxBooleanPoints": 10000,
+    "maxGeometryWorkUnits": 4000000,
+    "maxRenderableGlyphs": 16384,
+    "maxFindings": 256,
+    "maxTransactionJsonBytes": 2097152,
+    "maxTransactionCommands": 100,
+    "maxClientRefs": 100,
+    "maxTouchedNodes": 200,
+    "maxRequestCacheEntries": 256,
+    "maxTransactionLedgerEntries": 256,
+    "maxTransactionLedgerBytes": 268435456,
+    "maxPendingWorkerRequests": 4,
+    "maxPendingWorkerBytes": 134217728,
+    "maxGpuTextureBytes": 805306368,
+    "maxGpuFreeTextureBytes": 134217728,
+    "maxGpuTextures": 512,
+    "maxGpuPasses": 2048,
+    "maxGpuPixelWork": 32000000000,
+    "maxPreviewSide": 1024,
+    "maxPreviewBytes": 4194304,
+    "maxPendingPreviewRequests": 4,
+    "maxPendingPreviewBytes": 16777216,
+    "maxPreviewEncodeAttempts": 6,
+    "previewDeadlineMs": 15000,
+    "renderDeadlineMs": 30000
+  },
+  "features": {
+    "transactions": true,
+    "dryRun": true,
+    "previews": true,
+    "assets": true,
+    "mcp": false
+  },
+  "permissions": {
+    "localFonts": {
+      "agentAvailable": false,
+      "requiresHumanGesture": true,
+      "familyEnumeration": "disabled"
+    }
+  },
+  "preview": {
+    "formats": [
+      "png",
+      "webp"
+    ],
+    "defaultFormat": "png",
+    "metricsVersion": "preview-metrics-v1",
+    "capturePolicy": "current-exact-ticket-v1"
+  }
+}

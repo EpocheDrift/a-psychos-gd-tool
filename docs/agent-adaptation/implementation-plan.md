@@ -1,6 +1,6 @@
 # Agent Adaptation Implementation Plan
 
-Status: **proposed**
+Status: **implemented through PR 8; Agent-ready v1 complete**
 
 This plan is intentionally split into reviewable pull requests. Each step
 produces useful internal quality improvements even if later MCP work is paused.
@@ -176,6 +176,9 @@ possible to prove that existing projects still load and render.
 
 - implement bounded preview readback/downsampling;
 - return PNG/WebP plus revision and dimensions;
+- bind revision-only capture to one immutable attempt and return that attempt;
+- run metrics/encoding in a single-active, count/byte/deadline-bounded
+  terminable worker;
 - compute basic preview metrics:
   - alpha coverage;
   - non-background bounds;
@@ -235,14 +238,22 @@ possible to prove that existing projects still load and render.
 - expose it through an explicit build/runtime gate;
 - add nonce/token handshake and allowed-origin checks;
 - add an in-app pairing/revoke flow and visible connected/scope state;
-- support explicit `read`, `preview`, `edit`, `assets`, `model`, and `export`
-  scopes that only the human can grant;
+- declare the `read`, `preview`, `edit`, `assets`, `model`, and `export` scope
+  vocabulary; PR 5 may grant only `read`, `preview`, and `edit`, while the
+  remaining scopes stay disabled behind later rollout gates;
+- require scope selection and approval through browser-trusted in-app events.
+  This rejects page-script synthetic events, but is not proof of physical user
+  presence; the production companion must never expose CDP input, navigation,
+  or page evaluation to the Agent;
 - expose named allowlisted methods only;
 - redact sensitive/large data from diagnostics;
 - self-host UI fonts in Agent mode and add restrictive CSP, Referrer-Policy,
   Permissions-Policy, and `frame-ancestors` headers;
-- migrate smoke tests from raw `__app` state access to the controller;
-- retain `__app` only during a deprecation window, then remove it.
+- migrate all smoke tests from raw `__app`/`__render` access to the paired
+  controller and app-owned semantic DOM;
+- remove both legacy globals and fail the artifact gate if either returns;
+- support Agent mode only as an explicit static artifact, never through Vite's
+  source-development server.
 
 ### Acceptance
 
@@ -250,7 +261,9 @@ possible to prove that existing projects still load and render.
 - enabled builds expose no Zustand setters, GPU handles, Font objects, or
   generic JavaScript evaluation;
 - an unauthenticated bridge call fails;
-- wrong Host/Origin, expired/replayed token, and revoked session calls fail;
+- a wrong owning-page realm/origin, expired/replayed token, or revoked session
+  fails closed; per-request HTTP `Host` and WebSocket `Origin` enforcement
+  belongs to the PR 6 transport;
 - document text/preview payloads are marked untrusted and cannot change scopes;
 - controller requests and responses survive structured cloning/JSON encoding;
 - all controller writes pass through transaction validation and policy;
@@ -262,6 +275,8 @@ possible to prove that existing projects still load and render.
 
 - add a workspace/package for an stdio MCP server;
 - host the Agent-enabled app and WebSocket on loopback/same origin;
+- validate the exact HTTP `Host` on every request and the exact `Origin` on
+  every WebSocket upgrade; reject wildcard, `null`, and cross-origin values;
 - launch or attach to a supported Chrome with WebGPU and pair through the
   authenticated bridge;
 - expose the initial MCP tools listed in the architecture document;
@@ -290,8 +305,8 @@ Asset tools remain disabled until PR 7 policy is complete.
 - invalid wiring returns `TYPE_MISMATCH` and leaves revision unchanged;
 - a duplicate tool retry does not duplicate mutations;
 - preview returned by MCP matches the committed/rendered revision;
-- the server listens only where documented and rejects an invalid session
-  token/Origin;
+- the server listens only where documented and rejects an invalid HTTP `Host`,
+  WebSocket `Origin`, or connection/session token;
 - no tool offers generic page evaluation, shell, or filesystem traversal.
 - the first rollout can expose read/preview tools without enabling write scope.
 
@@ -355,6 +370,26 @@ Asset tools remain disabled until PR 7 policy is complete.
    revert the responsible Agent transaction.
 7. **Retry:** replay a timed-out request ID and return the original created IDs.
 
+### Delivery result
+
+- One official MCP client and one paired Chrome session execute all seven
+  scenarios through bounded stdio, authenticated WebSocket, the public
+  controller, persistence, and the real render path.
+- The passing reference run records 49 MCP tool calls, one rejected invalid
+  plan, one revision conflict, one timed-out replay, four verified recoveries,
+  and three reviewed PNG previews.
+- Creative goldens lock frame, topology, typed edges, important parameters,
+  source/output dimensions, visibility metrics, and a tolerant 64-bit
+  perceptual hash.
+- Recovery tests prove a real human UI edit is preserved, raster-to-vector
+  diagnostics name `Trace` and require a new request ID, a failed model render
+  identifies its exact ticket/node/phase and is reverted safely, and a
+  committed request can be replayed after the MCP client loses its response.
+- No new high-level helper was added. Each creative workflow already requires
+  one atomic write because `clientRef`, `Duplicator`, and
+  `auto_layout_graph` cover the observed coordination. Future helpers remain
+  trace-driven under Gate E.
+
 ## Cross-cutting test matrix
 
 | Layer | Tests |
@@ -396,6 +431,8 @@ The existing `typecheck`, unit tests, and build remain mandatory. Add:
    required scheduled/manual gate with uploaded screenshots and logs;
 7. MCP end-to-end test before enabling write tools in a release;
 8. dependency/model integrity and CSP/header checks for Agent-enabled builds.
+9. the seven-scenario official-client Agent eval, with a 10-minute CI timeout
+   and always-uploaded redacted metrics, traces, and preview evidence.
 
 Do not make visual approval depend solely on pixel-perfect snapshots across GPU
 vendors. Combine deterministic small renders, tolerant image metrics, and a few
@@ -405,10 +442,15 @@ reviewed screenshots.
 
 ### Gate A — Internal API
 
-Enable controller only in tests/development. Exit criteria: schema,
-transactions, history, and non-GPU contract tests are stable.
+Status: **achieved**.
+
+Enable the controller only in tests and the explicit static Agent artifact.
+The default artifact and Vite source-development mode fail closed. Exit
+criteria: schema, transactions, history, and non-GPU contract tests are stable.
 
 ### Gate B — Read-only MCP
+
+Status: **achieved**.
 
 Ship capability, document, status, validation, and preview tools. The companion
 hosts the app locally and uses same-origin authenticated WebSocket pairing. Exit
@@ -416,19 +458,24 @@ criteria: session security, scopes, revoke, and result redaction are verified.
 
 ### Gate C — Bounded writes
 
+Status: **achieved**.
+
 Enable transaction and conflict-safe transaction-revert tools with conservative
 limits. Exit criteria: rollback, revision conflicts, retries, and WebGPU
 end-to-end scenarios pass.
 
 ### Gate D — Assets and expensive nodes
 
+Status: **achieved**.
+
 Enable asset ingestion, Trace, and Remove Background only after resource and
 download policy is enforced.
 
 ### Gate E — Broader autonomous workflows
 
-Raise budgets or add high-level helpers based on observed traces, not assumed
-needs.
+The v1 trace review is complete: no budget increase or new high-level helper
+was justified. Broader workflows will continue to raise budgets or add helpers
+only from observed traces, not assumed needs.
 
 ## Definition of Agent-ready v1
 
@@ -445,9 +492,11 @@ Version 1 is complete when all of the following are true:
 - representative workflows pass from clean session through exported PNG;
 - human UI behavior and existing project migration remain intact.
 
-## Suggested first implementation slice
+PR 0–PR 8 delivery evidence satisfies this definition.
 
-Start with a narrow vertical slice rather than the MCP package:
+## Original first implementation slice (completed)
+
+The work started with this narrow vertical slice before the MCP package:
 
 1. capability manifest for Text, Outline, Rasterize, and Output;
 2. deep validation for those nodes plus shared graph invariants;
@@ -457,5 +506,5 @@ Start with a narrow vertical slice rather than the MCP package:
 6. one Puppeteer test that builds and verifies a text poster without clicking
    or accessing the raw store.
 
-Then generalize the manifest/command tests across all 31 node types. This proves
-the architecture before adding a transport boundary.
+The manifest and command tests were then generalized across every node type
+before the transport boundary was enabled.

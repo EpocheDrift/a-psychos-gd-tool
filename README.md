@@ -1,10 +1,25 @@
 # a-psychos-gd-tool
 
+English · [简体中文](README.zh-CN.md)
+
 **Hosted version:** [a-psychos-gd-tool.vercel.app](https://a-psychos-gd-tool.vercel.app/) — needs a WebGPU browser (Chrome/Edge 113+ or Safari 18+).
 
 A node-based graphic design tool that runs in the browser, on the GPU. You build a poster by wiring nodes on a canvas: text is shaped into vector outlines, vectors are warped and combined, rasters are blurred and dithered — every conversion is an explicit node on a typed wire, never a hidden coercion. The engine only re-computes what a change actually touches, so dragging a parameter stays interactive even in deep graphs.
 
-**Status:** experimental, under active development. 31 node types; undo/redo is built in (⌘/Ctrl Z, ⇧⌘/Ctrl Z); persistence is not built yet (see [Roadmap](#roadmap)).
+**Status:** experimental, under active development. 31 node types; undo/redo,
+versioned local working saves, and portable project save/load are built in.
+
+## Start here
+
+- **First time in the Web UI:** follow the
+  [10-minute guided poster](docs/getting-started.md#make-your-first-poster).
+- **Connecting Codex, Claude Code, or another MCP host:** follow the
+  [Agent MCP walkthrough](docs/getting-started.md#connect-an-agent-in-about-10-minutes).
+- **Prefer Chinese:** use the
+  [简体中文 README](README.zh-CN.md) and
+  [中文入门教程](docs/getting-started.zh-CN.md).
+- **Reviewing the Agent architecture:** start with the
+  [adaptation overview](docs/agent-adaptation/README.md).
 
 ## Requirements
 
@@ -23,9 +38,10 @@ You'll get a default graph cooking to the artboard. Add nodes from the palette, 
 Other commands:
 
 ```sh
-npm test              # headless engine tests (vitest) — cache, pool, layout; no GPU needed
-npm run typecheck     # tsc -b
-npm run build         # production build to dist/
+npm test              # app + companion unit/authority gates; no GPU needed
+npm run typecheck     # app + companion TypeScript projects
+npm run build         # default app, Agent app, and local MCP companion
+npm run check:mcp     # real child stdio + Chrome/WebGPU Agent round-trip
 ```
 
 ## Core ideas
@@ -59,7 +75,7 @@ Evaluation is pull-based from Output with hash-keyed memoization: a node's key i
 | **Assets** | | Sources — no inputs; where content enters the graph. |
 | Text | `→ text` | Live type: shapes a string into kerned, positioned glyphs, with fill/stroke and a synthetic weight axis. |
 | Shape | `→ vector` | Parametric vector source: rect, ellipse, or n-sided polygon, with fill and stroke. |
-| Image | `→ raster` | An uploaded bitmap, stored in the document as a data URI; fit / scale / offset / rotate / opacity onto the frame. |
+| Image | `→ raster` | A validated PNG/JPEG/WebP referenced by content-addressed `assetId`; fit / scale / offset / rotate / opacity onto the frame. |
 | Noise | `→ raster` | Generated value-noise or grain texture at frame resolution — deterministic by (seed, scale), so the cache stays honest. |
 | **Text ops** | | Operations on live type, while it's still text and not yet geometry. |
 | Split | `text → elements` | Peels live type into per-character or per-word elements that keep their kerned positions and indices. |
@@ -108,23 +124,54 @@ Evaluation is pull-based from Output with hash-keyed memoization: a node's key i
 - `src/editor/` — xyflow canvas + custom node component; handles and wires colored by socket type.
 - `src/util/` — font parsing (sfnt), expression evaluation, color, noise.
 
-### AI agent adaptation proposal
+### AI agent adaptation — Agent-ready v1 complete and owner-approved
 
-The current app is automatable in development but does not yet expose a supported
-Agent/MCP tool surface. A readiness audit, target architecture, security model,
-and staged implementation plan live in
-[`docs/agent-adaptation/`](docs/agent-adaptation/README.md).
+The default production artifact exposes no Agent global. An explicit
+loopback-only static Agent artifact provides a paired, scope-gated browser
+controller and authenticated local stdio MCP companion. The default profile is
+read/preview; edit, bounded content-addressed assets, and the pinned local
+RMBG-1.4 model are independent command-line plus in-app scope grants. A first
+model download also requires a separate human license confirmation, and every
+artifact is byte-length/SHA-256 verified before same-origin worker use.
+The final seven-scenario official-client evaluation covers three creative
+workflows and four recovery paths through the real MCP/WebSocket/browser
+rendering chain, with reviewed PNGs and redacted metrics.
+
+Project replacement and portable save/load remain explicit human UI actions.
+Through this MCP, an Agent receives no filesystem, arbitrary URL fetch, CDP
+input, navigation, page evaluation, or shell tool. A host such as Codex or
+Claude Code may separately have permissions granted by its own runtime; this
+project neither grants nor revokes those host-level permissions.
+Browser-trusted approval rejects page-script synthetic events but is not
+physical-user proof. Build/run details are in the
+[companion guide](packages/mcp-companion/README.md); the readiness audit,
+target architecture, security model, and staged implementation/evidence live
+in [`docs/agent-adaptation/`](docs/agent-adaptation/README.md).
+The project owner approved this v1 scope on 2026-07-27; that approval does not
+by itself merge the integration PR or approve production/commercial release.
 
 ### Dev scripts
 
-Two Puppeteer smoke-test scripts drive a real (headed) Chrome against a running dev server, since WebGPU needs a GPU:
+The Puppeteer smoke suite drives an isolated real Chrome/Chromium WebGPU
+session. Start the fixed local server, then run the whole suite:
 
 ```sh
-node scripts/verify.mjs [url]       # cold cook, cache-hit check on edit, wire type-checking
-node scripts/blur-check.mjs [url]   # renders a heavy blur and screenshots the halo
+npm run smoke:serve
+npm run smoke:all
 ```
 
-Both default to `http://localhost:5199/` (pass your dev server's URL) and locate Chrome at the standard macOS path — set the `CHROME` env var to point elsewhere on Linux/Windows.
+`smoke:serve` builds `dist-agent` and serves that static artifact at the fixed
+loopback origin; it does not run an Agent source-development server. Use
+`npm run check:agent-build` to build both artifacts and run the production
+module/runtime security gate.
+
+The checks cover the reviewed small-frame render, factory load, frame/cache
+behavior, blur/fringe regressions, canvas interactions, revision-coordinator
+churn, exact PNG/WebP preview evidence, semantic keyboard automation,
+accessibility, and collision-aware node placement. They default to headless
+mode and support `CHROME`, `SMOKE_URL`, and `SMOKE_HEADED=1`. See
+[Browser and WebGPU smoke tests](docs/testing/browser-smoke.md) for the
+individual commands, fixtures, prerequisites, and artifact policy.
 
 ## Roadmap
 
@@ -135,12 +182,12 @@ Both default to `http://localhost:5199/` (pass your dev server's URL) and locate
 3. ~~Raster breadth: Noise, Dither, Recolor, Chroma Key, ASCII, To Alpha, Composite~~
 4. ~~Vector ops (Shape, Displace, Warp, Boolean) + Trace~~ (vector Slice deferred)
 5. ~~Elements & layout: Split, Duplicator, Place, Flatten, Grid, Random, SamplePath, Function, Filter, Weight, DrawLayout~~ (~~Alpha Map~~ landed as the generators' mask input)
-6. ~~Export & undo/redo~~
+6. ~~Export, persistence, portable project save/load & undo/redo~~
+7. ~~Content-addressed image assets + pinned RMBG-1.4 Remove Background~~
 
 ### Planned
 
-- **Async model nodes** — Extract Subject/Objects/Edges via ONNX Runtime Web.
-- **Persistence** — save/load documents.
+- **More async model nodes** — Extract Objects/Edges via ONNX Runtime Web.
 - **Export to Adobe Illustrator** — `.ai`/SVG export that round-trips vectors as editable paths.
 - **Cropping** — crop node for raster and frame content.
 - **More ops nodes** — additional vector, raster, and text operations.
@@ -148,7 +195,11 @@ Both default to `http://localhost:5199/` (pass your dev server's URL) and locate
 
 ## Contributing
 
-Issues and PRs are welcome. CI runs `npm run typecheck`, `npm test`, and `npm run build` — please make sure all three pass locally.
+Issues and PRs are welcome. CI runs typecheck, all unit/authority tests, both
+app builds, the compiled MCP build, real child-stdio MCP/Chrome round-trips,
+stdio lifecycle profiles, and Agent artifact checks. Rendering and Agent
+runtime changes also require `npm run check:mcp`, `npm run check:agent-build`,
+and the documented [WebGPU smoke suite](docs/testing/browser-smoke.md).
 
 ## License
 

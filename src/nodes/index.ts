@@ -63,10 +63,22 @@ export const PALETTE: NodeCategory[] = [
   { category: 'Output', nodes: [OutputNode] },
 ];
 
-export function buildRegistry(): Registry {
+export class RegistryConstructionError extends Error {
+  readonly code = 'DUPLICATE_NODE_TYPE';
+
+  constructor(readonly nodeType: string) {
+    super(`DUPLICATE_NODE_TYPE: node type "${nodeType}" appears more than once`);
+    this.name = 'RegistryConstructionError';
+  }
+}
+
+export function buildRegistry(categories: readonly NodeCategory[] = PALETTE): Registry {
   const registry: Registry = new Map();
-  for (const { nodes } of PALETTE) {
-    for (const def of nodes) registry.set(def.type, def);
+  for (const { nodes } of categories) {
+    for (const def of nodes) {
+      if (registry.has(def.type)) throw new RegistryConstructionError(def.type);
+      registry.set(def.type, def);
+    }
   }
   return registry;
 }

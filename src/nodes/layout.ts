@@ -12,10 +12,12 @@
 // contract: Placement in values.ts.
 
 import { boundsOfPaths, flattenPaths, polylinesToPaths, samplePathEvenly } from '../engine/path';
+import { geometryBudgetFor } from '../engine/geometryBudget';
 import type { CookContext, NodeDef, SocketSpec } from '../engine/registry';
 import { readChannel, type AlphaValue, type LayoutValue, type PathCmd, type Placement, type RasterValue, type VectorValue } from '../engine/values';
 import { compileExpr } from '../util/expr';
 import { latticeHash } from '../util/noise';
+import { throwIfCookInterrupted } from '../engine/cookControl';
 
 const PHI = (1 + Math.sqrt(5)) / 2;
 
@@ -34,7 +36,8 @@ async function maskTest(
 ): Promise<((x: number, y: number) => boolean) | null> {
   if (!mask) return null;
   if (!ctx.gpu) throw new Error('a mask input needs a GPU context');
-  const img = await ctx.gpu.readback(mask.texture);
+  const img = await ctx.gpu.readback(mask.texture, ctx);
+  throwIfCookInterrupted(ctx);
   const ch = mask.kind === 'alpha' ? 0 : 3;
   return (x, y) => {
     const px = Math.min(img.width - 1, Math.max(0, Math.round(x + img.width / 2)));
@@ -132,8 +135,8 @@ export const GridNode: NodeDef = {
     // with a ratio is the monotone bias, now with honest cell sizes)
     { name: 'distX', kind: 'select', options: DIST_OPTIONS, default: 'uniform' },
     { name: 'distY', kind: 'select', options: DIST_OPTIONS, default: 'uniform' },
-    { name: 'ratioX', kind: 'number', default: 1.618, min: 0.1, max: 5, step: 0.01, showIf: { param: 'distX', in: ['geometric'] } },
-    { name: 'ratioY', kind: 'number', default: 1.618, min: 0.1, max: 5, step: 0.01, showIf: { param: 'distY', in: ['geometric'] } },
+    { name: 'ratioX', kind: 'number', default: 1.618, min: 0.1, max: 5, step: 0.001, showIf: { param: 'distX', in: ['geometric'] } },
+    { name: 'ratioY', kind: 'number', default: 1.618, min: 0.1, max: 5, step: 0.001, showIf: { param: 'distY', in: ['geometric'] } },
     { name: 'weightsX', kind: 'string', default: '1,1,2,3,5', showIf: { param: 'distX', in: ['custom'] } },
     { name: 'weightsY', kind: 'string', default: '1,1,2,3,5', showIf: { param: 'distY', in: ['custom'] } },
     // vars: t (0..1 across tracks), i (track index), n (track count);
@@ -148,6 +151,7 @@ export const GridNode: NodeDef = {
     { name: 'flow', kind: 'select', options: ['rows', 'columns', 'serpentine'], default: 'rows' },
   ],
   async cook(inputs, params, ctx) {
+    const budget = geometryBudgetFor(ctx);
     const inMask = await maskTest(inputs.mask as RasterValue | AlphaValue | undefined, ctx);
     const cols = Math.max(1, Math.round(Number(params.columns)));
     const rows = Math.max(1, Math.round(Number(params.rows)));
@@ -199,20 +203,38 @@ export const GridNode: NodeDef = {
 
     // emit in fill order; index = slot identity, progress = position along that order
     let placements: Placement[] = [];
+    budget.assertGeneratedItems(cols * rows);
     if (params.flow === 'columns') {
-      for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) placements.push(cell(c, r));
+      for (let c = 0; c < cols; c++) {
+        for (let r = 0; r < rows; r++) {
+          budget.chargeWork();
+          placements.push(cell(c, r));
+        }
+      }
     } else {
-      for (let r = 0; r < rows; r++)
-        for (let c = 0; c < cols; c++)
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          budget.chargeWork();
           placements.push(cell(params.flow === 'serpentine' && r % 2 === 1 ? cols - 1 - c : c, r));
+        }
+      }
     }
     // the lattice is fixed by columns/rows; the mask decides which cells exist.
     // Masking happens before index/progress, so the slots are born a clean run
-    if (inMask) placements = placements.filter((p) => inMask(p.x, p.y));
-    placements.forEach((p, i) => {
+    if (inMask) {
+      const masked: Placement[] = [];
+      for (const placement of placements) {
+        budget.chargeWork();
+        if (inMask(placement.x, placement.y)) masked.push(placement);
+      }
+      placements = masked;
+    }
+    for (let i = 0; i < placements.length; i++) {
+      budget.chargeWork();
+      const p = placements[i];
       p.index = i;
       p.progress = placements.length === 1 ? 0 : i / (placements.length - 1);
-    });
+    }
     return { out: { kind: 'layout', placements } satisfies LayoutValue };
   },
 };
@@ -236,6 +258,7 @@ export const RandomLayoutNode: NodeDef = {
     { name: 'seed', kind: 'number', default: 1, min: 0, max: 9999, step: 1 },
   ],
   async cook(inputs, params, ctx) {
+    const budget = geometryBudgetFor(ctx);
     const seed = Number(params.seed);
     const upstream = inputs.layout as LayoutValue | undefined;
     const inMask = await maskTest(inputs.mask as RasterValue | AlphaValue | undefined, ctx);
@@ -248,6 +271,7 @@ export const RandomLayoutNode: NodeDef = {
       // how many fit follows from the density: one point per spacing² of area
       // (capped — a tiny spacing over a huge area shouldn't melt the cook)
       const target = Math.max(1, Math.min(1000, Math.round((w * h) / (spacing * spacing))));
+      budget.assertGeneratedItems(target);
       // walk a deterministic candidate stream until the area's quota fills:
       // gaussian redraws its out-of-area tail, poisson-disk drops candidates
       // closer than `spacing` to an accepted point (dart throwing — it stops
@@ -255,6 +279,7 @@ export const RandomLayoutNode: NodeDef = {
       const accepted: { x: number; y: number }[] = [];
       const maxTries = target * 16 + 64;
       for (let j = 0; accepted.length < target && j < maxTries; j++) {
+        budget.chargeWork();
         let x: number, y: number;
         if (gaussian) {
           // Box–Muller on the stream; σ = extent/4 keeps ~95% inside the area
@@ -267,27 +292,48 @@ export const RandomLayoutNode: NodeDef = {
           x = (latticeHash(j, 1, seed) - 0.5) * w;
           y = (latticeHash(j, 2, seed) - 0.5) * h;
         }
-        if (poisson && accepted.some((p) => Math.hypot(p.x - x, p.y - y) < spacing)) continue;
+        if (poisson) {
+          let collides = false;
+          for (const point of accepted) {
+            budget.chargeWork();
+            if (Math.hypot(point.x - x, point.y - y) < spacing) {
+              collides = true;
+              break;
+            }
+          }
+          if (collides) continue;
+        }
         accepted.push({ x, y });
       }
       // the mask trims the finished set, so the prescribed spacing holds
       // inside it and points that were already in-mask stay put when one is
       // wired — survivors are renumbered as a clean run
-      const kept = inMask ? accepted.filter((p) => inMask(p.x, p.y)) : accepted;
-      const placements: Placement[] = kept.map((p, i) => ({
-        x: p.x,
-        y: p.y,
-        rotation: 0,
-        scale: 1,
-        progress: kept.length === 1 ? 0 : i / (kept.length - 1),
-        weight: 1,
-        index: i,
-      }));
+      const kept: { x: number; y: number }[] = [];
+      for (const point of accepted) {
+        budget.chargeWork();
+        if (!inMask || inMask(point.x, point.y)) kept.push(point);
+      }
+      const placements: Placement[] = [];
+      for (let i = 0; i < kept.length; i++) {
+        budget.chargeWork();
+        const point = kept[i];
+        placements.push({
+          x: point.x,
+          y: point.y,
+          rotation: 0,
+          scale: 1,
+          progress: kept.length === 1 ? 0 : i / (kept.length - 1),
+          weight: 1,
+          index: i,
+        });
+      }
       return { out: { kind: 'layout', placements } satisfies LayoutValue };
     }
 
     const off = Number(params.offset), rot = Number(params.rotate), sj = Number(params.scaleJitter);
+    budget.assertGeneratedItems(upstream.placements.length);
     const placements = upstream.placements.map((p, i) => {
+      budget.chargeWork();
       // masked jitter constrains movement, not existence: take the first
       // offset that stays inside, else stay put. Try 0 matches the unmasked
       // roll, so wiring a mask never moves a point that was already legal
@@ -323,10 +369,18 @@ export const SamplePathNode: NodeDef = {
     { name: 'tangent', kind: 'select', options: ['rotate', 'upright'], default: 'rotate' },
   ],
   async cook(inputs, params, ctx) {
+    const budget = geometryBudgetFor(ctx);
     const vector = inputs.path as VectorValue;
     const inMask = await maskTest(inputs.mask as RasterValue | AlphaValue | undefined, ctx);
-    const polys = flattenPaths(vector.paths);
-    const samples = samplePathEvenly(polys, Number(params.gap), Number(params.offset));
+    throwIfCookInterrupted(ctx);
+    const polys = flattenPaths(vector.paths, 2.5, ctx);
+    const samples = samplePathEvenly(
+      polys,
+      Number(params.gap),
+      Number(params.offset),
+      ctx,
+    );
+    throwIfCookInterrupted(ctx);
     // The path lives in its source space (a traced image is in top-left frame
     // pixels), but layouts are origin-at-center like Grid/Function/Random — and
     // the element renderer treats (0,0) as the artboard center. Recenter on the
@@ -337,22 +391,36 @@ export const SamplePathNode: NodeDef = {
     const cy = b.y + b.height / 2;
     // spacing is gap-driven, so the mask trims samples rather than re-spacing
     // them; progress keeps the true arc position on the source path
-    const kept = samples
-      .map((s) => ({ ...s, x: s.x - cx, y: s.y - cy }))
-      .filter((s) => !inMask || inMask(s.x, s.y));
+    const kept: typeof samples = [];
+    for (const sample of samples) {
+      budget.chargeWork();
+      const recentered = {
+        ...sample,
+        x: sample.x - cx,
+        y: sample.y - cy,
+      };
+      if (!inMask || inMask(recentered.x, recentered.y)) {
+        kept.push(recentered);
+      }
+    }
     // a loop layout (every contour closed, like a silhouette outline) lets Place
     // spread elements across the closing segment too, with no seam. A mask that
     // trimmed anything cut the loop open.
     const closed = polys.length > 0 && polys.every((p) => p.closed) && kept.length === samples.length;
-    const placements: Placement[] = kept.map((s, i) => ({
-      x: s.x,
-      y: s.y,
-      rotation: params.tangent === 'rotate' ? s.rotation : 0,
-      scale: 1,
-      progress: s.t, // arc-length position
-      weight: 1,
-      index: i,
-    }));
+    const placements: Placement[] = [];
+    for (let i = 0; i < kept.length; i++) {
+      budget.chargeWork();
+      const sample = kept[i];
+      placements.push({
+        x: sample.x,
+        y: sample.y,
+        rotation: params.tangent === 'rotate' ? sample.rotation : 0,
+        scale: 1,
+        progress: sample.t, // arc-length position
+        weight: 1,
+        index: i,
+      });
+    }
     return { out: { kind: 'layout', placements, closed } satisfies LayoutValue };
   },
 };
@@ -372,6 +440,7 @@ export const FunctionLayoutNode: NodeDef = {
     { name: 'width', kind: 'number', default: 600, min: 10, max: 4096, step: 1, showIf: { param: 'fn', in: ['wave'] } },
   ],
   async cook(inputs, params, ctx) {
+    const budget = geometryBudgetFor(ctx);
     const gap = Number(params.gap ?? 40);
     const r = Number(params.radius), turns = Number(params.turns), width = Number(params.width ?? 600);
     const inMask = await maskTest(inputs.mask as RasterValue | AlphaValue | undefined, ctx);
@@ -397,20 +466,40 @@ export const FunctionLayoutNode: NodeDef = {
     // Path (gap decides how many fit, rotation is the tangent, progress the
     // arc position), this node just supplies its own path
     const M = 4096; // ≤ ~10px segments even on a 12-turn spiral at max radius
-    const points = Array.from({ length: circle ? M : M + 1 }, (_, j) => pointAt(j / M));
-    const samples = samplePathEvenly([{ points, closed: circle }], gap);
+    const points: { x: number; y: number }[] = [];
+    const pointCount = circle ? M : M + 1;
+    for (let j = 0; j < pointCount; j++) {
+      budget.chargeWork();
+      points.push(pointAt(j / M));
+    }
+    const samples = samplePathEvenly(
+      [{ points, closed: circle }],
+      gap,
+      0,
+      ctx,
+    );
+    throwIfCookInterrupted(ctx);
     // spacing is gap-driven, so the mask trims samples rather than re-spacing
     // them; progress keeps the true arc position on the curve
-    const kept = samples.filter((s) => !inMask || inMask(s.x, s.y));
-    const placements: Placement[] = kept.map((s, i) => ({
-      x: s.x,
-      y: s.y,
-      rotation: s.rotation,
-      scale: 1,
-      progress: s.t, // arc-length position
-      weight: 1,
-      index: i,
-    }));
+    const kept: typeof samples = [];
+    for (const sample of samples) {
+      budget.chargeWork();
+      if (!inMask || inMask(sample.x, sample.y)) kept.push(sample);
+    }
+    const placements: Placement[] = [];
+    for (let i = 0; i < kept.length; i++) {
+      budget.chargeWork();
+      const sample = kept[i];
+      placements.push({
+        x: sample.x,
+        y: sample.y,
+        rotation: sample.rotation,
+        scale: 1,
+        progress: sample.t, // arc-length position
+        weight: 1,
+        index: i,
+      });
+    }
     // a circle is a loop by construction — spread should wrap, not seam.
     // A mask that trimmed any of it cut the loop open
     const closed = circle && kept.length === samples.length ? true : undefined;
@@ -443,8 +532,10 @@ export const WeightNode: NodeDef = {
     { name: 'expr', kind: 'string', default: '1 - progress', showIf: { param: 'source', in: ['expression'] } },
   ],
   async cook(inputs, params, ctx) {
+    const budget = geometryBudgetFor(ctx);
     const layout = inputs.layout as LayoutValue;
     const src = layout.placements;
+    budget.assertGeneratedItems(src.length);
     const seed = Number(params.seed);
     const n = src.length;
     // the channel is named after the source — no naming step
@@ -461,7 +552,8 @@ export const WeightNode: NodeDef = {
         const map = inputs.map as RasterValue | undefined;
         if (!map) throw new Error('Weight: the image sources need a map input');
         if (!ctx.gpu) throw new Error('Weight: the image sources need a GPU context');
-        const img = await ctx.gpu.readback(map.texture);
+        const img = await ctx.gpu.readback(map.texture, ctx);
+        throwIfCookInterrupted(ctx);
         // layouts are origin-at-center; the map is sampled center-aligned
         const sample = (p: Placement): number => {
           const px = Math.min(img.width - 1, Math.max(0, Math.round(p.x + img.width / 2)));
@@ -494,14 +586,25 @@ export const WeightNode: NodeDef = {
       case 'area': {
         // cell area normalized to the biggest cell; point layouts have no
         // area signal and stay neutral
-        const amax = Math.max(...src.map((p) => (p.w ?? 0) * (p.h ?? 0)));
+        let amax = 0;
+        for (const placement of src) {
+          budget.chargeWork();
+          amax = Math.max(
+            amax,
+            (placement.w ?? 0) * (placement.h ?? 0),
+          );
+        }
         weightOf = (p) => (amax > 0 ? ((p.w ?? 0) * (p.h ?? 0)) / amax : 1);
         break;
       }
       case 'distance': {
         // radial falloff from the layout origin (= artboard center), scale-free:
         // normalized by the farthest slot, so 1 at center, 0 at the rim
-        const dmax = Math.max(...src.map((p) => Math.hypot(p.x, p.y)), 1e-6);
+        let dmax = 1e-6;
+        for (const placement of src) {
+          budget.chargeWork();
+          dmax = Math.max(dmax, Math.hypot(placement.x, placement.y));
+        }
         weightOf = (p) => 1 - Math.hypot(p.x, p.y) / dmax;
         break;
       }
@@ -522,9 +625,10 @@ export const WeightNode: NodeDef = {
     }
 
     // no shaping here — inverting/biasing the signal is Place's job (per bind)
-    const placements = src.map((p, i) => (
-      { ...p, channels: { ...p.channels, [target]: weightOf(p, i) } }
-    ));
+    const placements = src.map((p, i) => {
+      budget.chargeWork();
+      return { ...p, channels: { ...p.channels, [target]: weightOf(p, i) } };
+    });
     return { out: { kind: 'layout', placements, closed: layout.closed } satisfies LayoutValue };
   },
 };
@@ -549,20 +653,31 @@ export const FilterLayoutNode: NodeDef = {
     { name: 'keep', kind: 'number', default: 0.5, min: 0, max: 1, step: 0.01, showIf: { param: 'mode', in: ['random'] } },
     { name: 'seed', kind: 'number', default: 1, min: 0, max: 9999, step: 1, showIf: { param: 'mode', in: ['random'] } },
   ],
-  cook(inputs, params) {
+  cook(inputs, params, ctx) {
+    const budget = geometryBudgetFor(ctx);
     const layout = inputs.layout as LayoutValue;
-    const placements = layout.placements.filter((p, i) => {
+    budget.assertGeneratedItems(layout.placements.length);
+    const placements: Placement[] = [];
+    for (let i = 0; i < layout.placements.length; i++) {
+      budget.chargeWork();
+      const p = layout.placements[i];
+      let keep: boolean;
       switch (params.mode) {
         case 'threshold': {
           const v = readChannel(p, String(params.channel));
-          return params.comparison === 'below' ? v < Number(params.threshold) : v >= Number(params.threshold);
+          keep = params.comparison === 'below'
+            ? v < Number(params.threshold)
+            : v >= Number(params.threshold);
+          break;
         }
         case 'random':
-          return latticeHash(i, 5, Number(params.seed)) < Number(params.keep);
+          keep = latticeHash(i, 5, Number(params.seed)) < Number(params.keep);
+          break;
         default:
-          return i % Math.round(Number(params.n)) === 0;
+          keep = i % Math.round(Number(params.n)) === 0;
       }
-    });
+      if (keep) placements.push(p);
+    }
     return { out: { kind: 'layout', placements, closed: layout.closed } satisfies LayoutValue };
   },
 };
@@ -573,7 +688,8 @@ export const DrawLayoutNode: NodeDef = {
   inputs: [{ name: 'layout', type: 'layout' }],
   outputs: [{ name: 'out', type: 'vector' }],
   params: [{ name: 'size', kind: 'number', default: 8, min: 1, max: 64, step: 1 }],
-  cook(inputs, params) {
+  cook(inputs, params, ctx) {
+    const budget = geometryBudgetFor(ctx);
     const size = Number(params.size);
     const paths: PathCmd[][] = [];
     const dot = (x: number, y: number, r: number) => {
@@ -582,16 +698,27 @@ export const DrawLayoutNode: NodeDef = {
         const a = (i / 8) * Math.PI * 2;
         circle.push({ x: x + Math.cos(a) * r, y: y + Math.sin(a) * r });
       }
-      paths.push(...polylinesToPaths([{ points: circle, closed: true }]));
+      const circlePaths = polylinesToPaths(
+        [{ points: circle, closed: true }],
+        ctx,
+      );
+      for (const path of circlePaths) paths.push(path);
     };
-    for (const p of (inputs.layout as LayoutValue).placements) {
+    const placements = (inputs.layout as LayoutValue).placements;
+    budget.assertGeneratedItems(placements.length);
+    for (const p of placements) {
+      budget.chargeWork();
       if (p.w != null && p.h != null) {
         // cell placements draw as their actual rect (rotated with the
         // placement) plus a small center dot — the grid, not dot indicators
         const cos = Math.cos(p.rotation), sin = Math.sin(p.rotation);
         const corners = [[-p.w / 2, -p.h / 2], [p.w / 2, -p.h / 2], [p.w / 2, p.h / 2], [-p.w / 2, p.h / 2]]
           .map(([dx, dy]) => ({ x: p.x + dx * cos - dy * sin, y: p.y + dx * sin + dy * cos }));
-        paths.push(...polylinesToPaths([{ points: corners, closed: true }]));
+        const rectPaths = polylinesToPaths(
+          [{ points: corners, closed: true }],
+          ctx,
+        );
+        for (const path of rectPaths) paths.push(path);
         dot(p.x, p.y, size * 0.35);
         continue;
       }
@@ -599,12 +726,18 @@ export const DrawLayoutNode: NodeDef = {
       // circle marker (octagon is plenty at marker size)
       dot(p.x, p.y, r);
       // rotation tick
+      budget.chargeVectorPaths();
       paths.push([
         { type: 'M', x: p.x, y: p.y },
         { type: 'L', x: p.x + Math.cos(p.rotation) * r * 2, y: p.y + Math.sin(p.rotation) * r * 2 },
       ]);
+      budget.chargeVectorCommands(2);
     }
-    const value: VectorValue = { kind: 'vector', paths, bounds: boundsOfPaths(paths) };
+    const value: VectorValue = {
+      kind: 'vector',
+      paths,
+      bounds: boundsOfPaths(paths, ctx),
+    };
     return { out: value };
   },
 };

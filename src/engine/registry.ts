@@ -3,6 +3,8 @@
 import type { Font } from 'opentype.js';
 import type { GpuContext } from '../gpu/device';
 import type { ParamValue } from './graph';
+import type { GeometryBudget } from './geometryBudget';
+import type { GpuWorkBudget } from './gpuWorkBudget';
 import type { OutputValues, SocketType, Value } from './values';
 
 export interface SocketSpec {
@@ -36,7 +38,7 @@ export type ParamSpec = ParamVisibility &
     // a slot channel name — the editor offers the built-ins plus whatever the
     // document's Weight nodes write, same list the binds rows use
     | { name: string; kind: 'channel'; default: string }
-    | { name: string; kind: 'image'; default: string } // a data: URI — travels with the doc
+    | { name: string; kind: 'image'; default: string } // content-addressed assetId
     // a JSON-encoded list of channel bindings ({channel, target, amount}[]) —
     // the editor renders rows plus an "add channel" button; cooks parse it
     | { name: string; kind: 'binds'; default: string }
@@ -48,6 +50,33 @@ export interface CookContext {
   fonts: Map<string, Font>;
   /** the document's artboard size — resolution for every frame-aware node */
   frame: { width: number; height: number };
+  /** Present for revisioned application renders; optional in headless tests. */
+  revision?: number;
+  signal?: AbortSignal;
+  /** Absolute `performance.now()` deadline. */
+  deadline?: number;
+  /** Changes when ambient font/renderer resources are replaced. */
+  environmentRevision?: number;
+  /** Resolve only a validated project asset ID; no URL/path authority. */
+  resolveAsset?: (assetId: string, signal?: AbortSignal) => Promise<Blob>;
+  layerId?: string;
+  maxPendingWorkerRequests?: number;
+  maxPendingWorkerBytes?: number;
+  maxVectorPaths?: number;
+  maxVectorCommands?: number;
+  maxCanvasPaintPaths?: number;
+  maxCanvasPaintCommands?: number;
+  maxFlattenedPoints?: number;
+  maxBooleanPoints?: number;
+  maxGeometryWorkUnits?: number;
+  maxRenderableGlyphs?: number;
+  maxGeneratedItems?: number;
+  /** Shared by every node/layer cooked for one render attempt. */
+  geometryBudget?: GeometryBudget;
+  maxGpuPasses?: number;
+  maxGpuPixelWork?: number;
+  /** Shared by every GPU operation submitted for one render attempt. */
+  gpuWorkBudget?: GpuWorkBudget;
 }
 
 export interface NodeDef {
@@ -66,6 +95,11 @@ export interface NodeDef {
    * resolved, so a font that finishes loading invalidates the cached fallback.
    */
   hashExtras?(params: Record<string, ParamValue>, ctx: CookContext): Record<string, string>;
+  /**
+   * Async cooks must observe ctx.signal/deadline before issuing GPU side
+   * effects. If detached work returns late, raster/alpha outputs must be newly
+   * owned by that cook so the evaluator can reclaim them safely.
+   */
   cook(
     inputs: Record<string, Value>,
     params: Record<string, ParamValue>,

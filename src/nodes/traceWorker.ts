@@ -10,11 +10,17 @@
 
 import ImageTracer from 'imagetracerjs';
 import type { PathCmd } from '../engine/values';
+import ortWasmFactoryUrl from '../../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs?url';
+import ortWasmBinaryUrl from '../../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm?url';
+import {
+  MODEL_FILES_PATH_PREFIX,
+  RMBG_MODEL_REPOSITORY,
+  RMBG_MODEL_REVISION,
+} from '../../packages/mcp-companion/src/modelPublicContract';
 
 // longest side the tracer/model ever sees. tracing scales linearly-ish in pixel
 // count, so capping an 8MP artboard to ~1MP is a several-fold speedup.
 const TRACE_CAP = 1024;
-const MODEL_ID = 'briaai/RMBG-1.4';
 
 interface Img {
   data: Uint8ClampedArray;
@@ -35,6 +41,11 @@ interface Req {
   threshold: number;
   dropLight: boolean;
   thickness?: number; // silhouette op: outline band width, in (capped) pixels
+  /** Remaining duration at dispatch; worker and Window time origins may differ. */
+  timeoutMs?: number;
+  /** Worker-local absolute deadline, populated on receipt. */
+  deadline?: number;
+  maxVectorCommands: number;
 }
 
 // `self.postMessage` in a worker takes (message, transfer); the DOM-typed global
@@ -42,23 +53,88 @@ interface Req {
 const post = (self as unknown as { postMessage: (m: unknown, t?: Transferable[]) => void }).postMessage.bind(self);
 
 self.onmessage = async (e: MessageEvent<Req>) => {
-  const req = e.data;
+  const received = e.data;
+  const req: Req = {
+    ...received,
+    ...(
+      typeof received.timeoutMs === 'number'
+      && Number.isFinite(received.timeoutMs)
+        ? { deadline: performance.now() + Math.max(0, received.timeoutMs) }
+        : {}
+    ),
+  };
   try {
+    throwIfExpired(req);
     const img: Img = {
       data: new Uint8ClampedArray(req.data),
       width: req.width,
       height: req.height,
     };
     if (req.op === 'removebg') {
-      const out = await removeBackground(img);
+      const out = await removeBackground(img, req);
+      throwIfExpired(req);
       post({ id: req.id, image: out }, [out.data.buffer]);
     } else {
-      post({ id: req.id, paths: traceRaster(img, req) });
+      const paths = traceRaster(img, req);
+      throwIfExpired(req);
+      post({ id: req.id, paths });
     }
   } catch (err) {
-    post({ id: req.id, error: err instanceof Error ? err.message : String(err) });
+    post({
+      id: req.id,
+      error: err instanceof Error ? err.message : String(err),
+      ...(
+        err !== null
+        && typeof err === 'object'
+        ? {
+            code: (
+              (err as { code?: unknown }).code === 'TIMEOUT'
+              || (err as { code?: unknown }).code === 'RESOURCE_LIMIT'
+            )
+              ? (err as { code: 'TIMEOUT' | 'RESOURCE_LIMIT' }).code
+              : undefined,
+          }
+        : {}
+      ),
+    });
   }
 };
+
+function throwIfExpired(req: Req): void {
+  if (
+    typeof req.deadline === 'number'
+    && Number.isFinite(req.deadline)
+    && performance.now() >= req.deadline
+  ) {
+    throw Object.assign(
+      new Error('Trace worker request exceeded its deadline.'),
+      { code: 'TIMEOUT' as const },
+    );
+  }
+}
+
+class WorkerPathLimit {
+  private commands = 0;
+
+  constructor(private readonly req: Req) {}
+
+  charge(count = 1): void {
+    throwIfExpired(this.req);
+    if (
+      !Number.isSafeInteger(count)
+      || count < 0
+      || count > this.req.maxVectorCommands - this.commands
+    ) {
+      throw Object.assign(
+        new Error(
+          `Trace output exceeds ${this.req.maxVectorCommands} vector commands.`,
+        ),
+        { code: 'RESOURCE_LIMIT' as const },
+      );
+    }
+    this.commands += count;
+  }
+}
 
 // trace a capped copy of the image, then scale the paths back to source res.
 //  - composite: ink-on-transparent flattened over white (traces dark content)
@@ -68,12 +144,23 @@ function traceRaster(img: Img, req: Req): PathCmd[][] {
   const small = downscale(img, TRACE_CAP);
   const sx = img.width / small.width;
   const sy = img.height / small.height;
+  const rawLimit = new WorkerPathLimit(req);
+  let paths: PathCmd[][];
   if (req.op === 'silhouette') {
-    return scalePaths(silhouetteOutline(small, req), sx, sy);
+    paths = silhouetteOutline(small, req, rawLimit);
+  } else {
+    if (req.op === 'sobel') sobelEdges(small, req.threshold);
+    else compositeOverWhite(small);
+    paths = imageToPaths(
+      small,
+      req.smoothness,
+      req.minArea,
+      req.dropLight,
+      req,
+      rawLimit,
+    );
   }
-  if (req.op === 'sobel') sobelEdges(small, req.threshold);
-  else compositeOverWhite(small);
-  return scalePaths(imageToPaths(small, req.smoothness, req.minArea, req.dropLight), sx, sy);
+  return scalePaths(paths, sx, sy, req, new WorkerPathLimit(req));
 }
 
 // A hollow outline of the image's alpha shape: trace the shape's contour, trace
@@ -81,7 +168,11 @@ function traceRaster(img: Img, req: Req): PathCmd[][] {
 // a nonzero-winding fill the inner loop subtracts, leaving a ring `thickness`
 // wide — a true outline, not a fill. (Reversing is what makes it reliably hollow:
 // imagetracer doesn't guarantee the inner edge winds opposite to the outer.)
-function silhouetteOutline(small: Img, req: Req): PathCmd[][] {
+function silhouetteOutline(
+  small: Img,
+  req: Req,
+  limit: WorkerPathLimit,
+): PathCmd[][] {
   const { width: w, height: h } = small;
   const fg = alphaForeground(small, req.threshold);
 
@@ -89,16 +180,40 @@ function silhouetteOutline(small: Img, req: Req): PathCmd[][] {
   const t = Math.max(1, Math.round(req.thickness ?? 6));
   for (let i = 0; i < t; i++) inner = erode(inner, w, h);
 
-  const outer = traceBitmap(fg, w, h, req.smoothness, req.minArea);
-  const hole = traceBitmap(inner, w, h, req.smoothness, req.minArea).map(reversePath);
+  const outer = traceBitmap(
+    fg,
+    w,
+    h,
+    req.smoothness,
+    req.minArea,
+    req,
+    limit,
+  );
+  const hole = traceBitmap(
+    inner,
+    w,
+    h,
+    req.smoothness,
+    req.minArea,
+    req,
+    limit,
+  ).map(reversePath);
   return [...outer, ...hole];
 }
 
 // trace a foreground bitmap (painted as black ink on white) into closed paths.
-function traceBitmap(fg: Uint8Array, w: number, h: number, smoothness: number, minArea: number): PathCmd[][] {
+function traceBitmap(
+  fg: Uint8Array,
+  w: number,
+  h: number,
+  smoothness: number,
+  minArea: number,
+  req: Req,
+  limit: WorkerPathLimit,
+): PathCmd[][] {
   const img: Img = { data: new Uint8ClampedArray(w * h * 4), width: w, height: h };
   paintInk(img, fg);
-  return imageToPaths(img, smoothness, minArea, true);
+  return imageToPaths(img, smoothness, minArea, true, req, limit);
 }
 
 // reverse a closed sub-path's direction (flips its winding). curve controls ride
@@ -146,14 +261,16 @@ function reversePath(cmds: PathCmd[]): PathCmd[] {
 
 // removebg: the model decides foreground; multiply its mask into the image's
 // alpha so the background becomes transparent. colors are kept at full res.
-async function removeBackground(img: Img): Promise<Img> {
+async function removeBackground(img: Img, req: Req): Promise<Img> {
   const { run, RawImage } = await loadModel();
+  throwIfExpired(req);
 
   // the model wants an opaque photo — infer on a capped, white-composited copy
   const small = downscale(img, TRACE_CAP);
   const infer: Img = { data: new Uint8ClampedArray(small.data), width: small.width, height: small.height };
   compositeOverWhite(infer);
   const mask = await run(new RawImage(infer.data, infer.width, infer.height, 4).rgb());
+  throwIfExpired(req);
 
   // scale the mask back up and fold it into the original alpha
   const full = resizeMask(mask, img.width, img.height);
@@ -304,7 +421,14 @@ function sobelEdges(img: Img, threshold: number): void {
 }
 
 // imagetracer over a flat, opaque, 2-tone image → closed vector paths.
-function imageToPaths(img: Img, smoothness: number, minArea: number, dropLight: boolean): PathCmd[][] {
+function imageToPaths(
+  img: Img,
+  smoothness: number,
+  minArea: number,
+  dropLight: boolean,
+  req: Req,
+  limit: WorkerPathLimit,
+): PathCmd[][] {
   const traced = ImageTracer.imagedataToTracedata(img as unknown as ImageData, {
     ltres: smoothness,
     qtres: smoothness,
@@ -320,7 +444,9 @@ function imageToPaths(img: Img, smoothness: number, minArea: number, dropLight: 
     const lum = (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) / 255;
     if (dropLight && lum > 0.5) return; // the light layer is the background
     for (const path of layer) {
+      throwIfExpired(req);
       if (path.segments.length === 0) continue;
+      limit.charge(path.segments.length + 2);
       const cmds: PathCmd[] = [{ type: 'M', x: path.segments[0].x1, y: path.segments[0].y1 }];
       for (const s of path.segments) {
         if (s.type === 'Q' && s.x3 !== undefined && s.y3 !== undefined) {
@@ -337,10 +463,18 @@ function imageToPaths(img: Img, smoothness: number, minArea: number, dropLight: 
 }
 
 // map traced (capped-resolution) coords back onto the source image.
-function scalePaths(paths: PathCmd[][], sx: number, sy: number): PathCmd[][] {
+function scalePaths(
+  paths: PathCmd[][],
+  sx: number,
+  sy: number,
+  req: Req,
+  limit: WorkerPathLimit,
+): PathCmd[][] {
   if (sx === 1 && sy === 1) return paths;
-  return paths.map((cmds) =>
-    cmds.map((c): PathCmd => {
+  return paths.map((cmds) => {
+    limit.charge(cmds.length);
+    return cmds.map((c): PathCmd => {
+      throwIfExpired(req);
       switch (c.type) {
         case 'M':
         case 'L':
@@ -360,8 +494,8 @@ function scalePaths(paths: PathCmd[][], sx: number, sy: number): PathCmd[][] {
         default:
           return c; // Z
       }
-    }),
-  );
+    });
+  });
 }
 
 // ---- model ---------------------------------------------------------------
@@ -374,36 +508,68 @@ let modelPromise: Promise<{ run: RunFn; RawImage: any }> | null = null;
 
 function loadModel() {
   if (!modelPromise) {
-    modelPromise = (async () => {
+    const loading = (async () => {
       const { AutoModel, AutoProcessor, RawImage, env } = await import('@huggingface/transformers');
-      env.allowLocalModels = false; // fetch from the hub, skip local 404 probing
-
-      // prefer the WebGPU backend; fall back to WASM if it isn't available here.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const base = { config: { model_type: 'custom' } } as any;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let model: any;
-      try {
-        model = await AutoModel.from_pretrained(MODEL_ID, { ...base, device: 'webgpu', dtype: 'fp32' });
-      } catch {
-        model = await AutoModel.from_pretrained(MODEL_ID, base);
+      if (__GFX_AGENT_BUILD__) {
+        // The Agent artifact can read only the companion's fixed, integrity-
+        // verified model routes. Transformers.js receives no remote authority.
+        env.allowLocalModels = true;
+        env.allowRemoteModels = false;
+        env.localModelPath = MODEL_FILES_PATH_PREFIX;
+        env.useBrowserCache = false;
+        // Transformers.js otherwise rewrites the bundled ONNX WASM factory to
+        // a blob: module in dedicated workers. The Agent CSP intentionally
+        // forbids blob scripts, and both runtime files already have fixed
+        // same-origin URLs, so bypass that Cache-API rewrite.
+        env.useWasmCache = false;
+      } else {
+        // Preserve the ordinary human UI while still pinning the upstream
+        // repository revision. The Agent build never enters this branch.
+        env.allowLocalModels = false;
+        env.allowRemoteModels = true;
       }
+      const onnxWasm = env.backends.onnx.wasm;
+      if (!onnxWasm) {
+        throw new Error('The pinned ONNX WASM runtime is unavailable.');
+      }
+      onnxWasm.wasmPaths = {
+        mjs: new URL(ortWasmFactoryUrl, self.location.href).href,
+        wasm: new URL(ortWasmBinaryUrl, self.location.href).href,
+      };
+      // The local host intentionally does not opt into cross-origin isolation.
+      onnxWasm.numThreads = 1;
 
-      const processor = await AutoProcessor.from_pretrained(MODEL_ID, {
-        // RMBG-1.4 preprocessing (the model ships no preprocessor_config.json)
-        config: {
-          do_normalize: true,
-          do_pad: false,
-          do_rescale: true,
-          do_resize: true,
-          image_mean: [0.5, 0.5, 0.5],
-          image_std: [1, 1, 1],
-          resample: 2,
-          rescale_factor: 1 / 255,
-          size: { width: 1024, height: 1024 },
+      // Transformers.js accepts a minimal custom ONNX configuration at
+      // runtime, although its public declaration models only built-in configs.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const common = {
+        config: { model_type: 'custom' },
+        revision: RMBG_MODEL_REVISION,
+        local_files_only: __GFX_AGENT_BUILD__,
+      } as any;
+      const hasWebGpu = typeof navigator !== 'undefined'
+        && 'gpu' in navigator
+        && await navigator.gpu.requestAdapter() !== null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const model: any = hasWebGpu
+        ? await AutoModel.from_pretrained(RMBG_MODEL_REPOSITORY, {
+            ...common,
+            device: 'webgpu',
+            dtype: 'fp32',
+          })
+        : await AutoModel.from_pretrained(RMBG_MODEL_REPOSITORY, {
+            ...common,
+            device: 'wasm',
+            dtype: 'q8',
+          });
+
+      const processor = await AutoProcessor.from_pretrained(
+        RMBG_MODEL_REPOSITORY,
+        {
+          revision: RMBG_MODEL_REVISION,
+          local_files_only: __GFX_AGENT_BUILD__,
         },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
+      );
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const run: RunFn = async (image: any) => {
@@ -415,6 +581,11 @@ function loadModel() {
       };
       return { run, RawImage };
     })();
+    modelPromise = loading;
+    // A transient network/backend failure must not poison the worker forever.
+    void loading.catch(() => {
+      if (modelPromise === loading) modelPromise = null;
+    });
   }
   return modelPromise;
 }

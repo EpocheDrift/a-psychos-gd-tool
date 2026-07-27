@@ -1,0 +1,82 @@
+{
+  "frame": {
+    "width": 256,
+    "height": 192
+  },
+  "layers": [
+    {
+      "id": "visual",
+      "name": "Deterministic visual",
+      "visible": true,
+      "opacity": 1,
+      "blendMode": "normal",
+      "graph": {
+        "nodes": {
+          "shape": {
+            "id": "shape",
+            "type": "Shape",
+            "params": {
+              "kind": "rect",
+              "width": 96,
+              "height": 64,
+              "sides": 6,
+              "filled": true,
+              "fill": "#ff1493",
+              "stroke": false,
+              "strokeColor": "#000000",
+              "strokeWidth": 4,
+              "strokeAlign": "center"
+            },
+            "position": {
+              "x": 0,
+              "y": 0
+            }
+          },
+          "raster": {
+            "id": "raster",
+            "type": "Rasterize",
+            "params": {},
+            "position": {
+              "x": 220,
+              "y": 0
+            }
+          },
+          "out": {
+            "id": "out",
+            "type": "Output",
+            "params": {
+              "transparent": false,
+              "background": "#102030"
+            },
+            "position": {
+              "x": 440,
+              "y": 0
+            }
+          }
+        },
+        "edges": [
+          {
+            "from": {
+              "node": "shape",
+              "socket": "out"
+            },
+            "to": {
+              "node": "raster",
+              "socket": "vector"
+            }
+          },
+          {
+            "from": {
+              "node": "raster",
+              "socket": "out"
+            },
+            "to": {
+              "node": "out",
+              "socket": "in"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -9,7 +9,13 @@
 
 import type { NodeDef } from '../engine/registry';
 import type { RasterValue, VectorValue } from '../engine/values';
-import { appendPath, paintPath } from '../gpu/paint';
+import {
+  appendPath,
+  paintPath,
+  preflightCanvasPaint,
+} from '../gpu/paint';
+import { throwIfCookInterrupted } from '../engine/cookControl';
+import { gpuWorkBudgetFor } from '../engine/gpuWorkBudget';
 
 export const RasterizeNode: NodeDef = {
   type: 'Rasterize',
@@ -22,6 +28,8 @@ export const RasterizeNode: NodeDef = {
     if (!gpu) throw new Error('Rasterize needs a GPU context');
     const vector = inputs.vector as VectorValue;
     const { width, height } = ctx.frame;
+    throwIfCookInterrupted(ctx);
+    preflightCanvasPaint(vector.paths, ctx);
 
     const canvas = new OffscreenCanvas(width, height);
     const c2d = canvas.getContext('2d')!;
@@ -32,15 +40,26 @@ export const RasterizeNode: NodeDef = {
     // one fill across ALL subpaths: hole contours must subtract via nonzero
     // winding, which only works inside a single path
     const combined = new Path2D();
-    for (const path of vector.paths) appendPath(combined, path);
+    for (let index = 0; index < vector.paths.length; index++) {
+      if ((index & 63) === 0) throwIfCookInterrupted(ctx);
+      appendPath(combined, vector.paths[index], ctx);
+    }
     paintPath(c2d, combined, vector.style);
 
+    throwIfCookInterrupted(ctx);
     const t = gpu.pool.acquire(width, height);
-    gpu.device.queue.copyExternalImageToTexture(
-      { source: canvas },
-      { texture: t.texture },
-      { width, height },
-    );
+    try {
+      gpuWorkBudgetFor(ctx).charge(width, height);
+      gpu.device.queue.copyExternalImageToTexture(
+        { source: canvas },
+        { texture: t.texture },
+        { width, height },
+      );
+      throwIfCookInterrupted(ctx);
+    } catch (error) {
+      gpu.pool.discard(t);
+      throw error;
+    }
 
     const value: RasterValue = { kind: 'raster', texture: t, width, height };
     return { out: value };

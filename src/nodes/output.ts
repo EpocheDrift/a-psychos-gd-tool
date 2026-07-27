@@ -29,7 +29,15 @@ export const OutputNode: NodeDef = {
     const [r, g, b] = hexToRgb(String(params.background));
     const background = params.transparent === true ? { r: 0, g: 0, b: 0, a: 0 } : { r, g, b, a: 1 };
     // a raster lifts to a single centered element — same compositing path
-    const texture = renderElements(gpu, ctx.fonts, input ? asElements(input) : [], width, height, background);
+    const texture = renderElements(
+      gpu,
+      ctx.fonts,
+      input ? asElements(input) : [],
+      width,
+      height,
+      background,
+      ctx,
+    );
     return { out: { kind: 'raster', texture, width, height } satisfies RasterValue };
   },
 };

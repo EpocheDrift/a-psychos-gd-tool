@@ -19,6 +19,16 @@ import {
   UNPREMULTIPLY_FS,
 } from './shaders';
 import { TexturePool, type PooledTexture } from './pool';
+import {
+  GpuDeviceLostError,
+  throwIfCookInterrupted,
+  waitForCookControl,
+  type CookControl,
+} from '../engine/cookControl';
+import {
+  gpuWorkBudgetFor,
+  type GpuWorkBudgetControl,
+} from '../engine/gpuWorkBudget';
 
 const FRAGMENTS: Record<string, string> = {
   blit: BLIT_FS,
@@ -32,44 +42,100 @@ const FRAGMENTS: Record<string, string> = {
   layerblend: LAYER_BLEND_FS,
   unpremul: UNPREMULTIPLY_FS,
 };
+const DEFAULT_GPU_OPERATION_DEADLINE_MS = 30_000;
 
 /** Pass sources are pooled render targets or persistent textures (atlas, white). */
 type TexSource = PooledTexture | GPUTexture;
 
 const viewOf = (t: TexSource) => ('createView' in t ? t.createView() : t.texture.createView());
 
+export class GpuExecutionError extends Error {
+  readonly code: 'RESOURCE_LIMIT' | 'RENDER_FAILED';
+  readonly recoverable = true;
+  readonly details: { kind: string; stage: string };
+
+  constructor(
+    readonly stage: string,
+    kind: 'out-of-memory' | 'validation' | 'internal' | 'uncaptured',
+  ) {
+    super(`WebGPU ${kind} error during ${stage}.`);
+    this.name = 'GpuExecutionError';
+    this.code = kind === 'out-of-memory' ? 'RESOURCE_LIMIT' : 'RENDER_FAILED';
+    this.details = { kind: `gpu-${kind}`, stage };
+  }
+}
+
+function taintGpuAttempt(error: unknown): Error {
+  const normalized = error instanceof Error
+    ? error
+    : new Error(typeof error === 'string' ? error : 'GPU attempt failed.');
+  Object.assign(normalized, { gpuAttemptTainted: true });
+  return normalized;
+}
+
 export class GpuContext {
   readonly pool: TexturePool;
   private pipelines = new Map<string, GPURenderPipeline>();
-  private sampler: GPUSampler;
-  private uniforms: GPUBuffer;
+  private sampler: GPUSampler | null = null;
+  private uniforms: GPUBuffer | null = null;
   private configured = new WeakSet<HTMLCanvasElement>();
   private whiteTex: GPUTexture | null = null;
   private asciiAtlas: { texture: GPUTexture; glyphs: number } | null = null;
+  private readonly lostListeners = new Set<(error: GpuDeviceLostError) => void>();
+  private readonly gpuErrorListeners = new Set<(error: GpuExecutionError) => void>();
+  private readonly deviceLostPromise: Promise<GpuDeviceLostError>;
+  private disposed = false;
+  private deviceLostError: GpuDeviceLostError | null = null;
+  private lastUncapturedError: GpuExecutionError | null = null;
 
   private constructor(
     readonly device: GPUDevice,
     readonly canvasFormat: GPUTextureFormat,
   ) {
     this.pool = new TexturePool(device);
-    this.sampler = device.createSampler({
-      magFilter: 'linear',
-      minFilter: 'linear',
-      addressModeU: 'clamp-to-edge',
-      addressModeV: 'clamp-to-edge',
+    this.ensureSharedResources();
+    this.deviceLostPromise = device.lost.then((info) => {
+      const error = new GpuDeviceLostError(
+        info.message
+          ? `The WebGPU device was lost: ${info.message}`
+          : 'The WebGPU device was lost.',
+      );
+      this.deviceLostError = error;
+      this.pool.invalidate();
+      for (const listener of [...this.lostListeners]) listener(error);
+      return error;
     });
-    this.uniforms = device.createBuffer({
-      size: 64,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
+    device.addEventListener('uncapturederror', this.onUncapturedError);
   }
 
   static async init(): Promise<GpuContext | null> {
     if (!('gpu' in navigator)) return null;
-    const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) return null;
-    const device = await adapter.requestDevice();
-    return new GpuContext(device, navigator.gpu.getPreferredCanvasFormat());
+    try {
+      const adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) return null;
+      const device = await adapter.requestDevice();
+      return new GpuContext(device, navigator.gpu.getPreferredCanvasFormat());
+    } catch {
+      return null;
+    }
+  }
+
+  /** Deterministic injection seam for GPU lifecycle/readback unit tests. */
+  static fromDevice(
+    device: GPUDevice,
+    canvasFormat: GPUTextureFormat = 'rgba8unorm',
+  ): GpuContext {
+    return new GpuContext(device, canvasFormat);
+  }
+
+  onDeviceLost(listener: (error: GpuDeviceLostError) => void): () => void {
+    this.lostListeners.add(listener);
+    return () => this.lostListeners.delete(listener);
+  }
+
+  onGpuError(listener: (error: GpuExecutionError) => void): () => void {
+    this.gpuErrorListeners.add(listener);
+    return () => this.gpuErrorListeners.delete(listener);
   }
 
   /** 1x1 white — stands in for unwired optional mask inputs. */
@@ -121,7 +187,12 @@ export class GpuContext {
   }
 
   /** Clear a render target to a flat color. */
-  clear(dst: PooledTexture, color: { r: number; g: number; b: number; a: number }) {
+  clear(
+    dst: PooledTexture,
+    color: { r: number; g: number; b: number; a: number },
+    control: GpuWorkBudgetControl = {},
+  ) {
+    gpuWorkBudgetFor(control).charge(dst.width, dst.height);
     const encoder = this.device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
       colorAttachments: [{ view: dst.texture.createView(), loadOp: 'clear', storeOp: 'store', clearValue: color }],
@@ -139,7 +210,36 @@ export class GpuContext {
    * pass over dst after the last quad before handing it to any straight-alpha
    * consumer.
    */
-  drawQuad(src: TexSource, dst: PooledTexture, coeffs: Float32Array<ArrayBuffer>) {
+  drawQuad(
+    src: TexSource,
+    dst: PooledTexture,
+    coeffs: Float32Array<ArrayBuffer>,
+    control: GpuWorkBudgetControl = {},
+  ) {
+    // Charge the clipped screen-space quad, not the whole attachment. A render
+    // pass still counts once, while a small placed image does not pretend to
+    // shade every artboard pixel.
+    const localWidth = Math.max(1, Math.abs(coeffs[6]));
+    const localHeight = Math.max(1, Math.abs(coeffs[7]));
+    const screenWidth = Math.max(
+      1,
+      Math.ceil(
+        Math.abs((coeffs[0] * dst.width * localWidth) / 2)
+        + Math.abs((coeffs[1] * dst.width * localHeight) / 2),
+      ),
+    );
+    const screenHeight = Math.max(
+      1,
+      Math.ceil(
+        Math.abs((coeffs[2] * dst.height * localWidth) / 2)
+        + Math.abs((coeffs[3] * dst.height * localHeight) / 2),
+      ),
+    );
+    gpuWorkBudgetFor(control).charge(
+      Math.min(dst.width, screenWidth),
+      Math.min(dst.height, screenHeight),
+    );
+    const { uniforms } = this.ensureSharedResources();
     // render through the sRGB view: dst bytes stay sRGB-encoded, but the
     // fixed-function blend decodes to linear light around the src-over —
     // blending gamma bytes puts a dark rim on soft edges (blur, AA)
@@ -175,13 +275,13 @@ export class GpuContext {
     // uniform layout: abcd (vec4) + txty (vec2) + size (vec2) = 32 bytes
     const u = new Float32Array(8);
     u.set([coeffs[0], coeffs[1], coeffs[2], coeffs[3], coeffs[4], coeffs[5], coeffs[6], coeffs[7]]);
-    this.device.queue.writeBuffer(this.uniforms, 0, u);
+    this.device.queue.writeBuffer(uniforms, 0, u);
     const bindGroup = this.device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
       entries: [
         // no sampler — the quad shader filters manually via textureLoad
         { binding: 1, resource: viewOf(src) },
-        { binding: 2, resource: { buffer: this.uniforms } },
+        { binding: 2, resource: { buffer: uniforms } },
       ],
     });
     const encoder = this.device.createCommandEncoder();
@@ -202,28 +302,168 @@ export class GpuContext {
    * image sampling, and PNG export should ever call this; everything else
    * stays on the GPU.
    */
-  async readback(t: PooledTexture): Promise<ImageData> {
+  async readback(
+    t: PooledTexture,
+    control: GpuWorkBudgetControl = {},
+  ): Promise<ImageData> {
+    throwIfCookInterrupted(control);
+    gpuWorkBudgetFor(control).charge(t.width, t.height);
     const bytesPerRow = Math.ceil((t.width * 4) / 256) * 256; // copy alignment rule
     const buffer = this.device.createBuffer({
       size: bytesPerRow * t.height,
       usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
-    const encoder = this.device.createCommandEncoder();
-    encoder.copyTextureToBuffer(
-      { texture: t.texture },
-      { buffer, bytesPerRow },
-      { width: t.width, height: t.height },
-    );
-    this.device.queue.submit([encoder.finish()]);
-    await buffer.mapAsync(GPUMapMode.READ);
-    const mapped = new Uint8Array(buffer.getMappedRange());
-    const pixels = new Uint8ClampedArray(t.width * t.height * 4);
-    for (let y = 0; y < t.height; y++) {
-      pixels.set(mapped.subarray(y * bytesPerRow, y * bytesPerRow + t.width * 4), y * t.width * 4);
+    let mapped = false;
+    let destroyed = false;
+    const destroy = (): void => {
+      if (destroyed) return;
+      destroyed = true;
+      buffer.destroy();
+    };
+    try {
+      const encoder = this.device.createCommandEncoder();
+      encoder.copyTextureToBuffer(
+        { texture: t.texture },
+        { buffer, bytesPerRow },
+        { width: t.width, height: t.height },
+      );
+      this.device.queue.submit([encoder.finish()]);
+      await waitForCookControl(
+        buffer.mapAsync(GPUMapMode.READ),
+        control,
+        destroy,
+      );
+      mapped = true;
+      throwIfCookInterrupted(control);
+      const source = new Uint8Array(buffer.getMappedRange());
+      const pixels = new Uint8ClampedArray(t.width * t.height * 4);
+      for (let y = 0; y < t.height; y++) {
+        if ((y & 31) === 0) throwIfCookInterrupted(control);
+        pixels.set(
+          source.subarray(
+            y * bytesPerRow,
+            y * bytesPerRow + t.width * 4,
+          ),
+          y * t.width * 4,
+        );
+      }
+      throwIfCookInterrupted(control);
+      return new ImageData(pixels, t.width, t.height);
+    } finally {
+      if (mapped) {
+        try {
+          buffer.unmap();
+        } catch {
+          // A concurrently lost device may have already invalidated the map.
+        }
+      }
+      destroy();
     }
-    buffer.unmap();
-    buffer.destroy();
-    return new ImageData(pixels, t.width, t.height);
+  }
+
+  /**
+   * A render is complete only after all submitted commands finish and the
+   * device remains healthy. Queue submission alone is not completion.
+   */
+  async waitForSubmittedWorkDone(control: CookControl = {}): Promise<void> {
+    throwIfCookInterrupted(control);
+    if (this.deviceLostError) throw this.deviceLostError;
+    await waitForCookControl(
+      Promise.race([
+        this.device.queue.onSubmittedWorkDone(),
+        this.deviceLostPromise.then((error) => Promise.reject(error)),
+      ]),
+      control,
+    );
+    throwIfCookInterrupted(control);
+    if (this.deviceLostError) throw this.deviceLostError;
+  }
+
+  /**
+   * Serial render/preview/export callers can wrap a whole GPU attempt in error
+   * scopes. The operation is considered successful only after queue completion
+   * and all scopes pop cleanly.
+   */
+  async captureErrors<T>(
+    stage: string,
+    operation: () => Promise<T>,
+    control: CookControl = {},
+  ): Promise<T> {
+    const boundedControl: CookControl = {
+      ...control,
+      deadline: control.deadline
+        ?? performance.now() + DEFAULT_GPU_OPERATION_DEADLINE_MS,
+    };
+    throwIfCookInterrupted(boundedControl);
+    if (this.deviceLostError) throw this.deviceLostError;
+    this.device.pushErrorScope('validation');
+    this.device.pushErrorScope('out-of-memory');
+    this.device.pushErrorScope('internal');
+    let value: T | undefined;
+    let operationError: unknown;
+    try {
+      value = await operation();
+      await this.waitForSubmittedWorkDone(boundedControl);
+    } catch (error) {
+      operationError = error;
+    }
+
+    // Pop all scopes synchronously before awaiting any one result. If a broken
+    // implementation never settles a pop promise, cancellation/deadline still
+    // releases the coordinator while the already-popped promises remain safely
+    // observed by safePopErrorScope.
+    const popped = [
+      this.safePopErrorScope(),
+      this.safePopErrorScope(),
+      this.safePopErrorScope(),
+    ] as const;
+    let internal: GPUError | null = null;
+    let outOfMemory: GPUError | null = null;
+    let validation: GPUError | null = null;
+    let scopeWaitError: unknown;
+    try {
+      [internal, outOfMemory, validation] = await waitForCookControl(
+        Promise.all(popped),
+        boundedControl,
+      );
+    } catch (error) {
+      scopeWaitError = error;
+    }
+    const uncaptured = this.lastUncapturedError;
+    this.lastUncapturedError = null;
+    if (outOfMemory) throw new GpuExecutionError(stage, 'out-of-memory');
+    if (validation) throw new GpuExecutionError(stage, 'validation');
+    if (internal) throw new GpuExecutionError(stage, 'internal');
+    if (uncaptured) throw uncaptured;
+    if (scopeWaitError !== undefined) {
+      // The exact scope results are unknown (usually because this job was
+      // aborted while the browser was still resolving them). Preserve the
+      // original public cancellation/deadline error but force the caller to
+      // quarantine resources physically created by this attempt.
+      throw taintGpuAttempt(operationError ?? scopeWaitError);
+    }
+    if (operationError !== undefined) throw operationError;
+    return value as T;
+  }
+
+  /**
+   * Drop resources that may have been created as invalid objects before an
+   * asynchronous GPU error surfaced. Previously valid lazy caches are also
+   * cleared because pipelines/textures have no per-command validity signal.
+   */
+  quarantineFailedAttempt(poolCheckpoint: number): void {
+    this.pool.quarantineSince(poolCheckpoint);
+    this.whiteTex?.destroy();
+    this.whiteTex = null;
+    this.asciiAtlas?.texture.destroy();
+    this.asciiAtlas = null;
+    this.pipelines.clear();
+    this.uniforms?.destroy();
+    this.uniforms = null;
+    // GPUSampler has no destroy method; dropping the reference is the only
+    // reset primitive. Both shared resources are recreated lazily inside the
+    // next captureErrors scope.
+    this.sampler = null;
   }
 
   /** One fullscreen fragment pass: sample srcs, write dst. */
@@ -232,14 +472,22 @@ export class GpuContext {
     srcs: TexSource | TexSource[],
     dst: PooledTexture,
     uniformData?: Float32Array<ArrayBuffer>,
+    control: GpuWorkBudgetControl = {},
   ) {
-    if (uniformData) this.device.queue.writeBuffer(this.uniforms, 0, uniformData);
+    gpuWorkBudgetFor(control).charge(dst.width, dst.height);
+    const { uniforms } = this.ensureSharedResources();
+    if (uniformData) this.device.queue.writeBuffer(uniforms, 0, uniformData);
     const list = Array.isArray(srcs) ? srcs : [srcs];
     this.encodePass(this.getPipeline(name, dst.format), list, dst.texture.createView(), !!uniformData);
   }
 
   /** Draw a texture into a canvas (the viewport / Output display). */
-  present(src: PooledTexture, canvas: HTMLCanvasElement) {
+  present(
+    src: PooledTexture,
+    canvas: HTMLCanvasElement,
+    control: GpuWorkBudgetControl = {},
+  ) {
+    gpuWorkBudgetFor(control).charge(src.width, src.height);
     const ctx = canvas.getContext('webgpu');
     if (!ctx) throw new Error('webgpu canvas context unavailable');
     if (!this.configured.has(canvas)) {
@@ -275,9 +523,10 @@ export class GpuContext {
     target: GPUTextureView,
     withUniforms: boolean,
   ) {
-    const entries: GPUBindGroupEntry[] = [{ binding: 0, resource: this.sampler }];
+    const { sampler, uniforms } = this.ensureSharedResources();
+    const entries: GPUBindGroupEntry[] = [{ binding: 0, resource: sampler }];
     srcs.forEach((src, i) => entries.push({ binding: i + 1, resource: viewOf(src) }));
-    if (withUniforms) entries.push({ binding: srcs.length + 1, resource: { buffer: this.uniforms } });
+    if (withUniforms) entries.push({ binding: srcs.length + 1, resource: { buffer: uniforms } });
     const bindGroup = this.device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
       entries,
@@ -292,5 +541,66 @@ export class GpuContext {
     pass.end();
     // submit per pass so the shared uniform buffer's writeBuffer/draw ordering holds
     this.device.queue.submit([encoder.finish()]);
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.device.removeEventListener('uncapturederror', this.onUncapturedError);
+    this.lostListeners.clear();
+    this.gpuErrorListeners.clear();
+    this.pool.dispose();
+    this.whiteTex?.destroy();
+    this.whiteTex = null;
+    this.asciiAtlas?.texture.destroy();
+    this.asciiAtlas = null;
+    this.uniforms?.destroy();
+    this.uniforms = null;
+    this.sampler = null;
+    this.pipelines.clear();
+    this.device.destroy();
+  }
+
+  private readonly onUncapturedError = (
+    event: GPUUncapturedErrorEvent,
+  ): void => {
+    const errorName = event.error?.constructor?.name;
+    const kind = errorName === 'GPUOutOfMemoryError'
+      ? 'out-of-memory'
+      : errorName === 'GPUValidationError'
+        ? 'validation'
+        : 'uncaptured';
+    const error = new GpuExecutionError('uncaptured', kind);
+    this.lastUncapturedError = error;
+    for (const listener of [...this.gpuErrorListeners]) listener(error);
+  };
+
+  private ensureSharedResources(): {
+    sampler: GPUSampler;
+    uniforms: GPUBuffer;
+  } {
+    this.sampler ??= this.device.createSampler({
+      magFilter: 'linear',
+      minFilter: 'linear',
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge',
+    });
+    this.uniforms ??= this.device.createBuffer({
+      size: 64,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    return {
+      sampler: this.sampler,
+      uniforms: this.uniforms,
+    };
+  }
+
+  private async safePopErrorScope(): Promise<GPUError | null> {
+    try {
+      return await this.device.popErrorScope();
+    } catch {
+      // Queue completion/deviceLost carries the stable failure classification.
+      return null;
+    }
   }
 }
