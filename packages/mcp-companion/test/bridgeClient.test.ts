@@ -15,10 +15,18 @@ interface Harness {
 
 async function createHarness(options: {
   helloDeadlineMs?: number;
+  now?: () => number;
+  requestedScopes?: readonly (
+    'read' | 'preview' | 'edit' | 'assets' | 'model'
+  )[];
 } = {}): Promise<Harness> {
   const bridge = new BridgeClient({
-    requestedScopes: ['read', 'preview', 'edit'],
-    ...options,
+    requestedScopes:
+      options.requestedScopes ?? ['read', 'preview', 'edit'],
+    ...(options.helloDeadlineMs === undefined
+      ? {}
+      : { helloDeadlineMs: options.helloDeadlineMs }),
+    ...(options.now ? { now: options.now } : {}),
   });
   const server = new WebSocketServer({
     port: 0,
@@ -68,7 +76,10 @@ afterEach(async () => {
   while (harnesses.length > 0) await harnesses.pop()?.close();
 });
 
-async function pair(harness: Harness) {
+async function pair(
+  harness: Harness,
+  expectedScopes?: readonly string[],
+) {
   harnesses.push(harness);
   const welcome = await harness.nextJson();
   const connectionId = String(welcome.connectionId);
@@ -84,6 +95,9 @@ async function pair(harness: Harness) {
   });
   const pairRequest = await harness.nextJson();
   const input = pairRequest.input as Record<string, unknown>;
+  if (expectedScopes) {
+    expect(input.requestedScopes).toEqual(expectedScopes);
+  }
   const clientNonce = String(input.clientNonce);
   const fingerprint = createHash('sha256')
     .update(`gfx.agent.client.v1\u0000${clientNonce}`)
@@ -114,6 +128,28 @@ async function pair(harness: Harness) {
   });
   await expect.poll(() => harness.bridge.healthState()).toBe('ready');
   return { connectionId, channelToken };
+}
+
+async function resolveJsonCall(
+  harness: Harness,
+  auth: { connectionId: string; channelToken: string },
+  nextIncomingSequence: { value: number },
+  operation: Parameters<BridgeClient['call']>[0],
+  input: unknown,
+): Promise<void> {
+  const pending = harness.bridge.call(operation, input);
+  const request = await harness.nextJson();
+  expect(request).toMatchObject({ kind: 'request', operation });
+  harness.sendJson({
+    kind: 'response',
+    protocolVersion: '1.0',
+    ...auth,
+    sequence: nextIncomingSequence.value++,
+    requestId: request.requestId,
+    ok: true,
+    value: {},
+  });
+  await expect(pending).resolves.toEqual({});
 }
 
 function previewFrame(options: {
@@ -183,6 +219,14 @@ describe('authenticated bridge client protocol', () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(harness.bridge.healthState()).toBe('ready');
     expect(harness.bridge.hasOwner()).toBe(true);
+  });
+
+  it('requests assets without implicitly requesting edit authority', async () => {
+    const harness = await createHarness({
+      requestedScopes: ['read', 'preview', 'assets'],
+    });
+    await pair(harness, ['read', 'preview', 'assets']);
+    expect(harness.bridge.healthState()).toBe('ready');
   });
 
   it('closes and revokes transport authority when pairing validation fails', async () => {
@@ -365,6 +409,96 @@ describe('authenticated bridge client protocol', () => {
       },
     });
     expect(harness.bridge.healthState()).toBe('ready');
+  });
+
+  it('keeps the bounded asset-upload burst independent from ordinary calls', async () => {
+    let now = 0;
+    const harness = await createHarness({
+      now: () => now,
+      requestedScopes: ['read', 'preview', 'assets'],
+    });
+    const auth = await pair(harness);
+    const sequence = { value: 3 };
+
+    for (
+      let index = 0;
+      index < COMPANION_TRANSPORT_LIMITS.assetUploadRequestBurst;
+      index++
+    ) {
+      await resolveJsonCall(
+        harness,
+        auth,
+        sequence,
+        'putAsset',
+        { phase: 'status', uploadId: `upload_${index}` },
+      );
+    }
+    await expect(
+      harness.bridge.call('putAsset', {
+        phase: 'status',
+        uploadId: 'upload_exhausted',
+      }),
+    ).rejects.toThrow('asset-upload request-rate budget');
+
+    for (
+      let index = 0;
+      index < COMPANION_TRANSPORT_LIMITS.requestBurst;
+      index++
+    ) {
+      await resolveJsonCall(
+        harness,
+        auth,
+        sequence,
+        'getDocument',
+        {},
+      );
+    }
+    await expect(
+      harness.bridge.call('getDocument', {}),
+    ).rejects.toThrow('request-rate budget');
+
+    now += 60_000 / COMPANION_TRANSPORT_LIMITS.requestsPerMinute;
+    await resolveJsonCall(
+      harness,
+      auth,
+      sequence,
+      'getDocument',
+      {},
+    );
+    await resolveJsonCall(
+      harness,
+      auth,
+      sequence,
+      'putAsset',
+      { phase: 'status', uploadId: 'upload_refilled' },
+    );
+  });
+
+  it('serializes asset and graph writes through one reservation', async () => {
+    const harness = await createHarness({
+      requestedScopes: ['read', 'preview', 'edit', 'assets'],
+    });
+    const auth = await pair(harness);
+    const pending = harness.bridge.call('putAsset', {
+      phase: 'status',
+      uploadId: 'upload_active',
+    });
+    const request = await harness.nextJson();
+    await expect(harness.bridge.call('applyTransaction', {
+      requestId: 'overlapping_write',
+      expectedRevision: 0,
+      commands: [],
+    })).rejects.toThrow('Only one Agent write');
+    harness.sendJson({
+      kind: 'response',
+      protocolVersion: '1.0',
+      ...auth,
+      sequence: 3,
+      requestId: request.requestId,
+      ok: true,
+      value: {},
+    });
+    await expect(pending).resolves.toEqual({});
   });
 
   it('retains cancelled render reservations until the browser settles', async () => {

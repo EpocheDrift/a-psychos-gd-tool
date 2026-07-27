@@ -10,7 +10,8 @@ import type { SocketType } from '../engine/values';
 import { registry } from '../nodes';
 import { BIND_TARGETS, parseBinds, type BindSpec } from '../nodes/elements';
 import { DEFAULT_AGENT_LIMITS } from '../domain/limits';
-import { validateImageSource } from '../domain/paramCodecs';
+import type { AssetMimeType } from '../domain/assetPolicy';
+import { appAssetService } from '../assets/assetService';
 import { getParamPublicMetadata } from '../domain/publicNodeMetadata';
 import { endGesture, localFontsSupported, selectActiveGraph, useApp } from '../store';
 
@@ -496,9 +497,8 @@ function BindList({
   );
 }
 
-// Image upload: a hidden file input behind an upload/replace button, with a
-// thumbnail of the current picture. The file is read as a data: URI so it lands
-// straight in the node param and travels with the document.
+// Image upload: bytes enter the isolated content-addressed repository first;
+// the graph receives only the resulting assetId.
 function ImageUpload({
   value,
   onChange,
@@ -512,9 +512,30 @@ function ImageUpload({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const [thumbnail, setThumbnail] = useState<string | null>(null);
+  const assets = useApp((state) => state.assets);
+  const putAssetBytes = useApp((state) => state.putAssetBytes);
   const label = parameterLabel(context, paramName);
   const attributes = parameterAttributes(context, paramName);
-  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | null = null;
+    setThumbnail(null);
+    if (value) {
+      void appAssetService.resolve(value, assets).then((blob) => {
+        if (!active) return;
+        objectUrl = URL.createObjectURL(blob);
+        setThumbnail(objectUrl);
+      }).catch(() => {
+        if (active) setError('The selected asset is unavailable.');
+      });
+    }
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [assets, value]);
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = ''; // let the same file be re-picked after any outcome
@@ -523,26 +544,24 @@ function ImageUpload({
       return;
     }
     if (file.size > DEFAULT_AGENT_LIMITS.maxLegacyAssetBytes) {
-      setError('The image exceeds the 20 MiB embedded-image limit.');
+      setError('The image exceeds the 20 MiB asset limit.');
       return;
     }
-    const reader = new FileReader();
-    reader.onerror = () => setError('The image could not be read.');
-    reader.onload = () => {
-      const source = String(reader.result);
-      const validated = validateImageSource(
-        source,
-        DEFAULT_AGENT_LIMITS.maxLegacyAssetBytes,
-        DEFAULT_AGENT_LIMITS.maxAssetPixels,
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const metadata = await putAssetBytes(
+        bytes,
+        file.type as AssetMimeType,
       );
-      if (!validated.ok) {
-        setError(validated.issue.message);
-        return;
-      }
       setError(null);
-      onChange(source);
-    };
-    reader.readAsDataURL(file);
+      onChange(metadata.id);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : 'The image could not be stored.',
+      );
+    }
   };
   return (
     <div className="image-upload">
@@ -558,7 +577,9 @@ function ImageUpload({
       >
         {value ? 'replace' : 'upload'}
       </button>
-      {value && <img className="image-upload-thumb" src={value} alt="" />}
+      {thumbnail && (
+        <img className="image-upload-thumb" src={thumbnail} alt="" />
+      )}
       {error && <span className="image-upload-error" role="alert">{error}</span>}
       <input
         ref={inputRef}

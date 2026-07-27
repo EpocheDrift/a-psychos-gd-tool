@@ -3,7 +3,10 @@ import { request } from 'node:http';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CompanionRuntime } from '../src/runtime.js';
+import {
+  CompanionRuntime,
+  companionRequestedScopes,
+} from '../src/runtime.js';
 
 const directories: string[] = [];
 const runtimes: CompanionRuntime[] = [];
@@ -32,6 +35,31 @@ function healthStatus(): Promise<number> {
 }
 
 describe('companion runtime lifecycle', () => {
+  it.each([
+    [false, false, false, ['read', 'preview']],
+    [true, false, false, ['read', 'preview', 'edit']],
+    [false, true, false, ['read', 'preview', 'assets']],
+    [true, true, false, ['read', 'preview', 'edit', 'assets']],
+    [false, false, true, ['read', 'preview', 'model']],
+    [true, false, true, ['read', 'preview', 'edit', 'model']],
+    [false, true, true, ['read', 'preview', 'assets', 'model']],
+    [
+      true,
+      true,
+      true,
+      ['read', 'preview', 'edit', 'assets', 'model'],
+    ],
+  ] as const)(
+    'derives independent edit=%s assets=%s model=%s pairing scopes',
+    (allowEdit, allowAssets, allowModel, expected) => {
+      expect(companionRequestedScopes({
+        allowEdit,
+        allowAssets,
+        allowModel,
+      })).toEqual(expected);
+    },
+  );
+
   it('closes its browser and host when the bridge becomes terminal', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'gfx-runtime-'));
     directories.push(directory);
@@ -43,6 +71,8 @@ describe('companion runtime lifecycle', () => {
     const onTerminal = vi.fn();
     const runtime = new CompanionRuntime({
       allowEdit: false,
+      allowAssets: false,
+      allowModel: false,
       appDirectory: directory,
       launchBrowser: async () => ({ close: closeBrowser }),
       onBridgeTerminated: onTerminal,
@@ -81,6 +111,8 @@ describe('companion runtime lifecycle', () => {
     const launchBrowser = vi.fn(async () => launched);
     const runtime = new CompanionRuntime({
       allowEdit: false,
+      allowAssets: false,
+      allowModel: false,
       appDirectory: directory,
       launchBrowser,
     });
@@ -113,6 +145,8 @@ describe('companion runtime lifecycle', () => {
     const closeBrowser = vi.fn(async () => undefined);
     const runtime = new CompanionRuntime({
       allowEdit: false,
+      allowAssets: false,
+      allowModel: false,
       appDirectory: directory,
       launchBrowser: async () => ({ close: closeBrowser }),
       onBridgeTerminated: () => {

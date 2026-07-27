@@ -32,6 +32,7 @@ import type {
   RenderStatus,
 } from './domain/renderCoordinator';
 import { DEFAULT_AGENT_LIMITS } from './domain/limits';
+import { maximumProjectImportJsonBytes } from './domain/projectCodec';
 
 const FONT_URLS = ['/fonts/Inter-Regular.otf', '/fonts/JetBrainsMono-Regular.ttf', '/fonts/local-fallback.ttf'];
 const AGENT_MODE = __GFX_AGENT_BUILD__;
@@ -91,6 +92,12 @@ export default function App() {
   const [cookError, setCookError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [projectIoBusy, setProjectIoBusy] =
+    useState<'save' | 'load' | null>(null);
+  const [projectIoMessage, setProjectIoMessage] = useState<{
+    kind: 'error' | 'success';
+    text: string;
+  } | null>(null);
   const [guide, setGuide] = useState<{
     placements: Placement[];
     /** generator's coverage rect (Random's area params), artboard-centered */
@@ -100,6 +107,7 @@ export default function App() {
   const canvasARef = useRef<HTMLCanvasElement>(null);
   const canvasBRef = useRef<HTMLCanvasElement>(null);
   const guideRef = useRef<HTMLCanvasElement>(null);
+  const projectFileRef = useRef<HTMLInputElement>(null);
   const gpuRef = useRef<GpuContext | null>(null);
 
   useEffect(() => {
@@ -236,6 +244,89 @@ export default function App() {
       setCookError(err instanceof Error ? err.message : String(err));
     } finally {
       setExporting(false);
+    }
+  }, []);
+
+  const saveProject = useCallback(async () => {
+    setProjectIoBusy('save');
+    setProjectIoMessage(null);
+    try {
+      const result = await useApp.getState().exportPortableProjectJson();
+      if (!result.ok) {
+        throw new Error(
+          result.report.errors[0]?.message
+            ?? 'Portable project export failed validation.',
+        );
+      }
+      const blob = new Blob([result.json], {
+        type: 'application/json;charset=utf-8',
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const safeDocumentId = result.project.documentId
+        .replace(/[^A-Za-z0-9_-]+/g, '_')
+        .slice(0, 80) || 'project';
+      link.href = url;
+      link.download = `${safeDocumentId}.gfxproject.json`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+      setProjectIoMessage({
+        kind: 'success',
+        text: 'Portable project saved with its image assets.',
+      });
+    } catch (error) {
+      setProjectIoMessage({
+        kind: 'error',
+        text: error instanceof Error
+          ? error.message
+          : 'Portable project export failed.',
+      });
+    } finally {
+      setProjectIoBusy(null);
+    }
+  }, []);
+
+  const loadProject = useCallback(async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    const expectedRevision = useApp.getState().revision;
+    setProjectIoBusy('load');
+    setProjectIoMessage(null);
+    try {
+      const maximumBytes = maximumProjectImportJsonBytes();
+      if (file.size > maximumBytes) {
+        throw new Error(
+          `Project file exceeds the ${maximumBytes}-byte import limit.`,
+        );
+      }
+      const result = await useApp.getState().importProjectJson(
+        await file.text(),
+        undefined,
+        expectedRevision,
+      );
+      if (!result.ok) {
+        throw new Error(
+          result.report.errors[0]?.message
+            ?? 'Project file failed validation.',
+        );
+      }
+      setProjectIoMessage({
+        kind: 'success',
+        text: 'Project loaded successfully.',
+      });
+    } catch (error) {
+      setProjectIoMessage({
+        kind: 'error',
+        text: error instanceof Error
+          ? error.message
+          : 'Project file could not be loaded.',
+      });
+    } finally {
+      setProjectIoBusy(null);
     }
   }, []);
 
@@ -457,6 +548,15 @@ export default function App() {
           {cookError}
         </div>
       )}
+      {projectIoMessage && (
+        <div
+          className={`project-io-message ${projectIoMessage.kind}`}
+          role={projectIoMessage.kind === 'error' ? 'alert' : 'status'}
+          data-project-file-status={projectIoMessage.kind}
+        >
+          {projectIoMessage.text}
+        </div>
+      )}
       {startupLoadIssue && (
         <div
           className="startup-load-warning"
@@ -557,6 +657,32 @@ export default function App() {
               onChange={(e) => setFrame({ ...frame, height: Number(e.target.value) })}
             />
           </label>
+          <button
+            type="button"
+            className="export-btn"
+            aria-label="Save a portable project file with image assets"
+            disabled={projectIoBusy !== null}
+            onClick={saveProject}
+          >
+            {projectIoBusy === 'save' ? 'saving…' : 'save project'}
+          </button>
+          <button
+            type="button"
+            className="export-btn"
+            aria-label="Load a project file"
+            disabled={projectIoBusy !== null}
+            onClick={() => projectFileRef.current?.click()}
+          >
+            {projectIoBusy === 'load' ? 'loading…' : 'load project'}
+          </button>
+          <input
+            ref={projectFileRef}
+            className="sr-only"
+            type="file"
+            accept=".gfxproject.json,.json,application/json"
+            aria-label="Choose a project file to load"
+            onChange={loadProject}
+          />
           <button
             type="button"
             className="export-btn"

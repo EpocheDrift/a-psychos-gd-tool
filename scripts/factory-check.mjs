@@ -31,13 +31,15 @@ await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems
       })),
       totalNodes: current.layers.reduce((sum, layer) => sum + layer.graph.nodes.length, 0),
       totalEdges: current.layers.reduce((sum, layer) => sum + layer.graph.edges.length, 0),
-      imageSrcs: current.layers.flatMap((layer) =>
-        layer.graph.nodes.filter((node) => node.type === 'Image').map((node) => node.params.src)),
+      imageAssetIds: current.layers.flatMap((layer) =>
+        layer.graph.nodes
+          .filter((node) => node.type === 'Image')
+          .map((node) => node.params.assetId)),
     };
   });
   console.log('frame:', JSON.stringify(state.frame));
   console.log('layers:', JSON.stringify(state.layers));
-  console.log('image srcs:', JSON.stringify(state.imageSrcs));
+  console.log('image asset IDs:', JSON.stringify(state.imageAssetIds));
 
   if (state.trust !== 'untrusted-document-content') throw new Error('document trust label missing');
   if (state.frame.width !== 2480 || state.frame.height !== 3508) throw new Error('wrong frame');
@@ -54,8 +56,13 @@ await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems
   if (state.totalNodes !== 42 || state.totalEdges !== 38) {
     throw new Error(`wrong factory totals: ${state.totalNodes} nodes, ${state.totalEdges} edges`);
   }
-  if (!state.imageSrcs.length || !state.imageSrcs.every((src) => src === '/factory-image.jpg')) {
-    throw new Error('image src not the public asset');
+  const factoryAssetId =
+    'asset_6756f325115e27086ff416a91823f7ed87085cb572f79c82b5072dd1b3da5df8';
+  if (
+    !state.imageAssetIds.length
+    || !state.imageAssetIds.every((assetId) => assetId === factoryAssetId)
+  ) {
+    throw new Error('image node does not reference the fixed bundled asset');
   }
 
   const image = await page.evaluate(async () => {

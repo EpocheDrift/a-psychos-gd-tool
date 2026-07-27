@@ -105,10 +105,13 @@ describe('AgentSessionManager', () => {
       error: { code: 'PAIRING_NOT_ARMED' },
     });
 
-    const challenge = request(manager, ['read', 'preview', 'assets']);
+    const challenge = request(
+      manager,
+      ['read', 'preview', 'assets', 'export'],
+    );
     expect(manager.getSnapshot()).toMatchObject({
       phase: 'pending',
-      requestedScopes: ['read', 'preview', 'assets'],
+      requestedScopes: ['read', 'preview', 'assets', 'export'],
       grantedScopes: [],
     });
     expect(JSON.stringify(manager.getSnapshot())).not.toContain(
@@ -117,17 +120,17 @@ describe('AgentSessionManager', () => {
     expect(JSON.stringify(manager.getSnapshot())).not.toContain(
       challenge.serverNonce,
     );
-    expect(manager.approvePairing(['assets'])).toMatchObject({
+    expect(manager.approvePairing(['export'])).toMatchObject({
       ok: false,
       error: { code: 'INVALID_ARGUMENT' },
     });
-    const lease = complete(manager, challenge, ['read', 'preview']);
-    expect([...lease.scopes]).toEqual(['read', 'preview']);
+    const lease = complete(manager, challenge, ['read', 'preview', 'assets']);
+    expect([...lease.scopes]).toEqual(['read', 'preview', 'assets']);
     expect(Object.isFrozen(lease.scopes)).toBe(true);
     expect('add' in lease.scopes).toBe(false);
     expect(manager.getSnapshot()).toMatchObject({
       phase: 'connected',
-      grantedScopes: ['read', 'preview'],
+      grantedScopes: ['read', 'preview', 'assets'],
     });
   });
 

@@ -39,7 +39,7 @@
     "typecheck": "tsc -b && npm --workspace @a-psychos/gd-mcp-companion run typecheck"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.2.0",
+    "@huggingface/transformers": "4.2.0",
     "@xyflow/react": "^12.11.0",
     "imagetracerjs": "^1.2.6",
     "opentype.js": "^1.3.4",

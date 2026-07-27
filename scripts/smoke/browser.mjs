@@ -447,6 +447,10 @@ export async function pairAgent(
       'awaitRender',
       'capturePreview',
       'revertTransaction',
+      'putAsset',
+      'listAssets',
+      'getAssetMetadata',
+      'removeAsset',
     ];
     if (
       JSON.stringify(surface.methods) !== JSON.stringify(expected)

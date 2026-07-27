@@ -207,6 +207,24 @@ body {
   box-shadow: 0 4px 18px #0003;
 }
 
+.project-io-message {
+  position: fixed;
+  z-index: 1002;
+  top: 12px;
+  right: 12px;
+  max-width: min(440px, calc(100vw - 24px));
+  padding: 9px 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel-solid);
+  color: var(--text);
+  box-shadow: 0 4px 18px #0003;
+}
+.project-io-message.error {
+  border-color: var(--accent);
+  background: #fff6fb;
+  color: #68003c;
+}
+
 .viewport {
   flex: 1;
   min-width: 0;

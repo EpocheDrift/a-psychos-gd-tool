@@ -1,4 +1,5 @@
 import { DEFAULT_AGENT_LIMITS } from '../domain/limits';
+import { appAssetService } from '../assets/assetService';
 import { modelNodeTypesInDocument } from '../domain/modelExecutionPolicy';
 import {
   RenderCoordinator,
@@ -19,7 +20,7 @@ import type { GpuContext } from '../gpu/device';
 import type { PooledTexture } from '../gpu/pool';
 import { resetTraceWorker } from '../nodes/traceClient';
 import { resetBooleanWorker } from '../nodes/booleanClient';
-import { useApp } from '../store';
+import { ensureAssetManifestReady, useApp } from '../store';
 import {
   disposeEvaluators,
   renderDocument,
@@ -58,14 +59,20 @@ export class AgentModelExecutionBlockedError extends Error {
   readonly code = 'MODEL_DOWNLOAD_REQUIRED' as const;
   readonly recoverable = true;
   readonly phase = 'agent-model-policy';
-  readonly details: { nodeTypes: string[]; rolloutGate: 'PR7' };
+  readonly details: {
+    nodeTypes: string[];
+    reason: 'active-model-session-required';
+  };
 
   constructor(nodeTypes: string[]) {
     super(
-      'Model execution is blocked in Agent mode until model bytes are pinned, self-hosted, and integrity-verified.',
+      'Model execution requires an active human-approved model scope and an integrity-verified local model.',
     );
     this.name = 'AgentModelExecutionBlockedError';
-    this.details = { nodeTypes: [...nodeTypes], rolloutGate: 'PR7' };
+    this.details = {
+      nodeTypes: [...nodeTypes],
+      reason: 'active-model-session-required',
+    };
   }
 }
 
@@ -89,6 +96,50 @@ let storeBindingStarted = false;
 let onDeviceLostCallback: ((error: Error) => void) | null = null;
 let gpuOperationTail: Promise<void> = Promise.resolve();
 let previewTeardownHandler: ((reason: Error) => void) | null = null;
+let agentModelSignal: AbortSignal | null = null;
+let agentModelAbortHandler: (() => void) | null = null;
+
+export function isAgentModelExecutionAuthorized(): boolean {
+  return agentModelSignal !== null && !agentModelSignal.aborted;
+}
+
+function modelExecutionEnvironmentChanged(): void {
+  environmentRevision++;
+  const reason = new CookCancelledError();
+  resetTraceWorker(reason);
+  if (storeBindingStarted) {
+    scheduleState(useApp.getState(), 'environment');
+  }
+}
+
+/**
+ * The signal is the non-exported session capability. Revocation/expiry aborts
+ * it, terminates model work, and schedules a new fail-closed render attempt.
+ */
+export function setAgentModelExecutionAuthorization(
+  signal: AbortSignal,
+  enabled: boolean,
+): void {
+  if (!__GFX_AGENT_BUILD__) return;
+  if (enabled && signal.aborted) return;
+  if (enabled && agentModelSignal === signal) return;
+  if (!enabled && agentModelSignal !== signal) return;
+
+  if (agentModelSignal && agentModelAbortHandler) {
+    agentModelSignal.removeEventListener(
+      'abort',
+      agentModelAbortHandler,
+    );
+  }
+  agentModelSignal = enabled ? signal : null;
+  agentModelAbortHandler = enabled
+    ? () => setAgentModelExecutionAuthorization(signal, false)
+    : null;
+  if (agentModelAbortHandler) {
+    signal.addEventListener('abort', agentModelAbortHandler, { once: true });
+  }
+  modelExecutionEnvironmentChanged();
+}
 
 function sameTicket(left: RenderTicket, right: RenderTicket): boolean {
   return left.revision === right.revision && left.attempt === right.attempt;
@@ -127,9 +178,20 @@ function scheduleState(
   state: ReturnType<typeof useApp.getState>,
   reason: 'document' | 'environment' | 'retry',
 ): RenderTicket {
+  const assets = state.assets?.map((asset) => ({ ...asset }));
+  let assetManifestReady: Promise<void> | null = null;
   const input: AppRenderInput = {
     document: state.doc,
     fonts: new Map(Object.entries(state.fonts)),
+    assets,
+    resolveAsset: async (assetId, signal) => {
+      // Lazily bind readiness to this immutable render attempt's cancellation
+      // signal. A superseded startup decode can no longer keep the coordinator
+      // draining after a replacement project has committed.
+      assetManifestReady ??= ensureAssetManifestReady(assets, signal);
+      await assetManifestReady;
+      return appAssetService.resolve(assetId, assets, signal);
+    },
     environmentRevision,
   };
   return appRenderCoordinator.schedule(state.revision, input, {
@@ -144,6 +206,7 @@ export function startRenderStoreBinding(): void {
     if (
       state.revision === previous.revision
       && state.doc === previous.doc
+      && state.assets === previous.assets
       && state.fonts === previous.fonts
     ) return;
     const fontsChanged = state.fonts !== previous.fonts;
@@ -201,7 +264,10 @@ export function configureAppRenderer(
     throwIfCookInterrupted(job);
     if (__GFX_AGENT_BUILD__) {
       const modelNodeTypes = modelNodeTypesInDocument(job.input.document);
-      if (modelNodeTypes.length > 0) {
+      if (
+        modelNodeTypes.length > 0
+        && !isAgentModelExecutionAuthorized()
+      ) {
         throw new AgentModelExecutionBlockedError(modelNodeTypes);
       }
     }

@@ -1,21 +1,18 @@
-// Image — an uploaded bitmap as a raster source. The file is decoded to an
-// ImageBitmap and drawn onto a frame-sized canvas, so it shares the raster
-// lane's resolution (like Noise / Rasterize) and composes downstream as ink on
-// a transparent ground. The image bytes live in the `src` param as a data: URI
-// so the picture travels with the document — no external asset store.
+// Image — a content-addressed project asset decoded to an ImageBitmap and drawn
+// onto a frame-sized canvas. The graph stores only assetId; bytes are resolved
+// through the bounded project asset repository in CookContext.
 
 import type { NodeDef } from '../engine/registry';
 import type { RasterValue } from '../engine/values';
 import { throwIfCookInterrupted } from '../engine/cookControl';
 import { gpuWorkBudgetFor } from '../engine/gpuWorkBudget';
-import { imageSourceBlob } from '../util/imageSource';
 
 export const ImageNode: NodeDef = {
   type: 'Image',
   inputs: [],
   outputs: [{ name: 'out', type: 'raster' }],
   params: [
-    { name: 'src', kind: 'image', default: '' },
+    { name: 'assetId', kind: 'image', default: '' },
     // how the image's native size maps onto the artboard before scaleX/scaleY
     { name: 'fit', kind: 'select', options: ['contain', 'cover', 'stretch', 'actual'], default: 'contain' },
     // negative scale mirrors the image (free horizontal/vertical flip)
@@ -33,11 +30,21 @@ export const ImageNode: NodeDef = {
     const { width, height } = ctx.frame;
     throwIfCookInterrupted(ctx);
 
-    const src = String(params.src);
+    const assetId = String(params.assetId);
     let bmp: ImageBitmap | undefined;
     try {
-      if (src) {
-        const blob = await imageSourceBlob(src, ctx.signal);
+      if (assetId) {
+        if (!ctx.resolveAsset) {
+          throw Object.assign(
+            new Error('Image asset repository is unavailable.'),
+            {
+              code: 'ASSET_NOT_FOUND',
+              recoverable: true,
+              details: { assetId },
+            },
+          );
+        }
+        const blob = await ctx.resolveAsset(assetId, ctx.signal);
         throwIfCookInterrupted(ctx);
         bmp = await createImageBitmap(blob);
         throwIfCookInterrupted(ctx);

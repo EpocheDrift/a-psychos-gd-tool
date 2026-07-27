@@ -1,5 +1,9 @@
 import { DEFAULT_FRAME } from '../engine/graph';
 import {
+  prepareLegacyDataUri,
+  type PreparedAsset,
+} from './assetPolicy';
+import {
   FindingCollector,
   type ValidationFinding,
   type ValidationReport,
@@ -7,10 +11,13 @@ import {
 import {
   CURRENT_SCHEMA_VERSION,
   DEFAULT_DOCUMENT_ID,
+  LEGACY_SCHEMA_VERSION,
   PROJECT_FORMAT,
+  type SerializedProjectV4,
   type SerializedProjectV3,
   validateJsonValueSafety,
   validateSerializedProjectStructure,
+  validateSerializedProjectV3Structure,
 } from './documentSchema';
 import {
   MISSING,
@@ -28,13 +35,15 @@ import { isSafeId } from './paramCodecs';
 export type MigrationSource =
   | 'legacy-single-graph'
   | 'legacy-layered-document'
-  | 'project-v3';
+  | 'project-v3'
+  | 'project-v4';
 
 export type MigrationResult =
   | {
       ok: true;
       source: MigrationSource;
-      project: SerializedProjectV3;
+      project: SerializedProjectV4;
+      assetsToStage: PreparedAsset[];
       warnings: ValidationFinding[];
       truncated?: true;
     }
@@ -54,6 +63,16 @@ function failure(
   input: Parameters<FindingCollector['error']>[0],
   maxFindings?: number,
 ): MigrationResult {
+  const collector = new FindingCollector(maxFindings ?? limits.maxFindings);
+  collector.error(input);
+  return { ok: false, report: collector.report('structural', null) };
+}
+
+function migrationFailure(
+  limits: AgentLimits,
+  input: Parameters<FindingCollector['error']>[0],
+  maxFindings?: number,
+): Extract<V3MigrationResult, { ok: false }> {
   const collector = new FindingCollector(maxFindings ?? limits.maxFindings);
   collector.error(input);
   return { ok: false, report: collector.report('structural', null) };
@@ -266,11 +285,11 @@ function migrateLegacyLayered(
     'LEGACY_FORMAT_MIGRATED',
     '',
     'Layered localStorage document migrated into the version 3 project envelope.',
-    { source: 'gfx.document.v2', targetSchemaVersion: CURRENT_SCHEMA_VERSION },
+    { source: 'gfx.document.v2', targetSchemaVersion: LEGACY_SCHEMA_VERSION },
   );
   return {
     format: PROJECT_FORMAT,
-    schemaVersion: CURRENT_SCHEMA_VERSION,
+    schemaVersion: LEGACY_SCHEMA_VERSION,
     documentId,
     document: document as unknown as SerializedProjectV3['document'],
   };
@@ -300,11 +319,11 @@ function migrateLegacySingleGraph(
     'LEGACY_FORMAT_MIGRATED',
     '',
     'Single-graph localStorage document migrated into one version 3 layer.',
-    { source: 'gfx.document.v1', targetSchemaVersion: CURRENT_SCHEMA_VERSION },
+    { source: 'gfx.document.v1', targetSchemaVersion: LEGACY_SCHEMA_VERSION },
   );
   return {
     format: PROJECT_FORMAT,
-    schemaVersion: CURRENT_SCHEMA_VERSION,
+    schemaVersion: LEGACY_SCHEMA_VERSION,
     documentId,
     document: {
       frame: frame as unknown as SerializedProjectV3['document']['frame'],
@@ -317,6 +336,168 @@ function migrateLegacySingleGraph(
         graph: graph as unknown as SerializedProjectV3['document']['layers'][number]['graph'],
       }],
     },
+  };
+}
+
+type V3MigrationResult =
+  | {
+      ok: true;
+      project: SerializedProjectV4;
+      assetsToStage: PreparedAsset[];
+    }
+  | {
+      ok: false;
+      report: ValidationReport;
+    };
+
+function migrateV3ToV4(
+  project: SerializedProjectV3,
+  collector: FindingCollector,
+  limits: AgentLimits,
+  maxFindings?: number,
+): V3MigrationResult {
+  const cloned = cloneJsonValue(
+    project as unknown as JsonValue,
+  ) as unknown as Record<string, JsonValue>;
+  const document = readOwnData(cloned, 'document');
+  if (!isPlainRecord(document)) {
+    return migrationFailure(limits, {
+      code: 'INVALID_ARGUMENT',
+      message: 'Version 3 project document is not migratable.',
+      path: '/document',
+    }, maxFindings);
+  }
+  const layers = readOwnData(document, 'layers');
+  if (!Array.isArray(layers)) {
+    return migrationFailure(limits, {
+      code: 'INVALID_ARGUMENT',
+      message: 'Version 3 project layers are not migratable.',
+      path: '/document/layers',
+    }, maxFindings);
+  }
+
+  const assetsById = new Map<string, PreparedAsset>();
+  for (let layerIndex = 0; layerIndex < layers.length; layerIndex++) {
+    const layer = layers[layerIndex];
+    if (!isPlainRecord(layer)) continue;
+    const graph = readOwnData(layer, 'graph');
+    if (!isPlainRecord(graph)) continue;
+    const nodes = readOwnData(graph, 'nodes');
+    if (!isPlainRecord(nodes)) continue;
+    for (const nodeId of Object.keys(nodes).sort()) {
+      const node = readOwnData(nodes, nodeId);
+      if (!isPlainRecord(node) || readOwnData(node, 'type') !== 'Image') {
+        continue;
+      }
+      const params = readOwnData(node, 'params');
+      if (!isPlainRecord(params)) continue;
+      const srcPath =
+        `/document/layers/${layerIndex}/graph/nodes/${
+          nodeId.replaceAll('~', '~0').replaceAll('/', '~1')
+        }/params/src`;
+      const rawSource = readOwnData(params, 'src');
+      const source = rawSource === MISSING ? '' : rawSource;
+      if (typeof source !== 'string') {
+        return migrationFailure(limits, {
+          code: 'ASSET_POLICY_VIOLATION',
+          message: 'Legacy Image.src must be a bounded string.',
+          path: srcPath,
+        }, maxFindings);
+      }
+      const prepared = prepareLegacyDataUri(source, limits);
+      if (!prepared.ok) {
+        return migrationFailure(limits, {
+          code: prepared.issue.code,
+          message: prepared.issue.message,
+          path: srcPath,
+          ...(prepared.issue.details
+            ? { details: prepared.issue.details }
+            : {}),
+        }, maxFindings);
+      }
+      delete params.src;
+      params.assetId = prepared.asset?.metadata.id ?? '';
+      if (prepared.asset) {
+        assetsById.set(prepared.asset.metadata.id, prepared.asset);
+      }
+      warning(
+        collector,
+        'VALUE_NORMALIZED',
+        srcPath,
+        prepared.asset
+          ? 'Legacy embedded or bundled image migrated to an asset reference.'
+          : 'Legacy empty image source migrated to an empty asset reference.',
+        prepared.asset
+          ? {
+              assetId: prepared.asset.metadata.id,
+              mimeType: prepared.asset.metadata.mimeType,
+              byteLength: prepared.asset.metadata.byteLength,
+            }
+          : undefined,
+      );
+    }
+  }
+
+  const orderedAssets = [...assetsById.values()]
+    .sort((left, right) =>
+      left.metadata.id.localeCompare(right.metadata.id));
+  const totalBytes = orderedAssets.reduce(
+    (sum, asset) => sum + asset.metadata.byteLength,
+    0,
+  );
+  if (totalBytes > limits.maxLegacyAssetBytesPerDocument) {
+    return migrationFailure(limits, {
+      code: 'RESOURCE_LIMIT',
+      message:
+        `Migrated assets exceed the ${
+          limits.maxLegacyAssetBytesPerDocument
+        }-byte document budget.`,
+      path: '/document',
+      details: {
+        actualBytes: totalBytes,
+        maximumBytes: limits.maxLegacyAssetBytesPerDocument,
+      },
+    }, maxFindings);
+  }
+
+  const legacyAssets = readOwnData(cloned, 'assets');
+  if (Array.isArray(legacyAssets) && legacyAssets.length > 0) {
+    warning(
+      collector,
+      'VALUE_NORMALIZED',
+      '/assets',
+      'Unbacked version 3 asset metadata was replaced by migrated content-addressed assets.',
+      { removedMetadataEntries: legacyAssets.length },
+    );
+  }
+  cloned.schemaVersion = CURRENT_SCHEMA_VERSION;
+  if (orderedAssets.length > 0) {
+    cloned.assets = orderedAssets.map((asset) =>
+      cloneJsonValue(
+        asset.metadata as unknown as JsonValue,
+      ));
+  } else {
+    delete cloned.assets;
+  }
+  warning(
+    collector,
+    'LEGACY_FORMAT_MIGRATED',
+    '/schemaVersion',
+    'Version 3 project migrated to the version 4 asset-reference contract.',
+    {
+      sourceSchemaVersion: LEGACY_SCHEMA_VERSION,
+      targetSchemaVersion: CURRENT_SCHEMA_VERSION,
+    },
+  );
+  return {
+    ok: true,
+    project: cloned as unknown as SerializedProjectV4,
+    assetsToStage: orderedAssets
+      .filter((asset) => asset.bytes !== undefined)
+      .map((asset) => ({
+        metadata: { ...asset.metadata },
+        bytes: asset.bytes!.slice(),
+      })),
   };
 }
 
@@ -342,24 +523,56 @@ export function migrateProject(
     .some((key) => hasOwnData(value, key));
   if (hasEnvelopeMarker) {
     const version = readOwnData(value, 'schemaVersion');
-    if (typeof version === 'number' && Number.isInteger(version) && version !== CURRENT_SCHEMA_VERSION) {
+    if (
+      typeof version === 'number'
+      && Number.isInteger(version)
+      && version !== LEGACY_SCHEMA_VERSION
+      && version !== CURRENT_SCHEMA_VERSION
+    ) {
       return failure(limits, {
         code: 'UNSUPPORTED_SCHEMA_VERSION',
         message: `Schema version ${version} is not supported by this build.`,
         path: '/schemaVersion',
         recoverable: false,
-        details: { supportedVersions: [CURRENT_SCHEMA_VERSION] },
+        details: {
+          supportedVersions: [LEGACY_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION],
+        },
       }, options.maxFindings);
     }
-    const structural = validateSerializedProjectStructure(value, {
-      limits,
-      maxFindings: options.maxFindings,
-    });
+    const structural = version === LEGACY_SCHEMA_VERSION
+      ? validateSerializedProjectV3Structure(value, {
+          limits,
+          maxFindings: options.maxFindings,
+        })
+      : validateSerializedProjectStructure(value, {
+          limits,
+          maxFindings: options.maxFindings,
+        });
     if (!structural.valid) return { ok: false, report: structural };
+    if (version === LEGACY_SCHEMA_VERSION) {
+      const collector =
+        new FindingCollector(options.maxFindings ?? limits.maxFindings);
+      const migrated = migrateV3ToV4(
+        cloneJsonValue(value as JsonValue) as unknown as SerializedProjectV3,
+        collector,
+        limits,
+        options.maxFindings,
+      );
+      if (!migrated.ok) return migrated;
+      return {
+        ok: true,
+        source: 'project-v3',
+        project: migrated.project,
+        assetsToStage: migrated.assetsToStage,
+        warnings: collector.warnings,
+        ...(collector.truncated ? { truncated: true } : {}),
+      };
+    }
     return {
       ok: true,
-      source: 'project-v3',
-      project: cloneJsonValue(value as JsonValue) as unknown as SerializedProjectV3,
+      source: 'project-v4',
+      project: cloneJsonValue(value as JsonValue) as unknown as SerializedProjectV4,
+      assetsToStage: [],
       warnings: [],
     };
   }
@@ -387,13 +600,21 @@ export function migrateProject(
 
   const collector = new FindingCollector(options.maxFindings ?? limits.maxFindings);
   const cloned = cloneJsonValue(value as JsonValue);
-  const project = layeredMarker
+  const projectV3 = layeredMarker
     ? migrateLegacyLayered(cloned, documentId, collector, limits)
     : migrateLegacySingleGraph(cloned, documentId, collector, limits);
+  const migrated = migrateV3ToV4(
+    projectV3,
+    collector,
+    limits,
+    options.maxFindings,
+  );
+  if (!migrated.ok) return migrated;
   return {
     ok: true,
     source: layeredMarker ? 'legacy-layered-document' : 'legacy-single-graph',
-    project,
+    project: migrated.project,
+    assetsToStage: migrated.assetsToStage,
     warnings: collector.warnings,
     ...(collector.truncated ? { truncated: true } : {}),
   };

@@ -3,7 +3,16 @@ import { resolve } from 'node:path';
 import type { Doc, Graph, NodeInstance } from '../src/engine/graph';
 import { CAPABILITY_MANIFEST } from '../src/domain/capabilityManifest';
 import { prepareProjectImport } from '../src/domain/projectCodec';
-import { PROJECT_V3_SCHEMA } from '../src/domain/projectSchema';
+import {
+  PROJECT_V3_SCHEMA,
+  PROJECT_V4_SCHEMA,
+} from '../src/domain/projectSchema';
+import {
+  LEGACY_SCHEMA_VERSION,
+  PROJECT_FORMAT,
+  validateSerializedProjectV3Structure,
+  type SerializedProjectV3,
+} from '../src/domain/documentSchema';
 import { factoryDoc } from '../src/factoryDoc';
 import { PALETTE } from '../src/nodes';
 
@@ -225,11 +234,21 @@ const legacyWeightImage: Doc = {
   }],
 };
 
-const serializedProject = prepareProjectImport(layeredLocalStorage, {
+const serializedProjectV3: SerializedProjectV3 = {
+  format: PROJECT_FORMAT,
+  schemaVersion: LEGACY_SCHEMA_VERSION,
+  documentId: 'fixture_project',
+  document: structuredClone(layeredLocalStorage),
+};
+const v3Report = validateSerializedProjectV3Structure(serializedProjectV3);
+if (!v3Report.valid) {
+  throw new Error(`serialized v3 fixture failed validation: ${v3Report.errors[0]?.code}`);
+}
+const serializedProjectV4 = prepareProjectImport(serializedProjectV3, {
   documentIdForLegacy: 'fixture_project',
 });
-if (!serializedProject.ok) {
-  throw new Error(`serialized fixture failed validation: ${serializedProject.report.errors[0]?.code}`);
+if (!serializedProjectV4.ok) {
+  throw new Error(`serialized v4 fixture failed validation: ${serializedProjectV4.report.errors[0]?.code}`);
 }
 
 await Promise.all([
@@ -239,9 +258,11 @@ await Promise.all([
   writeJson(fixtureDirectory, 'visual-small-frame.json', visualSmallFrame),
   writeJson(fixtureDirectory, 'all-node-types.json', allNodeTypes),
   writeJson(fixtureDirectory, 'legacy-weight-image.json', legacyWeightImage),
-  writeJson(fixtureDirectory, 'serialized-project-v3.json', serializedProject.project),
+  writeJson(fixtureDirectory, 'serialized-project-v3.json', serializedProjectV3),
+  writeJson(fixtureDirectory, 'serialized-project-v4.json', serializedProjectV4.project),
   writeJson(contractFixtureDirectory, 'capability-manifest.v1.json', CAPABILITY_MANIFEST),
   writeJson(contractFixtureDirectory, 'project-v3.schema.json', PROJECT_V3_SCHEMA),
+  writeJson(contractFixtureDirectory, 'project-v4.schema.json', PROJECT_V4_SCHEMA),
 ]);
 
 console.log(`updated document and contract fixtures in ${fixtureDirectory}`);

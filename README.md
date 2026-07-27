@@ -4,7 +4,8 @@
 
 A node-based graphic design tool that runs in the browser, on the GPU. You build a poster by wiring nodes on a canvas: text is shaped into vector outlines, vectors are warped and combined, rasters are blurred and dithered — every conversion is an explicit node on a typed wire, never a hidden coercion. The engine only re-computes what a change actually touches, so dragging a parameter stays interactive even in deep graphs.
 
-**Status:** experimental, under active development. 31 node types; undo/redo is built in (⌘/Ctrl Z, ⇧⌘/Ctrl Z); persistence is not built yet (see [Roadmap](#roadmap)).
+**Status:** experimental, under active development. 31 node types; undo/redo,
+versioned local working saves, and portable project save/load are built in.
 
 ## Requirements
 
@@ -60,7 +61,7 @@ Evaluation is pull-based from Output with hash-keyed memoization: a node's key i
 | **Assets** | | Sources — no inputs; where content enters the graph. |
 | Text | `→ text` | Live type: shapes a string into kerned, positioned glyphs, with fill/stroke and a synthetic weight axis. |
 | Shape | `→ vector` | Parametric vector source: rect, ellipse, or n-sided polygon, with fill and stroke. |
-| Image | `→ raster` | An uploaded bitmap, stored in the document as a data URI; fit / scale / offset / rotate / opacity onto the frame. |
+| Image | `→ raster` | A validated PNG/JPEG/WebP referenced by content-addressed `assetId`; fit / scale / offset / rotate / opacity onto the frame. |
 | Noise | `→ raster` | Generated value-noise or grain texture at frame resolution — deterministic by (seed, scale), so the cache stays honest. |
 | **Text ops** | | Operations on live type, while it's still text and not yet geometry. |
 | Split | `text → elements` | Peels live type into per-character or per-word elements that keep their kerned positions and indices. |
@@ -112,13 +113,17 @@ Evaluation is pull-based from Output with hash-keyed memoization: a node's key i
 ### AI agent adaptation — in progress
 
 The default production artifact exposes no Agent global. An explicit
-loopback-only static Agent artifact now provides a paired, scope-gated browser
-controller with eight JSON-safe methods and an authenticated local stdio MCP
-companion. The default companion profile is read/preview; bounded edit tools
-require both `--allow-edit` and explicit in-app `edit` approval. Its approval
-rejects page-script synthetic events but is not physical-user proof, so the MCP
-surface exposes no CDP input, navigation, page evaluation, shell, arbitrary
-fetch, or general filesystem access. Build/run details are in the
+loopback-only static Agent artifact provides a paired, scope-gated browser
+controller and authenticated local stdio MCP companion. The default profile is
+read/preview; edit, bounded content-addressed assets, and the pinned local
+RMBG-1.4 model are independent command-line plus in-app scope grants. A first
+model download also requires a separate human license confirmation, and every
+artifact is byte-length/SHA-256 verified before same-origin worker use.
+
+Project replacement and portable save/load remain explicit human UI actions;
+the Agent receives no filesystem, arbitrary URL fetch, CDP input, navigation,
+page evaluation, or shell tool. Browser-trusted approval rejects page-script
+synthetic events but is not physical-user proof. Build/run details are in the
 [companion guide](packages/mcp-companion/README.md); the readiness audit,
 target architecture, security model, and staged implementation/evidence live in
 [`docs/agent-adaptation/`](docs/agent-adaptation/README.md).
@@ -155,12 +160,12 @@ individual commands, fixtures, prerequisites, and artifact policy.
 3. ~~Raster breadth: Noise, Dither, Recolor, Chroma Key, ASCII, To Alpha, Composite~~
 4. ~~Vector ops (Shape, Displace, Warp, Boolean) + Trace~~ (vector Slice deferred)
 5. ~~Elements & layout: Split, Duplicator, Place, Flatten, Grid, Random, SamplePath, Function, Filter, Weight, DrawLayout~~ (~~Alpha Map~~ landed as the generators' mask input)
-6. ~~Export & undo/redo~~
+6. ~~Export, persistence, portable project save/load & undo/redo~~
+7. ~~Content-addressed image assets + pinned RMBG-1.4 Remove Background~~
 
 ### Planned
 
-- **Async model nodes** — Extract Subject/Objects/Edges via ONNX Runtime Web.
-- **Persistence** — save/load documents.
+- **More async model nodes** — Extract Objects/Edges via ONNX Runtime Web.
 - **Export to Adobe Illustrator** — `.ai`/SVG export that round-trips vectors as editable paths.
 - **Cropping** — crop node for raster and frame content.
 - **More ops nodes** — additional vector, raster, and text operations.

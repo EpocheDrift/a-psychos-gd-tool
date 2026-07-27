@@ -2,7 +2,7 @@
 
 The companion is the authenticated local adapter for the explicit Agent build.
 It starts one fixed loopback app host, launches an isolated Chrome context, and
-maps MCP stdio calls to the eight named `AgentController` operations through a
+maps MCP stdio calls to the named `AgentController` operations through a
 same-origin WebSocket:
 
 ```text
@@ -25,11 +25,14 @@ npm run build:mcp
 npm run mcp:start
 ```
 
-The default profile requests only `read` and `preview`. To make the two write
-tools available, opt in when configuring the MCP process:
+The default profile requests only `read` and `preview`. Editing, project
+assets, and local model execution are independent opt-ins:
 
 ```sh
 npm run mcp:start -- --allow-edit
+npm run mcp:start -- --allow-assets
+npm run mcp:start -- --allow-model
+npm run mcp:start -- --allow-edit --allow-assets --allow-model
 ```
 
 The companion opens a headed Chrome window. Click **Connect Agent**, review the
@@ -55,10 +58,11 @@ read/preview profile is:
 }
 ```
 
-For bounded writes, append `"--allow-edit"` to `args`. An explicit Chrome can
-be selected with `--chrome /absolute/path/to/chrome` or the `CHROME`
-environment variable. The first release launches a new isolated Chrome
-session; it does not attach to an existing user profile.
+Append any intended combination of `"--allow-edit"`, `"--allow-assets"`, and
+`"--allow-model"` to `args`. An explicit Chrome can be selected with
+`--chrome /absolute/path/to/chrome` or the `CHROME` environment variable. The
+first release launches a new isolated Chrome session; it does not attach to an
+existing user profile.
 
 Node.js 20.19 or newer and a WebGPU-capable Chrome/Chromium are required. The
 host is intentionally fixed at `http://127.0.0.1:5199`; a port conflict is a
@@ -80,16 +84,41 @@ The default profile exposes six tools:
 - `gfx_apply_transaction`
 - `gfx_revert_transaction`
 
-Asset, model, project replacement, arbitrary fetch, filesystem export, and
-per-node tools are absent. `Trace`, `OutlineImage`, and `RemoveBackground`
-remain machine-readably blocked behind PR7 policy even in an edit session.
+`--allow-assets` independently adds four bounded content-addressed asset
+tools:
 
-Writes still require a human-approved `edit` scope. Every transaction carries
-an `expectedRevision` and stable `requestId`, commits atomically, and is
-conflict-safe and idempotent. MCP tool annotations are discovery hints only;
-the browser controller remains the authorization and validation authority.
-Every tool success or failure, including pre-handler SDK schema rejection, uses
-the common machine-readable `structuredContent.outcome` envelope.
+- `gfx_put_asset`
+- `gfx_list_assets`
+- `gfx_get_asset_metadata`
+- `gfx_remove_asset`
+
+`--allow-model` independently adds two local status tools:
+
+- `gfx_get_model_status`
+- `gfx_prepare_model`
+
+The MCP preparation tool cannot approve or start a first download. When the
+fixed model is missing it returns `MODEL_DOWNLOAD_REQUIRED` with
+`CONFIRMATION_REQUIRED`; a human must review the license disclosure and click
+the companion panel. That trusted POST accepts only the fixed model key,
+manifest digest, license id, and a request id. It cannot receive a URL or
+filesystem path.
+
+Project replacement, arbitrary fetch, filesystem export, and per-node tools
+remain absent.
+
+Graph writes require a human-approved `edit` scope; asset ingestion/removal
+requires the independent `assets` scope. Every write carries an
+`expectedRevision` and stable `requestId`, commits atomically, and is
+conflict-safe and idempotent. A committed result reports project persistence
+and the exact render ticket separately; no-op/dry-run results mark those side
+effects not applicable. Asset finalize also distinguishes CAS deduplication
+from manifest mutation.
+
+MCP tool annotations are discovery hints only; the browser controller remains
+the authorization and validation authority. Every tool success or failure,
+including pre-handler SDK schema rejection, uses the common machine-readable
+`structuredContent.outcome` envelope.
 
 ## Startup and health
 
@@ -117,6 +146,12 @@ sets before the fixed navigation.
   cookie.
 - Static resources are pre-enumerated from the packaged Agent artifact; there
   is no request-controlled filesystem traversal or directory listing.
+- The fixed RMBG-1.4 artifacts are downloaded only after a short-lived,
+  one-shot human approval, checked against pinned byte lengths and SHA-256,
+  atomically promoted into the managed cache, and served only from exact
+  same-origin routes. The host opens a fixed artifact id with no-follow
+  semantics and verifies the same file handle before streaming it; paths and
+  remote URLs never enter the MCP schema or public status.
 - The WebSocket has one owner, a pre-auth hello deadline, strict per-direction
   sequence numbers, compression disabled, heartbeat expiry, and explicit
   message/rate/concurrency/preview budgets.
@@ -124,6 +159,10 @@ sets before the fixed navigation.
   private vault bytes, verifies SHA-256 and length, sends one bounded binary
   frame, and removes the handle. MCP receives image content plus separate
   untrusted metadata.
+- Asset bytes use declared length/SHA-256 plus at most 1 MiB strict-base64
+  chunks, are header/decode/pixel/dimension checked, and enter a bounded
+  content-addressed store. No asset response or diagnostic echoes bytes or a
+  data URI.
 - The stable MCP SDK's unbounded pre-newline stdio reader is placed behind a
   bounded line transform and streaming UTF-8/JSON resource scanner; oversized,
   over-deep, or over-populated requests terminate the session before entering
@@ -152,8 +191,11 @@ npm run check:mcp
 `check:mcp` builds the packaged Agent app and companion, performs an AST
 authority scan with negative fixtures, then uses a real child stdio server,
 WebGPU Chrome, and the official MCP client. It exercises the in-app
-browser-trusted approval flow, executes all eight handlers, and verifies
+browser-trusted approval flow, exercises the enabled handlers, and verifies
 capability discovery, an atomic Text → Outline → Rasterize → Output
 transaction, structured `TYPE_MISMATCH` with no revision change,
-duplicate-request idempotency, exact render/preview bytes and hash,
-conflict-safe revert, revoke, and clean process teardown.
+chunked asset ingest/list/metadata/remove/revert, pinned same-origin model
+worker routing, duplicate-request idempotency, separate
+commit/persistence/render evidence, exact preview bytes and hash,
+conflict-safe revert, revoke, redacted rejected input, and clean process
+teardown.

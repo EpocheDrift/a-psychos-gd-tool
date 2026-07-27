@@ -2,6 +2,11 @@ import type { CreatedBrowserSession } from './browserSession.js';
 import { launchCompanionBrowser } from './browserSession.js';
 import { BridgeClient } from './bridgeClient.js';
 import { LocalAppHost } from './localAppHost.js';
+import {
+  ModelManager,
+  OneShotModelApprovalGate,
+  createManagedRmbgModelManager,
+} from './modelManager.js';
 
 export interface BrowserSessionLike {
   close(): Promise<void>;
@@ -9,6 +14,8 @@ export interface BrowserSessionLike {
 
 export interface CompanionRuntimeOptions {
   allowEdit: boolean;
+  allowAssets: boolean;
+  allowModel: boolean;
   executablePath?: string;
   headless?: boolean;
   appDirectory?: string;
@@ -22,10 +29,30 @@ export interface CompanionRuntimeOptions {
   ) => Promise<BrowserSessionLike>;
   onBrowserDisconnected?: () => void;
   onBridgeTerminated?: (reason: string) => void;
+  modelRuntime?: {
+    readonly manager: ModelManager;
+    readonly approvalGate: OneShotModelApprovalGate;
+  };
+}
+
+export function companionRequestedScopes(
+  options: Pick<
+    CompanionRuntimeOptions,
+    'allowEdit' | 'allowAssets' | 'allowModel'
+  >,
+): readonly ('read' | 'preview' | 'edit' | 'assets' | 'model')[] {
+  return Object.freeze([
+    'read',
+    'preview',
+    ...(options.allowEdit ? ['edit' as const] : []),
+    ...(options.allowAssets ? ['assets' as const] : []),
+    ...(options.allowModel ? ['model' as const] : []),
+  ]);
 }
 
 export class CompanionRuntime {
   readonly bridge: BridgeClient;
+  readonly modelManager?: ModelManager;
   private readonly host: LocalAppHost;
   private browser: BrowserSessionLike | null = null;
   private started = false;
@@ -34,10 +61,24 @@ export class CompanionRuntime {
   private closePromise: Promise<void> | null = null;
 
   constructor(private readonly options: CompanionRuntimeOptions) {
+    if (options.modelRuntime && !options.allowModel) {
+      throw new Error(
+        'A model runtime cannot be injected while model access is disabled.',
+      );
+    }
+    let modelRuntime = options.modelRuntime;
+    if (options.allowModel && !modelRuntime) {
+      const approvalGate = new OneShotModelApprovalGate();
+      modelRuntime = {
+        approvalGate,
+        manager: createManagedRmbgModelManager({
+          approvalProvider: approvalGate,
+        }),
+      };
+    }
+    this.modelManager = modelRuntime?.manager;
     this.bridge = new BridgeClient({
-      requestedScopes: options.allowEdit
-        ? ['read', 'preview', 'edit']
-        : ['read', 'preview'],
+      requestedScopes: companionRequestedScopes(options),
       onTerminal: (reason) => {
         void this.close();
         try {
@@ -51,6 +92,12 @@ export class CompanionRuntime {
       bridge: this.bridge,
       ...(options.appDirectory
         ? { appDirectory: options.appDirectory }
+        : {}),
+      ...(modelRuntime
+        ? {
+            modelManager: modelRuntime.manager,
+            modelApprovalGate: modelRuntime.approvalGate,
+          }
         : {}),
     });
   }

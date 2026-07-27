@@ -6,18 +6,30 @@ import { createToolServer } from './tools.js';
 
 interface CliOptions {
   allowEdit: boolean;
+  allowAssets: boolean;
+  allowModel: boolean;
   headless: boolean;
   executablePath?: string;
 }
 
 function parseArguments(arguments_: readonly string[]): CliOptions {
   let allowEdit = false;
+  let allowAssets = false;
+  let allowModel = false;
   let headless = false;
   let executablePath: string | undefined;
   for (let index = 0; index < arguments_.length; index++) {
     const argument = arguments_[index]!;
     if (argument === '--allow-edit') {
       allowEdit = true;
+      continue;
+    }
+    if (argument === '--allow-assets') {
+      allowAssets = true;
+      continue;
+    }
+    if (argument === '--allow-model') {
+      allowModel = true;
       continue;
     }
     if (argument === '--headless') {
@@ -36,10 +48,12 @@ function parseArguments(arguments_: readonly string[]): CliOptions {
       executablePath = value;
       continue;
     }
-    throw new Error(`Unknown companion option: ${argument}`);
+    throw new Error('Unknown companion option.');
   }
   return {
     allowEdit,
+    allowAssets,
+    allowModel,
     headless,
     ...(executablePath ? { executablePath } : {}),
   };
@@ -93,23 +107,35 @@ async function main(): Promise<void> {
       return;
     }
     diagnostic('local app host is listening on http://127.0.0.1:5199');
+    const requestedScopes = [
+      'read',
+      'preview',
+      ...(options.allowEdit ? ['edit'] : []),
+      ...(options.allowAssets ? ['assets'] : []),
+      ...(options.allowModel ? ['model'] : []),
+    ];
     diagnostic(
-      options.allowEdit
-        ? 'Chrome launched; waiting for human approval of read, preview, and edit scopes'
-        : 'Chrome launched; waiting for human approval of read and preview scopes',
+      `Chrome launched; waiting for human approval of ${
+        requestedScopes.join(', ')
+      } scopes`,
     );
 
     server = createToolServer({
       bridge: runtime.bridge,
       allowEdit: options.allowEdit,
+      allowAssets: options.allowAssets,
+      allowModel: options.allowModel,
+      ...(runtime.modelManager
+        ? { modelManager: runtime.modelManager }
+        : {}),
     });
     stdio = createBoundedStdio();
-    stdio.input.once('error', (error) => {
-      diagnostic(`stdio rejected input: ${error.message}`);
+    stdio.input.once('error', () => {
+      diagnostic('stdio rejected invalid input');
       void shutdown('invalid stdio input');
     });
-    stdio.output.once('error', (error) => {
-      diagnostic(`stdio rejected output: ${error.message}`);
+    stdio.output.once('error', () => {
+      diagnostic('stdio rejected invalid output');
       void shutdown('invalid stdio output');
     });
     await server.connect(stdio.transport);
@@ -119,10 +145,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
-  const message = error instanceof Error
-    ? error.message
-    : 'The companion failed to start.';
-  diagnostic(message);
+main().catch(() => {
+  diagnostic('The companion failed to start.');
   process.exitCode = 1;
 });

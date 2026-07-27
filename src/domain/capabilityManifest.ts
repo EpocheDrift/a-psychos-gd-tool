@@ -73,6 +73,13 @@ export interface CapabilityManifest {
     assets: boolean;
     mcp: boolean;
   };
+  permissions: {
+    localFonts: {
+      agentAvailable: false;
+      requiresHumanGesture: true;
+      familyEnumeration: 'disabled';
+    };
+  };
   preview: {
     formats: Array<(typeof PREVIEW_FORMATS)[number]>;
     defaultFormat: typeof DEFAULT_PREVIEW_FORMAT;
@@ -135,12 +142,19 @@ export function buildPublicParamSchema(
         format: 'channel-name-v1',
       };
     case 'image':
-      return {
-        type: 'string',
-        format: 'image-data-uri-v1',
-        maxContentBytes: limits.maxLegacyAssetBytes,
-        maxPixels: limits.maxAssetPixels,
-      };
+      return metadata.format === 'asset-id-v1'
+        ? {
+            type: 'string',
+            format: 'asset-id-v1',
+            pattern: '^(?:|asset_[0-9a-f]{64})$',
+            maxLength: 70,
+          }
+        : {
+            type: 'string',
+            format: 'image-data-uri-v1',
+            maxContentBytes: limits.maxLegacyAssetBytes,
+            maxPixels: limits.maxAssetPixels,
+          };
     case 'binds':
       return {
         type: 'array',
@@ -317,7 +331,7 @@ export function buildCapabilityManifest(
 
   return {
     protocolVersion: '1.0',
-    documentSchemaVersions: [3],
+    documentSchemaVersions: [3, 4],
     socketTypes: [...SOCKET_TYPES],
     nodes,
     limits: { ...limits },
@@ -325,8 +339,15 @@ export function buildCapabilityManifest(
       transactions: true,
       dryRun: true,
       previews: true,
-      assets: false,
+      assets: true,
       mcp: false,
+    },
+    permissions: {
+      localFonts: {
+        agentAvailable: false,
+        requiresHumanGesture: true,
+        familyEnumeration: 'disabled',
+      },
     },
     preview: {
       formats: [...PREVIEW_FORMATS],

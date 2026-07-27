@@ -2,6 +2,10 @@
 
 Audit baseline: `main` at `3ebe269`
 
+This is the original gap analysis for that frozen baseline, not current
+delivery status. Implemented evidence is tracked in
+[`delivery-checklist.md`](./delivery-checklist.md).
+
 Audit scope: document model, node registry, state mutations, evaluator,
 rendering, persistence, browser automation, assets, and external tool safety.
 

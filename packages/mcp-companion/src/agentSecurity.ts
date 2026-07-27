@@ -19,7 +19,7 @@ export const AGENT_CONTENT_SECURITY_POLICY = [
   "frame-ancestors 'none'",
   "frame-src 'none'",
   "form-action 'none'",
-  "script-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
   "style-src 'none'",
   "style-src-elem 'self'",
   // ReactFlow and the app use audited style attributes for geometry.

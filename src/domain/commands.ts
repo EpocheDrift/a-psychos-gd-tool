@@ -867,6 +867,7 @@ function finalChangeSummary(
       before.frame.width !== after.frame.width
       || before.frame.height !== after.frame.height,
     layerIds,
+    assetIds: [],
     nodes,
     edgeCountDelta: countEdges(after) - countEdges(before),
     replacedEdges,
@@ -1983,6 +1984,7 @@ function applyNormalizedTransactionCore(
       ? {
           frame: frameChanged,
           layerIds: [...changedLayers].sort(),
+          assetIds: [],
           nodes: [...changedNodes.values()].sort(
             (left, right) =>
               left.layerId.localeCompare(right.layerId)

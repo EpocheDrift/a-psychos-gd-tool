@@ -38,7 +38,7 @@ export type ParamSpec = ParamVisibility &
     // a slot channel name — the editor offers the built-ins plus whatever the
     // document's Weight nodes write, same list the binds rows use
     | { name: string; kind: 'channel'; default: string }
-    | { name: string; kind: 'image'; default: string } // a data: URI — travels with the doc
+    | { name: string; kind: 'image'; default: string } // content-addressed assetId
     // a JSON-encoded list of channel bindings ({channel, target, amount}[]) —
     // the editor renders rows plus an "add channel" button; cooks parse it
     | { name: string; kind: 'binds'; default: string }
@@ -57,6 +57,8 @@ export interface CookContext {
   deadline?: number;
   /** Changes when ambient font/renderer resources are replaced. */
   environmentRevision?: number;
+  /** Resolve only a validated project asset ID; no URL/path authority. */
+  resolveAsset?: (assetId: string, signal?: AbortSignal) => Promise<Blob>;
   layerId?: string;
   maxPendingWorkerRequests?: number;
   maxPendingWorkerBytes?: number;

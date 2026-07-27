@@ -18,6 +18,15 @@ import {
 import {
   createToolServer,
 } from '../packages/mcp-companion/dist/tools.js';
+import {
+  RMBG_MODEL_ARTIFACTS,
+  RMBG_MODEL_FILES_PATH_PREFIX,
+  RMBG_MODEL_KEY,
+  RMBG_MODEL_MANIFEST_SHA256,
+  RMBG_MODEL_PUBLIC_LICENSE,
+  RMBG_MODEL_REVISION,
+  RMBG_MODEL_TOTAL_BYTES,
+} from '../packages/mcp-companion/dist/modelPublicContract.js';
 
 const diagnostics = (message) => {
   process.stderr.write(`[gfx-mcp-e2e] ${message}\n`);
@@ -30,9 +39,33 @@ let server;
 let stdio;
 let shuttingDown;
 const browserProblems = [];
+let modelRouteReported = false;
+const expectedModelArtifactPaths = new Set(
+  RMBG_MODEL_ARTIFACTS.map((artifact) =>
+    `${RMBG_MODEL_FILES_PATH_PREFIX}${artifact.relativePath}`),
+);
+
+const testReadyModelStatus = {
+  schemaVersion: 1,
+  modelKey: RMBG_MODEL_KEY,
+  revision: RMBG_MODEL_REVISION,
+  manifestSha256: RMBG_MODEL_MANIFEST_SHA256,
+  state: 'ready',
+  bytes: RMBG_MODEL_TOTAL_BYTES,
+  totalBytes: RMBG_MODEL_TOTAL_BYTES,
+  artifacts: RMBG_MODEL_ARTIFACTS.map((artifact) => ({
+    id: artifact.id,
+    state: 'ready',
+    bytes: artifact.byteLength,
+    totalBytes: artifact.byteLength,
+  })),
+  license: RMBG_MODEL_PUBLIC_LICENSE,
+};
 
 const runtime = new CompanionRuntime({
   allowEdit: true,
+  allowAssets: true,
+  allowModel: true,
   headless: true,
   launchBrowser: async ({ bootstrapToken, onDisconnected }) => {
     const executablePath = await resolveChromeExecutable();
@@ -55,6 +88,38 @@ const runtime = new CompanionRuntime({
       context = await browser.createBrowserContext();
       page = await context.newPage();
       page.setDefaultTimeout(20_000);
+      await page.setRequestInterception(true);
+      page.on('request', (request) => {
+        void (async () => {
+          const url = new URL(request.url());
+          if (
+            url.origin === AGENT_ALLOWED_ORIGIN
+            && url.pathname === '/__gfx_model_v1/status'
+          ) {
+            await request.respond({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify(testReadyModelStatus),
+            });
+            return;
+          }
+          await request.continue();
+        })().catch(() => {
+          if (!shuttingDown && browser?.connected) {
+            browserProblems.push('model route interception failed');
+          }
+        });
+      });
+      page.on('response', (response) => {
+        if (modelRouteReported || response.status() !== 409) return;
+        const url = new URL(response.url());
+        if (
+          url.origin !== AGENT_ALLOWED_ORIGIN
+          || !expectedModelArtifactPaths.has(url.pathname)
+        ) return;
+        modelRouteReported = true;
+        diagnostics('MODEL_ROUTE_SEEN');
+      });
       page.on('pageerror', (error) => {
         browserProblems.push(`pageerror: ${error.message}`);
       });
@@ -63,7 +128,10 @@ const runtime = new CompanionRuntime({
         const location = message.location().url;
         // The app deliberately probes this optional font before falling back to
         // the bundled JetBrains Mono face.
-        if (!location.endsWith('/fonts/Inter-Regular.otf')) {
+        if (
+          !location.endsWith('/fonts/Inter-Regular.otf')
+          && !location.includes('/__gfx_model_v1/files/')
+        ) {
           browserProblems.push(`console.error: ${message.text()}`);
         }
       });
@@ -108,7 +176,7 @@ const runtime = new CompanionRuntime({
       await page.waitForFunction(() =>
         document.querySelector('[data-agent-pairing-panel]')
           ?.getAttribute('data-agent-pairing-state') === 'pending');
-      for (const scope of ['read', 'preview', 'edit']) {
+      for (const scope of ['read', 'preview', 'edit', 'assets', 'model']) {
         await page.click(`[data-agent-scope="${scope}"]`);
       }
       await page.click('[data-agent-action="approve-agent-pairing"]');
@@ -206,10 +274,13 @@ try {
     };
     inspect();
   });
-  server = createToolServer({
-    bridge: runtime.bridge,
-    allowEdit: true,
-  });
+    server = createToolServer({
+      bridge: runtime.bridge,
+      allowEdit: true,
+      allowAssets: true,
+      allowModel: true,
+      modelManager: runtime.modelManager,
+    });
   stdio = createBoundedStdio();
   stdio.input.once('error', (error) => {
     diagnostics(`stdio input error: ${error.message}`);

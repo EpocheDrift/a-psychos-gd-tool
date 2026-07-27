@@ -5,6 +5,7 @@ import type {
   TransactionRequest,
   TransactionResult,
 } from './commandTypes';
+import type { AssetMetadata } from './documentSchema';
 import {
   applyDocumentTransaction,
   applyNormalizedDocumentTransaction,
@@ -18,6 +19,7 @@ import { DEFAULT_AGENT_LIMITS } from './limits';
 import {
   TransactionSession,
   type SessionApplication,
+  type TrustedAssetMutation,
 } from './transactionSession';
 
 function documentWithOutput(): Doc {
@@ -136,6 +138,35 @@ function commitRevert(
     expect(session.finalize(prepared.finalizeToken)).toBe(true);
   }
   return prepared;
+}
+
+function commitAssetMutation(
+  session: TransactionSession,
+  current: RuntimeDocumentState,
+  mutation: TrustedAssetMutation,
+): SessionApplication {
+  const prepared = session.prepareTrustedAssetMutation(current, mutation);
+  if (prepared.finalizeToken) {
+    expect(session.finalize(prepared.finalizeToken)).toBe(true);
+  }
+  return prepared;
+}
+
+function assetMetadata(hex = 'a'): AssetMetadata {
+  const sha256 = hex.repeat(64);
+  return {
+    id: `asset_${sha256}`,
+    sha256,
+    mimeType: 'image/png',
+    byteLength: 68,
+    width: 1,
+    height: 1,
+    source: 'upload',
+  };
+}
+
+function assetFingerprint(hex: string): string {
+  return hex.repeat(64);
 }
 
 describe('TransactionSession replay and capacity', () => {
@@ -302,6 +333,163 @@ describe('TransactionSession replay and capacity', () => {
     expectFailureCode(result.result, 'RESOURCE_LIMIT');
     expect(result.next).toBeUndefined();
     expect(session.getStats()).toMatchObject({ ledgerEntries: 0, ledgerBytes: 0 });
+  });
+});
+
+describe('TransactionSession trusted asset mutations', () => {
+  it('commits a put with revision, change summary, ledger, and replay identity', () => {
+    const session = new TransactionSession();
+    const metadata = assetMetadata('a');
+    const mutation: TrustedAssetMutation = {
+      kind: 'asset-put',
+      requestId: 'put_asset',
+      fingerprint: assetFingerprint('1'),
+      expectedRevision: 0,
+      metadata,
+    };
+
+    const put = commitAssetMutation(session, runtime(), mutation);
+    expect(put.result).toMatchObject({
+      ok: true,
+      committed: true,
+      transactionId: 'transaction_1',
+      previousRevision: 0,
+      revision: 1,
+      changed: { assetIds: [metadata.id] },
+    });
+    expect(put.next).toMatchObject({
+      revision: 1,
+      assets: [metadata],
+    });
+    expect(session.getStats()).toMatchObject({
+      replayEntries: 1,
+      ledgerEntries: 1,
+    });
+
+    const replay = commitAssetMutation(session, put.next!, mutation);
+    expect(replay.replayed).toBe(true);
+    expect(replay.next).toBeUndefined();
+    expect(replay.result).toEqual(put.result);
+    expect(session.getStats()).toMatchObject({
+      replayEntries: 1,
+      ledgerEntries: 1,
+    });
+  });
+
+  it('settles an identical put as a replayable no-op without a ledger entry', () => {
+    const session = new TransactionSession();
+    const metadata = assetMetadata('b');
+    const current = { ...runtime(), assets: [metadata] };
+    const mutation: TrustedAssetMutation = {
+      kind: 'asset-put',
+      requestId: 'dedupe_asset',
+      fingerprint: assetFingerprint('2'),
+      expectedRevision: 0,
+      metadata: { ...metadata },
+    };
+
+    const deduped = commitAssetMutation(session, current, mutation);
+    expect(deduped.result).toMatchObject({
+      ok: true,
+      committed: false,
+      transactionId: null,
+      previousRevision: 0,
+      revision: 0,
+      changed: { assetIds: [] },
+    });
+    expect(deduped.next).toBeUndefined();
+    expect(session.getStats()).toEqual({
+      replayEntries: 1,
+      ledgerEntries: 0,
+      ledgerBytes: 0,
+    });
+
+    const replay = commitAssetMutation(session, current, mutation);
+    expect(replay.replayed).toBe(true);
+    expect(replay.result).toEqual(deduped.result);
+  });
+
+  it('rejects removal while an Image node references the asset', () => {
+    const session = new TransactionSession();
+    const metadata = assetMetadata('c');
+    const current = { ...runtime(), assets: [metadata] };
+    current.document.layers[0].graph.nodes.image = {
+      id: 'image',
+      type: 'Image',
+      params: { assetId: metadata.id },
+    };
+
+    const removed = commitAssetMutation(session, current, {
+      kind: 'asset-remove',
+      requestId: 'remove_referenced',
+      fingerprint: assetFingerprint('3'),
+      expectedRevision: 0,
+      assetId: metadata.id,
+    });
+    expectFailureCode(removed.result, 'CONFIRMATION_REQUIRED');
+    expect(removed.result).toMatchObject({
+      ok: false,
+      error: {
+        path: '/assetId',
+        details: {
+          assetId: metadata.id,
+          referenceCount: 1,
+        },
+      },
+    });
+    expect(removed.next).toBeUndefined();
+    expect(session.getStats()).toMatchObject({ ledgerEntries: 0 });
+  });
+
+  it('removes an unreferenced asset and only reverts the compatible head', () => {
+    const session = new TransactionSession();
+    const metadata = assetMetadata('d');
+    const before = { ...runtime(), assets: [metadata] };
+    const removed = commitAssetMutation(session, before, {
+      kind: 'asset-remove',
+      requestId: 'remove_unreferenced',
+      fingerprint: assetFingerprint('4'),
+      expectedRevision: 0,
+      assetId: metadata.id,
+    });
+    expect(removed.result).toMatchObject({
+      ok: true,
+      committed: true,
+      transactionId: 'transaction_1',
+      revision: 1,
+      changed: { assetIds: [metadata.id] },
+    });
+    expect(removed.next?.assets).toBeUndefined();
+
+    const tamperedHead = {
+      ...removed.next!,
+      assets: [{ ...metadata }],
+    };
+    const rejected = commitRevert(session, tamperedHead, {
+      requestId: 'revert_tampered_asset_head',
+      expectedRevision: 1,
+      transactionId: 'transaction_1',
+    });
+    expectFailureCode(rejected.result, 'REVISION_CONFLICT');
+    expect(rejected.next).toBeUndefined();
+
+    const reverted = commitRevert(session, removed.next!, {
+      requestId: 'revert_asset_remove',
+      expectedRevision: 1,
+      transactionId: 'transaction_1',
+    });
+    expect(reverted.result).toMatchObject({
+      ok: true,
+      committed: true,
+      transactionId: 'transaction_2',
+      previousRevision: 1,
+      revision: 2,
+      changed: { assetIds: [metadata.id] },
+    });
+    expect(reverted.next).toMatchObject({
+      revision: 2,
+      assets: [metadata],
+    });
   });
 });
 

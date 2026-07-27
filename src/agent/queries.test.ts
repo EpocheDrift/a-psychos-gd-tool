@@ -58,8 +58,8 @@ describe('Agent queries', () => {
       read: { available: true },
       preview: { available: true },
       edit: { available: true },
-      assets: { available: false },
-      model: { available: false },
+      assets: { available: true },
+      model: { available: true },
       export: { available: false },
     });
 
@@ -76,17 +76,16 @@ describe('Agent queries', () => {
     expect(JSON.parse(JSON.stringify(detailed))).toEqual(detailed);
     expect(structuredClone(detailed)).toEqual(detailed);
 
-    const deferred = getCapabilitiesQuery({
+    const gateD = getCapabilitiesQuery({
       nodeTypes: ['Trace', 'RemoveBackground'],
       include: ['traits'],
     }, 4);
-    expect(deferred.nodes).toMatchObject([
+    expect(gateD.nodes).toMatchObject([
       {
         type: 'Trace',
         traits: {
           agentExecution: {
-            available: false,
-            rolloutGate: 'PR7',
+            available: true,
           },
         },
       },
@@ -94,8 +93,7 @@ describe('Agent queries', () => {
         type: 'RemoveBackground',
         traits: {
           agentExecution: {
-            available: false,
-            rolloutGate: 'PR7',
+            available: true,
           },
         },
       },
@@ -133,6 +131,39 @@ describe('Agent queries', () => {
       mimeType: 'application/octet-stream',
       kind: 'embedded-image-data',
     }]);
+  });
+
+  it('redacts every embedded data URI inside text parameters and layer names', () => {
+    const current = state();
+    current.document.layers[0].name =
+      'before data:image/png;base64,LAYER_SECRET after';
+    current.document.layers[0].graph.nodes.text = {
+      id: 'text',
+      type: 'Text',
+      params: {
+        content:
+          'one data:image/png;base64,FIRST_SECRET two '
+          + 'data:;base64,SECOND_SECRET done',
+        font: 'Inter',
+        size: 24,
+        color: '#000000',
+        align: 'left',
+      },
+    };
+
+    const snapshot = getDocumentQuery(current, {});
+    const serialized = JSON.stringify(snapshot);
+    expect(serialized).not.toContain('LAYER_SECRET');
+    expect(serialized).not.toContain('FIRST_SECRET');
+    expect(serialized).not.toContain('SECOND_SECRET');
+    expect(serialized.match(/redacted embedded image data/g)).toHaveLength(3);
+    expect(snapshot.redactions).toHaveLength(4);
+    expect(snapshot.redactions.map((entry) => entry.path)).toEqual(
+      expect.arrayContaining([
+        '/layers/0/name',
+        '/layers/0/graph/nodes/text/params/content',
+      ]),
+    );
   });
 
   it('supports layer/include/compact filters and reports omissions', () => {

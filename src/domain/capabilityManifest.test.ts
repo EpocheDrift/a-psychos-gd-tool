@@ -8,7 +8,11 @@ import {
   buildCapabilityManifest,
 } from './capabilityManifest';
 import { decodeBinds, encodeBinds } from './paramCodecs';
-import { PROJECT_V3_SCHEMA, buildProjectV3Schema } from './projectSchema';
+import {
+  PROJECT_V3_SCHEMA,
+  PROJECT_V4_SCHEMA,
+  buildProjectV3Schema,
+} from './projectSchema';
 import { auditRegistryContract } from './registryContract';
 
 function readContract(name: string): unknown {
@@ -43,7 +47,7 @@ describe('capability manifest contract', () => {
       transactions: true,
       dryRun: true,
       previews: true,
-      assets: false,
+      assets: true,
       mcp: false,
     });
     expect(CAPABILITY_MANIFEST.preview).toEqual({
@@ -84,7 +88,7 @@ describe('capability manifest contract', () => {
     expect(json).not.toContain('undefined');
   });
 
-  it('exposes structured binds and keeps Image source non-agent-writable', () => {
+  it('exposes structured binds and content-addressed Image assets', () => {
     const place = CAPABILITY_MANIFEST.nodes.find((node) => node.type === 'Place')!;
     const binds = place.params.find((param) => param.name === 'binds')!;
     expect(binds.default).toEqual([]);
@@ -93,12 +97,18 @@ describe('capability manifest contract', () => {
     expect(binds.codec).toEqual({ name: 'binds-json-string-v1' });
 
     const image = CAPABILITY_MANIFEST.nodes.find((node) => node.type === 'Image')!;
-    expect(image.params.find((param) => param.name === 'src')).toMatchObject({
-      agentWritable: false,
-      schema: { format: 'image-data-uri-v1' },
+    expect(image.params.find((param) => param.name === 'assetId')).toMatchObject({
+      agentWritable: true,
+      schema: { format: 'asset-id-v1' },
     });
     expect(image.execution.network).toBe('asset-read');
     expect(image.traits.externalDownload).toBe(false);
+
+    const text = CAPABILITY_MANIFEST.nodes.find((node) => node.type === 'Text')!;
+    expect(text.params.find((param) => param.name === 'font')).toMatchObject({
+      agentWritable: false,
+      schema: { format: 'font-key-v1' },
+    });
 
     const removeBackground = CAPABILITY_MANIFEST.nodes.find((node) => node.type === 'RemoveBackground')!;
     expect(removeBackground).toMatchObject({
@@ -137,6 +147,7 @@ describe('capability manifest contract', () => {
   it('matches committed schema and manifest golden files', () => {
     expect(CAPABILITY_MANIFEST).toEqual(readContract('capability-manifest.v1.json'));
     expect(PROJECT_V3_SCHEMA).toEqual(readContract('project-v3.schema.json'));
+    expect(PROJECT_V4_SCHEMA).toEqual(readContract('project-v4.schema.json'));
   });
 
   it('exports a strict Draft 2020-12 schema with one node branch per type', () => {

@@ -19,6 +19,17 @@ import {
   AGENT_WEBSOCKET_PROTOCOL,
 } from './agentSecurity.js';
 import type { BridgeClient } from './bridgeClient.js';
+import {
+  MODEL_FILES_PATH_PREFIX,
+  MODEL_PREPARE_PATH,
+  MODEL_STATUS_PATH,
+  type PublicModelStatus,
+} from './modelManifest.js';
+import {
+  ModelManager,
+  OneShotModelApprovalGate,
+  type HumanModelApprovalRequest,
+} from './modelManager.js';
 import { COMPANION_TRANSPORT_LIMITS } from './protocol.js';
 
 const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
@@ -36,6 +47,7 @@ const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
   '.wasm': 'application/wasm',
   '.webp': 'image/webp',
 });
+const MODEL_PREPARATION_TIMEOUT_MS = 30 * 60_000;
 
 interface StaticAsset {
   body: Buffer;
@@ -46,7 +58,14 @@ export interface LocalAppHostOptions {
   bridge: BridgeClient;
   appDirectory?: string;
   bootstrapToken?: string;
+  modelManager?: ModelManager;
+  modelApprovalGate?: OneShotModelApprovalGate;
 }
+
+const MAX_MODEL_PREPARE_BODY_BYTES = 2 * 1024;
+const MODEL_PREPARE_CONTENT_TYPE = 'application/json';
+const REQUEST_ID_PATTERN =
+  /^(?!(?:__proto__|constructor|prototype)$)[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
 function base64Url(bytes: Buffer): string {
   return bytes.toString('base64url');
@@ -131,6 +150,220 @@ function setSecurityHeaders(response: ServerResponse): void {
   }
 }
 
+class LocalHttpError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+    this.name = 'LocalHttpError';
+  }
+}
+
+function writePlain(
+  response: ServerResponse,
+  status: number,
+  message: string,
+  extraHeaders: Readonly<Record<string, string | number>> = {},
+): void {
+  if (response.headersSent || response.destroyed) return;
+  response.writeHead(status, {
+    'Content-Type': 'text/plain; charset=utf-8',
+    ...extraHeaders,
+  });
+  response.end(message);
+}
+
+function writeJson(
+  response: ServerResponse,
+  status: number,
+  value: unknown,
+  headOnly = false,
+  extraHeaders: Readonly<Record<string, string | number>> = {},
+): void {
+  const body = Buffer.from(JSON.stringify(value));
+  response.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': body.byteLength,
+    ...extraHeaders,
+  });
+  response.end(headOnly ? undefined : body);
+}
+
+function waitForResponseDrain(
+  response: ServerResponse,
+  signal: AbortSignal,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      response.off('drain', onDrain);
+      response.off('close', onClose);
+      response.off('error', onError);
+      signal.removeEventListener('abort', onAbort);
+      if (error) reject(error);
+      else resolve();
+    };
+    const onDrain = () => finish();
+    const onClose = () => finish(new Error('The model response closed.'));
+    const onError = () => finish(new Error('The model response failed.'));
+    const onAbort = () => finish(new Error('The model response was aborted.'));
+    response.once('drain', onDrain);
+    response.once('close', onClose);
+    response.once('error', onError);
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && Object.getPrototypeOf(value) === Object.prototype;
+}
+
+function parseHumanModelApproval(
+  value: unknown,
+): HumanModelApprovalRequest {
+  if (!isPlainRecord(value)) {
+    throw new LocalHttpError(400, 'Bad Request');
+  }
+  const keys = Object.keys(value).sort();
+  const expected = [
+    'approved',
+    'kind',
+    'licenseId',
+    'manifestSha256',
+    'modelKey',
+    'requestId',
+    'schemaVersion',
+  ];
+  if (
+    keys.length !== expected.length
+    || !keys.every((key, index) => key === expected[index])
+    || value.schemaVersion !== 1
+    || value.kind !== 'model-download-approval'
+    || typeof value.requestId !== 'string'
+    || !REQUEST_ID_PATTERN.test(value.requestId)
+    || value.approved !== true
+    || value.modelKey !== 'rmbg-1.4'
+    || typeof value.manifestSha256 !== 'string'
+    || !/^[0-9a-f]{64}$/.test(value.manifestSha256)
+    || value.licenseId !== 'bria-rmbg-1.4'
+  ) {
+    throw new LocalHttpError(400, 'Bad Request');
+  }
+  return value as unknown as HumanModelApprovalRequest;
+}
+
+async function readModelPrepareBody(
+  request: IncomingMessage,
+): Promise<HumanModelApprovalRequest> {
+  const contentTypes = headerValues(request, 'content-type');
+  if (
+    contentTypes.length !== 1
+    || contentTypes[0] !== MODEL_PREPARE_CONTENT_TYPE
+    || headerValues(request, 'content-encoding').length !== 0
+  ) {
+    throw new LocalHttpError(415, 'Unsupported Media Type');
+  }
+  const transferEncodings = headerValues(request, 'transfer-encoding');
+  const contentLengths = headerValues(request, 'content-length');
+  if (
+    transferEncodings.length > 1
+    || contentLengths.length > 1
+    || (transferEncodings.length === 1 && contentLengths.length === 1)
+  ) {
+    throw new LocalHttpError(400, 'Bad Request');
+  }
+  let declaredLength: number | undefined;
+  if (contentLengths.length === 1) {
+    const raw = contentLengths[0]!;
+    if (!/^(?:0|[1-9][0-9]{0,5})$/.test(raw)) {
+      throw new LocalHttpError(400, 'Bad Request');
+    }
+    declaredLength = Number(raw);
+    if (declaredLength > MAX_MODEL_PREPARE_BODY_BYTES) {
+      throw new LocalHttpError(413, 'Payload Too Large');
+    }
+  }
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of request) {
+    const bytes = typeof chunk === 'string'
+      ? Buffer.from(chunk)
+      : Buffer.from(chunk);
+    total += bytes.byteLength;
+    if (total > MAX_MODEL_PREPARE_BODY_BYTES) {
+      throw new LocalHttpError(413, 'Payload Too Large');
+    }
+    chunks.push(bytes);
+  }
+  if (
+    total < 2
+    || (declaredLength !== undefined && declaredLength !== total)
+  ) {
+    throw new LocalHttpError(400, 'Bad Request');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(
+      new TextDecoder('utf-8', { fatal: true }).decode(
+        Buffer.concat(chunks, total),
+      ),
+    );
+  } catch {
+    throw new LocalHttpError(400, 'Bad Request');
+  }
+  return parseHumanModelApproval(parsed);
+}
+
+function parseSingleByteRange(
+  request: IncomingMessage,
+  byteLength: number,
+): {
+  readonly start: number;
+  readonly endExclusive: number;
+} | undefined {
+  const values = headerValues(request, 'range');
+  if (values.length === 0) return undefined;
+  if (values.length !== 1 || values[0]!.length > 128) {
+    throw new LocalHttpError(416, 'Range Not Satisfiable');
+  }
+  const match = /^bytes=(\d*)-(\d*)$/.exec(values[0]!);
+  if (!match || (match[1] === '' && match[2] === '')) {
+    throw new LocalHttpError(416, 'Range Not Satisfiable');
+  }
+  let start: number;
+  let endExclusive: number;
+  if (match[1] === '') {
+    const suffix = Number(match[2]);
+    if (!Number.isSafeInteger(suffix) || suffix < 1) {
+      throw new LocalHttpError(416, 'Range Not Satisfiable');
+    }
+    start = Math.max(0, byteLength - suffix);
+    endExclusive = byteLength;
+  } else {
+    start = Number(match[1]);
+    if (!Number.isSafeInteger(start) || start >= byteLength) {
+      throw new LocalHttpError(416, 'Range Not Satisfiable');
+    }
+    if (match[2] === '') {
+      endExclusive = byteLength;
+    } else {
+      const inclusiveEnd = Number(match[2]);
+      if (
+        !Number.isSafeInteger(inclusiveEnd)
+        || inclusiveEnd < start
+      ) {
+        throw new LocalHttpError(416, 'Range Not Satisfiable');
+      }
+      endExclusive = Math.min(byteLength, inclusiveEnd + 1);
+    }
+  }
+  return { start, endExclusive };
+}
+
 async function loadStaticAssets(
   directory: string,
 ): Promise<Map<string, StaticAsset>> {
@@ -189,14 +422,29 @@ export class LocalAppHost {
   readonly bootstrapToken: string;
   private readonly bridge: BridgeClient;
   private readonly appDirectory: string;
+  private readonly modelManager?: ModelManager;
+  private readonly modelApprovalGate?: OneShotModelApprovalGate;
+  private readonly modelPreparationAbort = new AbortController();
   private readonly httpServer;
   private readonly webSocketServer: WebSocketServer;
   private assets = new Map<string, StaticAsset>();
+  private modelPreparationPromise: Promise<void> | null = null;
+  private modelPrepareStarting = false;
   private started = false;
 
   constructor(options: LocalAppHostOptions) {
     this.bridge = options.bridge;
     this.appDirectory = options.appDirectory ?? defaultAppDirectory();
+    if (
+      Boolean(options.modelManager)
+      !== Boolean(options.modelApprovalGate)
+    ) {
+      throw new Error(
+        'The model manager and human approval gate must be configured together.',
+      );
+    }
+    this.modelManager = options.modelManager;
+    this.modelApprovalGate = options.modelApprovalGate;
     this.bootstrapToken =
       options.bootstrapToken ?? base64Url(randomBytes(32));
     if (!/^[A-Za-z0-9_-]{43}$/.test(this.bootstrapToken)) {
@@ -209,7 +457,14 @@ export class LocalAppHost {
       maxPayload: COMPANION_TRANSPORT_LIMITS.maxBinaryMessageBytes,
     });
     this.httpServer = createServer((request, response) => {
-      void this.handleRequest(request, response);
+      void this.handleRequest(request, response).catch((error: unknown) => {
+        request.resume();
+        if (error instanceof LocalHttpError) {
+          writePlain(response, error.status, error.message);
+          return;
+        }
+        writePlain(response, 500, 'Internal Server Error');
+      });
     });
     this.httpServer.on('upgrade', (request, socket, head) => {
       this.handleUpgrade(request, socket, head);
@@ -247,13 +502,17 @@ export class LocalAppHost {
 
   async close(): Promise<void> {
     this.started = false;
+    this.modelApprovalGate?.clear();
+    this.modelPreparationAbort.abort();
     this.bridge.close('host shutdown');
     this.webSocketServer.close();
-    if (!this.httpServer.listening) return;
-    await new Promise<void>((resolveClose) => {
-      this.httpServer.close(() => resolveClose());
-      this.httpServer.closeAllConnections();
-    });
+    if (this.httpServer.listening) {
+      await new Promise<void>((resolveClose) => {
+        this.httpServer.close(() => resolveClose());
+        this.httpServer.closeAllConnections();
+      });
+    }
+    await this.modelPreparationPromise?.catch(() => undefined);
   }
 
   private async handleRequest(
@@ -285,20 +544,23 @@ export class LocalAppHost {
       response.end('Bad Request');
       return;
     }
-    if (url.origin !== AGENT_ALLOWED_ORIGIN || url.search || url.hash) {
+    if (
+      url.origin !== AGENT_ALLOWED_ORIGIN
+      || url.search
+      || url.hash
+      || url.pathname !== requestTarget
+    ) {
       response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
       response.end('Bad Request');
       return;
     }
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
-      response.writeHead(405, {
-        Allow: 'GET, HEAD',
-        'Content-Type': 'text/plain; charset=utf-8',
-      });
-      response.end('Method Not Allowed');
-      return;
-    }
     if (url.pathname === AGENT_HEALTH_PATH) {
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        writePlain(response, 405, 'Method Not Allowed', {
+          Allow: 'GET, HEAD',
+        });
+        return;
+      }
       const body = Buffer.from(JSON.stringify({
         status: 'ok',
         version: '0.0.1',
@@ -312,15 +574,31 @@ export class LocalAppHost {
       return;
     }
     if (!this.hasValidCookie(request)) {
-      response.writeHead(401, { 'Content-Type': 'text/plain; charset=utf-8' });
-      response.end('Unauthorized');
+      writePlain(response, 401, 'Unauthorized');
+      return;
+    }
+    if (url.pathname === MODEL_STATUS_PATH) {
+      await this.handleModelStatus(request, response);
+      return;
+    }
+    if (url.pathname === MODEL_PREPARE_PATH) {
+      await this.handleModelPrepare(request, response);
+      return;
+    }
+    if (url.pathname.startsWith(MODEL_FILES_PATH_PREFIX)) {
+      await this.handleModelArtifact(request, response, url.pathname);
+      return;
+    }
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      writePlain(response, 405, 'Method Not Allowed', {
+        Allow: 'GET, HEAD',
+      });
       return;
     }
     const route = url.pathname === '/' ? '/index.html' : url.pathname;
     const asset = this.assets.get(route);
     if (!asset) {
-      response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-      response.end('Not Found');
+      writePlain(response, 404, 'Not Found');
       return;
     }
     response.writeHead(200, {
@@ -328,6 +606,209 @@ export class LocalAppHost {
       'Content-Length': asset.body.byteLength,
     });
     response.end(request.method === 'HEAD' ? undefined : asset.body);
+  }
+
+  private async handleModelStatus(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> {
+    if (!this.modelManager) {
+      writePlain(response, 404, 'Not Found');
+      return;
+    }
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      writePlain(response, 405, 'Method Not Allowed', {
+        Allow: 'GET, HEAD',
+      });
+      return;
+    }
+    let status: PublicModelStatus;
+    try {
+      status = await this.modelManager.status();
+    } catch {
+      writePlain(response, 503, 'Model Unavailable');
+      return;
+    }
+    writeJson(response, 200, status, request.method === 'HEAD');
+  }
+
+  private async handleModelPrepare(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> {
+    if (!this.modelManager || !this.modelApprovalGate) {
+      writePlain(response, 404, 'Not Found');
+      return;
+    }
+    if (request.method !== 'POST') {
+      writePlain(response, 405, 'Method Not Allowed', { Allow: 'POST' });
+      return;
+    }
+    if (!hasExactOrigin(request)) {
+      writePlain(response, 403, 'Forbidden');
+      return;
+    }
+    const approval = await readModelPrepareBody(request);
+    if (
+      approval.manifestSha256
+      !== this.modelManager.manifestSha256
+    ) {
+      writePlain(response, 409, 'Model Manifest Mismatch');
+      return;
+    }
+    if (
+      this.modelPrepareStarting
+      || this.modelManager.isPreparing()
+    ) {
+      writeJson(response, 202, await this.modelManager.status());
+      return;
+    }
+
+    this.modelPrepareStarting = true;
+    try {
+      const current = await this.modelManager.status();
+      if (current.state === 'ready') {
+        writeJson(response, 202, current);
+        return;
+      }
+      if (this.modelManager.isPreparing()) {
+        writeJson(response, 202, await this.modelManager.status());
+        return;
+      }
+      this.modelApprovalGate.arm(approval);
+      const preparationAbort = new AbortController();
+      const relayHostAbort = () => preparationAbort.abort(
+        this.modelPreparationAbort.signal.reason,
+      );
+      this.modelPreparationAbort.signal.addEventListener(
+        'abort',
+        relayHostAbort,
+        { once: true },
+      );
+      if (this.modelPreparationAbort.signal.aborted) relayHostAbort();
+      const preparationTimer = setTimeout(() => {
+        preparationAbort.abort(new Error(
+          'The model preparation exceeded its total deadline.',
+        ));
+      }, MODEL_PREPARATION_TIMEOUT_MS);
+      preparationTimer.unref?.();
+      const preparation = this.modelManager.prepare(
+        { requestId: approval.requestId },
+        preparationAbort.signal,
+      );
+      const tracked = preparation.then(
+        () => undefined,
+        () => undefined,
+      ).finally(() => {
+        clearTimeout(preparationTimer);
+        this.modelPreparationAbort.signal.removeEventListener(
+          'abort',
+          relayHostAbort,
+        );
+        if (this.modelPreparationPromise === tracked) {
+          this.modelPreparationPromise = null;
+        }
+      });
+      this.modelPreparationPromise = tracked;
+      writeJson(response, 202, await this.modelManager.status());
+    } catch {
+      this.modelApprovalGate.clear();
+      writePlain(response, 409, 'Model Preparation Rejected');
+    } finally {
+      this.modelPrepareStarting = false;
+    }
+  }
+
+  private async handleModelArtifact(
+    request: IncomingMessage,
+    response: ServerResponse,
+    pathname: string,
+  ): Promise<void> {
+    if (!this.modelManager) {
+      writePlain(response, 404, 'Not Found');
+      return;
+    }
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      writePlain(response, 405, 'Method Not Allowed', {
+        Allow: 'GET, HEAD',
+      });
+      return;
+    }
+    const artifactId =
+      this.modelManager.artifactIdFromLocalPath(pathname);
+    if (!artifactId) {
+      writePlain(response, 404, 'Not Found');
+      return;
+    }
+
+    const requestAbort = new AbortController();
+    const abort = () => requestAbort.abort();
+    request.once('aborted', abort);
+    response.once('close', abort);
+    let opened:
+      Awaited<ReturnType<ModelManager['openVerifiedArtifact']>>
+      | undefined;
+    try {
+      const artifactByteLength =
+        this.modelManager.artifactByteLength(artifactId);
+      let range;
+      try {
+        range = parseSingleByteRange(request, artifactByteLength);
+      } catch (error) {
+        if (error instanceof LocalHttpError && error.status === 416) {
+          writePlain(response, 416, error.message, {
+            'Content-Range': `bytes */${artifactByteLength}`,
+          });
+          return;
+        }
+        throw error;
+      }
+      opened = await this.modelManager.openVerifiedArtifact(
+        artifactId,
+        {
+          ...(range ? { range } : {}),
+          signal: requestAbort.signal,
+        },
+      );
+      const bodyLength =
+        opened.range.endExclusive - opened.range.start;
+      const partial =
+        opened.range.start !== 0
+        || opened.range.endExclusive !== opened.byteLength;
+      response.writeHead(partial ? 206 : 200, {
+        'Content-Type': opened.mediaType,
+        'Content-Length': bodyLength,
+        'Accept-Ranges': 'bytes',
+        ...(partial
+          ? {
+              'Content-Range':
+                `bytes ${opened.range.start}-`
+                + `${opened.range.endExclusive - 1}/`
+                + `${opened.byteLength}`,
+            }
+          : {}),
+      });
+      if (request.method === 'HEAD') {
+        response.end();
+        return;
+      }
+      for await (const chunk of opened.body) {
+        if (!response.write(chunk)) {
+          await waitForResponseDrain(response, requestAbort.signal);
+        }
+      }
+      response.end();
+    } catch {
+      if (!response.headersSent) {
+        writePlain(response, 409, 'Model Artifact Unavailable');
+      } else {
+        response.destroy();
+      }
+    } finally {
+      request.off('aborted', abort);
+      response.off('close', abort);
+      await opened?.close().catch(() => undefined);
+    }
   }
 
   private handleUpgrade(

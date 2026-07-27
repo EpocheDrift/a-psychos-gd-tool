@@ -38,9 +38,9 @@ describe('model execution policy', () => {
     expect(modelNodeTypesInDocument(documentWith(['Noise', 'Output']))).toEqual([]);
   });
 
-  it('detects tracing nodes deferred to the PR7 resource gate', () => {
+  it('does not defer worker tracing after the Gate D resource controls ship', () => {
     expect(deferredAgentNodeTypesInDocument(
       documentWith(['Trace', 'OutlineImage', 'Noise']),
-    )).toEqual(['OutlineImage', 'Trace']);
+    )).toEqual([]);
   });
 });

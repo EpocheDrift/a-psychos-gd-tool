@@ -13,7 +13,13 @@ export interface AgentLimits {
   maxExpressionBytes: number;
   maxLegacyAssetBytes: number;
   maxAssetPixels: number;
+  maxAssetSide: number;
   maxLegacyAssetBytesPerDocument: number;
+  maxAssetChunkBytes: number;
+  maxAssetChunks: number;
+  maxPendingAssetUploads: number;
+  assetUploadIdleMs: number;
+  assetUploadDeadlineMs: number;
   maxBinds: number;
   maxGeneratedItems: number;
   maxVectorPaths: number;
@@ -63,7 +69,13 @@ export const DEFAULT_AGENT_LIMITS: Readonly<AgentLimits> = Object.freeze({
   maxExpressionBytes: 2 * 1024,
   maxLegacyAssetBytes: 20 * 1024 * 1024,
   maxAssetPixels: 32 * 1024 * 1024,
+  maxAssetSide: 8192,
   maxLegacyAssetBytesPerDocument: 64 * 1024 * 1024,
+  maxAssetChunkBytes: 1024 * 1024,
+  maxAssetChunks: 20,
+  maxPendingAssetUploads: 1,
+  assetUploadIdleMs: 60_000,
+  assetUploadDeadlineMs: 5 * 60_000,
   maxBinds: 64,
   maxGeneratedItems: 100_000,
   // Runtime geometry limits are attempt-scoped. They bound work that cannot be
@@ -134,6 +146,21 @@ export function resolveAgentLimits(overrides: Partial<AgentLimits> = {}): AgentL
   }
   if (limits.maxFramePixels < limits.minFrameSide * limits.minFrameSide) {
     throw new RangeError('maxFramePixels cannot be smaller than the minimum frame');
+  }
+  if (limits.maxAssetChunkBytes > limits.maxLegacyAssetBytes) {
+    throw new RangeError('maxAssetChunkBytes cannot exceed maxLegacyAssetBytes');
+  }
+  if (
+    Math.ceil(limits.maxLegacyAssetBytes / limits.maxAssetChunkBytes)
+    > limits.maxAssetChunks
+  ) {
+    throw new RangeError('maxAssetChunks cannot represent the maximum asset size');
+  }
+  if (limits.maxPendingAssetUploads !== 1) {
+    throw new RangeError('maxPendingAssetUploads is fixed at one for Agent-ready v1');
+  }
+  if (limits.assetUploadIdleMs > limits.assetUploadDeadlineMs) {
+    throw new RangeError('assetUploadIdleMs cannot exceed assetUploadDeadlineMs');
   }
   return limits;
 }

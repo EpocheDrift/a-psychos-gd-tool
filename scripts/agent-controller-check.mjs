@@ -170,11 +170,11 @@ await withSmokePage(
           include: ['params', 'traits'],
         });
         if (
-          capabilities.scopeAvailability.model.available
-          || capabilities.scopeAvailability.assets.available
+          !capabilities.scopeAvailability.model.available
+          || !capabilities.scopeAvailability.assets.available
           || capabilities.scopeAvailability.export.available
         ) {
-          throw new Error('Later rollout scopes unexpectedly available');
+          throw new Error('PR7 scope rollout availability is incorrect');
         }
         stage = 'getDocument';
         const before = agent.getDocument({ include: ['frame'] });

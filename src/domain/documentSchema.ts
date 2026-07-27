@@ -19,10 +19,16 @@ import {
   resolveAgentLimits,
   type AgentLimits,
 } from './limits';
+import {
+  ASSET_ID_PREFIX,
+  FACTORY_ASSET_METADATA,
+  isAssetId,
+} from './assetPolicy';
 import { isSafeId } from './paramCodecs';
 
 export const PROJECT_FORMAT = 'a-psychos-gd-tool' as const;
-export const CURRENT_SCHEMA_VERSION = 3 as const;
+export const LEGACY_SCHEMA_VERSION = 3 as const;
+export const CURRENT_SCHEMA_VERSION = 4 as const;
 export const DEFAULT_DOCUMENT_ID = 'document_1';
 
 export interface AssetMetadata {
@@ -37,11 +43,21 @@ export interface AssetMetadata {
 
 export interface SerializedProjectV3 {
   format: typeof PROJECT_FORMAT;
+  schemaVersion: typeof LEGACY_SCHEMA_VERSION;
+  documentId: string;
+  document: Doc;
+  assets?: AssetMetadata[];
+}
+
+export interface SerializedProjectV4 {
+  format: typeof PROJECT_FORMAT;
   schemaVersion: typeof CURRENT_SCHEMA_VERSION;
   documentId: string;
   document: Doc;
   assets?: AssetMetadata[];
 }
+
+export type SerializedProject = SerializedProjectV4;
 
 export interface StructuralValidationOptions {
   limits?: Partial<AgentLimits>;
@@ -419,6 +435,7 @@ function validateNode(
   collector: FindingCollector,
   limits: AgentLimits,
   embeddedImagePaths: Set<string>,
+  legacyImages: boolean,
 ): string | null {
   validateId(key, path, collector, limits);
   if (!isPlainRecord(value)) {
@@ -469,13 +486,17 @@ function validateNode(
         });
       }
     }
-    const src = readOwnData(params, 'src');
-    if (
-      type === 'Image'
-      && typeof src === 'string'
-      && /^data:image\/(?:png|jpeg|webp);base64,/.test(src)
-    ) {
-      embeddedImagePaths.add(joinJsonPointer(joinJsonPointer(path, 'params'), 'src'));
+    if (legacyImages) {
+      const src = readOwnData(params, 'src');
+      if (
+        type === 'Image'
+        && typeof src === 'string'
+        && /^data:image\/(?:png|jpeg|webp);base64,/.test(src)
+      ) {
+        embeddedImagePaths.add(
+          joinJsonPointer(joinJsonPointer(path, 'params'), 'src'),
+        );
+      }
     }
   }
   const position = readOwnData(value, 'position');
@@ -489,6 +510,7 @@ function validateGraph(
   collector: FindingCollector,
   limits: AgentLimits,
   embeddedImagePaths: Set<string>,
+  legacyImages: boolean,
 ): number {
   if (!isPlainRecord(value)) {
     collector.error({ code: 'INVALID_ARGUMENT', message: 'Graph must be an object.', path });
@@ -525,6 +547,7 @@ function validateGraph(
         collector,
         limits,
         embeddedImagePaths,
+        legacyImages,
       );
       if (internalId && internalIds.has(internalId)) {
         collector.error({
@@ -563,6 +586,7 @@ function validateLayer(
   collector: FindingCollector,
   limits: AgentLimits,
   embeddedImagePaths: Set<string>,
+  legacyImages: boolean,
 ): { id: string | null; nodes: number } {
   if (!isPlainRecord(value)) {
     collector.error({ code: 'INVALID_ARGUMENT', message: 'Layer must be an object.', path });
@@ -606,7 +630,14 @@ function validateLayer(
   }
   return {
     id: validId ? id : null,
-    nodes: validateGraph(graph, joinJsonPointer(path, 'graph'), collector, limits, embeddedImagePaths),
+    nodes: validateGraph(
+      graph,
+      joinJsonPointer(path, 'graph'),
+      collector,
+      limits,
+      embeddedImagePaths,
+      legacyImages,
+    ),
   };
 }
 
@@ -616,6 +647,7 @@ function validateDocument(
   collector: FindingCollector,
   limits: AgentLimits,
   embeddedImagePaths: Set<string>,
+  legacyImages: boolean,
 ): void {
   if (!isPlainRecord(value)) {
     collector.error({ code: 'INVALID_ARGUMENT', message: 'Document must be an object.', path });
@@ -652,6 +684,7 @@ function validateDocument(
       collector,
       limits,
       embeddedImagePaths,
+      legacyImages,
     );
     totalNodes += result.nodes;
     if (result.id && layerIds.has(result.id)) {
@@ -678,6 +711,7 @@ function validateAssets(
   path: string,
   collector: FindingCollector,
   limits: AgentLimits,
+  schemaVersion: 3 | 4,
 ): void {
   if (!Array.isArray(value)) {
     collector.error({ code: 'INVALID_ARGUMENT', message: 'Assets must be an array.', path });
@@ -708,6 +742,13 @@ function validateAssets(
         });
       }
       ids.add(id);
+      if (schemaVersion === CURRENT_SCHEMA_VERSION && !isAssetId(id)) {
+        collector.error({
+          code: 'INVALID_ARGUMENT',
+          message: `Asset id must use ${ASSET_ID_PREFIX}<sha256> content addressing.`,
+          path: joinJsonPointer(assetPath, 'id'),
+        });
+      }
     }
     if (typeof sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(sha256)) {
       collector.error({ code: 'INVALID_ARGUMENT', message: 'Asset sha256 must be 64 lowercase hex characters.', path: joinJsonPointer(assetPath, 'sha256') });
@@ -715,8 +756,18 @@ function validateAssets(
     if (!['image/png', 'image/jpeg', 'image/webp'].includes(String(mimeType))) {
       collector.error({ code: 'INVALID_ARGUMENT', message: 'Asset MIME type is not supported.', path: joinJsonPointer(assetPath, 'mimeType') });
     }
-    if (typeof byteLength !== 'number' || !Number.isSafeInteger(byteLength) || byteLength < 0) {
-      collector.error({ code: 'INVALID_ARGUMENT', message: 'Asset byteLength must be a non-negative integer.', path: joinJsonPointer(assetPath, 'byteLength') });
+    if (
+      typeof byteLength !== 'number'
+      || !Number.isSafeInteger(byteLength)
+      || byteLength < (schemaVersion === CURRENT_SCHEMA_VERSION ? 1 : 0)
+    ) {
+      collector.error({
+        code: 'INVALID_ARGUMENT',
+        message: schemaVersion === CURRENT_SCHEMA_VERSION
+          ? 'Asset byteLength must be a positive integer.'
+          : 'Asset byteLength must be a non-negative integer.',
+        path: joinJsonPointer(assetPath, 'byteLength'),
+      });
     } else {
       totalBytes += byteLength;
       if (byteLength > limits.maxLegacyAssetBytes) {
@@ -737,6 +788,23 @@ function validateAssets(
       || height <= 0
     ) {
       collector.error({ code: 'INVALID_ARGUMENT', message: 'Asset dimensions must be positive integers.', path: assetPath });
+    } else if (
+      schemaVersion === CURRENT_SCHEMA_VERSION
+      && (
+      width > limits.maxAssetSide
+      || height > limits.maxAssetSide
+      )
+    ) {
+      collector.error({
+        code: 'RESOURCE_LIMIT',
+        message: `Asset dimensions exceed the ${limits.maxAssetSide}-pixel side budget.`,
+        path: assetPath,
+        details: {
+          width,
+          height,
+          maximumSide: limits.maxAssetSide,
+        },
+      });
     } else if (width * height > limits.maxAssetPixels) {
       collector.error({
         code: 'RESOURCE_LIMIT',
@@ -747,6 +815,36 @@ function validateAssets(
     }
     if (!['upload', 'generated', 'bundled'].includes(String(source))) {
       collector.error({ code: 'INVALID_ARGUMENT', message: 'Asset source is not supported.', path: joinJsonPointer(assetPath, 'source') });
+    }
+    if (
+      schemaVersion === CURRENT_SCHEMA_VERSION
+      && source === 'bundled'
+      && (
+        id !== FACTORY_ASSET_METADATA.id
+        || sha256 !== FACTORY_ASSET_METADATA.sha256
+        || mimeType !== FACTORY_ASSET_METADATA.mimeType
+        || byteLength !== FACTORY_ASSET_METADATA.byteLength
+        || width !== FACTORY_ASSET_METADATA.width
+        || height !== FACTORY_ASSET_METADATA.height
+      )
+    ) {
+      collector.error({
+        code: 'ASSET_POLICY_VIOLATION',
+        message: 'Bundled asset metadata is outside the fixed application allowlist.',
+        path: assetPath,
+      });
+    }
+    if (
+      schemaVersion === CURRENT_SCHEMA_VERSION
+      && typeof id === 'string'
+      && typeof sha256 === 'string'
+      && id !== `${ASSET_ID_PREFIX}${sha256}`
+    ) {
+      collector.error({
+        code: 'INVARIANT_VIOLATION',
+        message: 'Asset id must match its SHA-256 digest.',
+        path: joinJsonPointer(assetPath, 'id'),
+      });
     }
   });
   if (totalBytes > limits.maxLegacyAssetBytesPerDocument) {
@@ -789,9 +887,10 @@ function measuredJsonBytes(
   return 0;
 }
 
-export function validateSerializedProjectStructure(
+function validateProjectStructureVersion(
   value: unknown,
-  options: StructuralValidationOptions = {},
+  expectedVersion: 3 | 4,
+  options: StructuralValidationOptions,
 ): ValidationReport {
   const limits = resolveAgentLimits(options.limits);
   const collector = new FindingCollector(options.maxFindings ?? limits.maxFindings);
@@ -836,20 +935,34 @@ export function validateSerializedProjectStructure(
     });
   } else {
     schemaVersion = version;
-    if (version !== CURRENT_SCHEMA_VERSION) {
+    if (version !== expectedVersion) {
       collector.error({
         code: 'UNSUPPORTED_SCHEMA_VERSION',
         message: `Schema version ${version} is not supported by this build.`,
         path: '/schemaVersion',
         recoverable: false,
-        details: { supportedVersions: [CURRENT_SCHEMA_VERSION] },
+        details: {
+          supportedVersions: expectedVersion === CURRENT_SCHEMA_VERSION
+            ? [LEGACY_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION]
+            : [LEGACY_SCHEMA_VERSION],
+          expectedVersion,
+        },
       });
     }
   }
   validateId(documentId, '/documentId', collector, limits);
-  validateDocument(document, '/document', collector, limits, embeddedImagePaths);
+  validateDocument(
+    document,
+    '/document',
+    collector,
+    limits,
+    embeddedImagePaths,
+    expectedVersion === LEGACY_SCHEMA_VERSION,
+  );
   const assets = readOwnData(value, 'assets');
-  if (assets !== MISSING) validateAssets(assets, '/assets', collector, limits);
+  if (assets !== MISSING) {
+    validateAssets(assets, '/assets', collector, limits, expectedVersion);
+  }
 
   if (jsonSafetyPassed) {
     const bytes = measuredJsonBytes(value, '', embeddedImagePaths);
@@ -865,11 +978,25 @@ export function validateSerializedProjectStructure(
   return collector.report('structural', schemaVersion);
 }
 
+export function validateSerializedProjectStructure(
+  value: unknown,
+  options: StructuralValidationOptions = {},
+): ValidationReport {
+  return validateProjectStructureVersion(value, CURRENT_SCHEMA_VERSION, options);
+}
+
+export function validateSerializedProjectV3Structure(
+  value: unknown,
+  options: StructuralValidationOptions = {},
+): ValidationReport {
+  return validateProjectStructureVersion(value, LEGACY_SCHEMA_VERSION, options);
+}
+
 export function createSerializedProject(
   documentId: string,
   document: Doc,
   assets?: AssetMetadata[],
-): SerializedProjectV3 {
+): SerializedProjectV4 {
   return {
     format: PROJECT_FORMAT,
     schemaVersion: CURRENT_SCHEMA_VERSION,

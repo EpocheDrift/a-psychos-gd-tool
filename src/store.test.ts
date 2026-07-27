@@ -39,10 +39,10 @@ function chain(): Graph {
   };
 }
 
-function paddedPngDataUri(byteLength = 1_600_000): string {
+function paddedPngBytes(byteLength = 1_600_000): Uint8Array {
   const bytes = Buffer.alloc(byteLength);
   Buffer.from('89504e470d0a1a0a0000000d494844520000000100000001', 'hex').copy(bytes);
-  return `data:image/png;base64,${bytes.toString('base64')}`;
+  return bytes;
 }
 
 describe('wireIsValid', () => {
@@ -253,22 +253,35 @@ describe('store actions', () => {
     expect(after.past[0].doc.layers[1]).toBe(after.doc.layers[1]);
   });
 
-  it('keeps the existing 20 MiB human image-upload boundary above the Agent request cap', () => {
-    const source = paddedPngDataUri();
-    expect(source.length).toBeGreaterThan(DEFAULT_AGENT_LIMITS.maxTransactionJsonBytes);
-    expect(Buffer.byteLength(source.slice(source.indexOf(',') + 1), 'base64'))
-      .toBeLessThan(DEFAULT_AGENT_LIMITS.maxLegacyAssetBytes);
+  it('keeps the 20 MiB human binary-upload boundary above the Agent request cap', async () => {
+    const bytes = paddedPngBytes();
+    const legacyEncodedLength =
+      `data:image/png;base64,${Buffer.from(bytes).toString('base64')}`.length;
+    expect(legacyEncodedLength)
+      .toBeGreaterThan(DEFAULT_AGENT_LIMITS.maxTransactionJsonBytes);
+    expect(bytes.byteLength).toBeLessThan(DEFAULT_AGENT_LIMITS.maxLegacyAssetBytes);
 
     const imageId = useApp.getState().addNode('Image', { x: 0, y: 0 });
     expect(imageId).not.toBeNull();
     const beforeRevision = useApp.getState().revision;
     const beforeHistory = useApp.getState().past.length;
-    useApp.getState().setParam(imageId!, 'src', source);
+    const metadata = await useApp.getState().putAssetBytes(bytes, 'image/png');
+    expect(metadata).toMatchObject({
+      id: `asset_${metadata.sha256}`,
+      mimeType: 'image/png',
+      byteLength: bytes.byteLength,
+      width: 1,
+      height: 1,
+      source: 'upload',
+    });
+    expect(useApp.getState().assets).toContainEqual(metadata);
+    useApp.getState().setParam(imageId!, 'assetId', metadata.id);
 
     const after = useApp.getState();
-    expect(selectActiveGraph(after).nodes[imageId!].params.src).toBe(source);
-    expect(after.revision).toBe(beforeRevision + 1);
-    expect(after.past).toHaveLength(beforeHistory + 1);
+    expect(selectActiveGraph(after).nodes[imageId!].params.assetId)
+      .toBe(metadata.id);
+    expect(after.revision).toBe(beforeRevision + 2);
+    expect(after.past).toHaveLength(beforeHistory + 2);
   });
 });
 

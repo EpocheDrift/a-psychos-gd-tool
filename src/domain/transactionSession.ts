@@ -9,6 +9,7 @@ import type {
   TransactionResult,
   TransactionSuccess,
 } from './commandTypes';
+import type { AssetMetadata } from './documentSchema';
 import {
   applyNormalizedDocumentTransaction,
   normalizeTransactionRequest,
@@ -17,8 +18,9 @@ import {
 import {
   createSerializedProject,
   validateJsonValueSafety,
-  type SerializedProjectV3,
+  type SerializedProject,
 } from './documentSchema';
+import { validateSerializedProject } from './semanticValidation';
 import {
   MISSING,
   boundedCanonicalJsonByteLength,
@@ -78,10 +80,26 @@ interface TransactionRecord {
   transactionId: string;
   requestId: string;
   committedRevision: number;
-  beforeProject: SerializedProjectV3;
+  beforeProject: SerializedProject;
   afterProjectDigest: string;
-  kind: 'apply' | 'revert';
+  kind: 'apply' | 'revert' | 'asset-put' | 'asset-remove';
 }
+
+export type TrustedAssetMutation =
+  | {
+      kind: 'asset-put';
+      requestId: string;
+      fingerprint: string;
+      expectedRevision: number;
+      metadata: AssetMetadata;
+    }
+  | {
+      kind: 'asset-remove';
+      requestId: string;
+      fingerprint: string;
+      expectedRevision: number;
+      assetId: string;
+    };
 
 interface NormalizedRevert {
   request: RevertTransactionRequest;
@@ -139,11 +157,11 @@ function cloneResult<T extends TransactionResult>(result: T): T {
   return cloneJsonValue(result as unknown as JsonValue) as unknown as T;
 }
 
-function cloneProject(project: SerializedProjectV3): SerializedProjectV3 {
-  return cloneJsonValue(project as unknown as JsonValue) as unknown as SerializedProjectV3;
+function cloneProject(project: SerializedProject): SerializedProject {
+  return cloneJsonValue(project as unknown as JsonValue) as unknown as SerializedProject;
 }
 
-function projectFromState(state: RuntimeDocumentState): SerializedProjectV3 {
+function projectFromState(state: RuntimeDocumentState): SerializedProject {
   return createSerializedProject(state.documentId, state.document, state.assets);
 }
 
@@ -374,7 +392,7 @@ function normalizeRevertRequest(
   }
 }
 
-function nodeMap(project: SerializedProjectV3): Map<string, JsonValue> {
+function nodeMap(project: SerializedProject): Map<string, JsonValue> {
   const result = new Map<string, JsonValue>();
   for (const layer of project.document.layers) {
     for (const [nodeId, node] of Object.entries(layer.graph.nodes)) {
@@ -388,8 +406,8 @@ function nodeMap(project: SerializedProjectV3): Map<string, JsonValue> {
 }
 
 function changedSummary(
-  before: SerializedProjectV3,
-  after: SerializedProjectV3,
+  before: SerializedProject,
+  after: SerializedProject,
 ): TransactionChangeSummary {
   const beforeLayers = new Map(before.document.layers.map((layer, index) => [layer.id, { layer, index }]));
   const afterLayers = new Map(after.document.layers.map((layer, index) => [layer.id, { layer, index }]));
@@ -453,14 +471,33 @@ function changedSummary(
         left.layerId.localeCompare(right.layerId)
         || left.nodeId.localeCompare(right.nodeId),
     );
-  const edgeCount = (project: SerializedProjectV3): number =>
+  const edgeCount = (project: SerializedProject): number =>
     project.document.layers.reduce((sum, layer) => sum + layer.graph.edges.length, 0);
+  const beforeAssets = new Map(
+    (before.assets ?? []).map((asset) => [asset.id, asset]),
+  );
+  const afterAssets = new Map(
+    (after.assets ?? []).map((asset) => [asset.id, asset]),
+  );
+  const assetIds = [...new Set([...beforeAssets.keys(), ...afterAssets.keys()])]
+    .filter((assetId) => {
+      const left = beforeAssets.get(assetId);
+      const right = afterAssets.get(assetId);
+      return (
+        left === undefined
+        || right === undefined
+        || canonicalJsonStringify(left as unknown as JsonValue)
+          !== canonicalJsonStringify(right as unknown as JsonValue)
+      );
+    })
+    .sort();
 
   return {
     frame:
       before.document.frame.width !== after.document.frame.width
       || before.document.frame.height !== after.document.frame.height,
     layerIds,
+    assetIds,
     nodes,
     edgeCountDelta: edgeCount(after) - edgeCount(before),
     replacedEdges: [],
@@ -651,6 +688,275 @@ export class TransactionSession {
       ...settled,
       next: application.next,
     };
+  }
+
+  prepareTrustedAssetMutation(
+    current: RuntimeDocumentState,
+    mutation: TrustedAssetMutation,
+    policy?: TransactionPolicy,
+  ): SessionApplication {
+    if (this.destroyed) {
+      return {
+        result: makeFailure(
+          current.revision,
+          'INTERNAL',
+          'Transaction session is destroyed.',
+          { requestId: mutation.requestId, recoverable: false },
+        ),
+        replayed: false,
+        finalizeToken: null,
+      };
+    }
+    const replay = this.lookup(
+      mutation.requestId,
+      mutation.fingerprint,
+      current.revision,
+    );
+    if (replay) return replay;
+    if (this.replayCache.size >= this.limits.maxRequestCacheEntries) {
+      return this.cacheFull(current.revision, mutation.requestId);
+    }
+    const reject = (
+      code: AgentErrorCode,
+      message: string,
+      options: {
+        path?: string;
+        details?: Record<string, JsonValue>;
+      } = {},
+    ): SessionApplication => this.prepareSettlement(
+      mutation.requestId,
+      mutation.fingerprint,
+      makeFailure(current.revision, code, message, {
+        requestId: mutation.requestId,
+        ...options,
+      }),
+    );
+    if (
+      !isSafeId(mutation.requestId, this.limits.maxIdLength)
+      || !/^[0-9a-f]{64}$/.test(mutation.fingerprint)
+    ) {
+      return reject(
+        'INVALID_ARGUMENT',
+        'Trusted asset mutation identity is invalid.',
+      );
+    }
+    if (mutation.expectedRevision !== current.revision) {
+      return reject(
+        'REVISION_CONFLICT',
+        `Expected revision ${mutation.expectedRevision}, current revision is ${current.revision}.`,
+        {
+          path: '/expectedRevision',
+          details: {
+            expectedRevision: mutation.expectedRevision,
+            currentRevision: current.revision,
+          },
+        },
+      );
+    }
+    if (current.revision >= Number.MAX_SAFE_INTEGER) {
+      return reject('RESOURCE_LIMIT', 'Document revision is exhausted.');
+    }
+    if (this.ledger.size >= this.limits.maxTransactionLedgerEntries) {
+      return reject(
+        'RESOURCE_LIMIT',
+        'Transaction ledger is full for this session.',
+        {
+          details: {
+            maximumEntries: this.limits.maxTransactionLedgerEntries,
+          },
+        },
+      );
+    }
+
+    const currentAssets = (current.assets ?? []).map((asset) => ({ ...asset }));
+    let nextAssets: AssetMetadata[];
+    if (mutation.kind === 'asset-put') {
+      const existing = currentAssets.find(
+        (asset) => asset.id === mutation.metadata.id,
+      );
+      if (existing) {
+        if (
+          canonicalJsonStringify(existing as unknown as JsonValue)
+          !== canonicalJsonStringify(mutation.metadata as unknown as JsonValue)
+        ) {
+          return reject(
+            'INVARIANT_VIOLATION',
+            'Content-addressed asset metadata conflicts with the project manifest.',
+            { path: '/assetId' },
+          );
+        }
+        const result: TransactionSuccess = {
+          ok: true,
+          requestId: mutation.requestId,
+          dryRun: false,
+          committed: false,
+          transactionId: null,
+          previousRevision: current.revision,
+          revision: current.revision,
+          proposedRevision: current.revision,
+          created: Object.create(null),
+          createdEntities: Object.create(null),
+          changed: {
+            frame: false,
+            layerIds: [],
+            assetIds: [],
+            nodes: [],
+            edgeCountDelta: 0,
+            replacedEdges: [],
+          },
+          warnings: [],
+        };
+        return this.prepareSettlement(
+          mutation.requestId,
+          mutation.fingerprint,
+          result,
+        );
+      }
+      nextAssets = [...currentAssets, { ...mutation.metadata }]
+        .sort((left, right) => left.id.localeCompare(right.id));
+    } else {
+      const existing = currentAssets.find(
+        (asset) => asset.id === mutation.assetId,
+      );
+      if (!existing) {
+        return reject(
+          'INVALID_ARGUMENT',
+          'Asset is not present in the current project manifest.',
+          { path: '/assetId' },
+        );
+      }
+      const references: Array<{ layerId: string; nodeId: string }> = [];
+      for (const layer of current.document.layers) {
+        for (const node of Object.values(layer.graph.nodes)) {
+          if (
+            node.type === 'Image'
+            && node.params.assetId === mutation.assetId
+          ) {
+            references.push({ layerId: layer.id, nodeId: node.id });
+          }
+        }
+      }
+      if (references.length > 0) {
+        return reject(
+          'CONFIRMATION_REQUIRED',
+          'Referenced assets cannot be removed in Agent-ready v1.',
+          {
+            path: '/assetId',
+            details: {
+              assetId: mutation.assetId,
+              referenceCount: references.length,
+            },
+          },
+        );
+      }
+      nextAssets = currentAssets.filter(
+        (asset) => asset.id !== mutation.assetId,
+      );
+    }
+
+    const next: RuntimeDocumentState = {
+      documentId: current.documentId,
+      document: current.document,
+      ...(nextAssets.length > 0 ? { assets: nextAssets } : {}),
+      revision: current.revision + 1,
+    };
+    const validation = validateSerializedProject(
+      projectFromState(next),
+      {
+        mode: 'editable',
+        limits: this.limits,
+        semanticErrorPolicy: 'resource-only',
+        maxFindings: 1,
+      },
+    );
+    if (!validation.valid) {
+      const finding = validation.errors[0]!;
+      return reject(
+        finding.code as AgentErrorCode,
+        finding.message,
+        {
+          path: finding.path,
+          details: finding.details,
+        },
+      );
+    }
+    const policyFailure = this.evaluatePolicy(
+      policy,
+      {
+        kind: 'apply',
+        current,
+        proposed: next,
+        requestId: mutation.requestId,
+      },
+    );
+    if (policyFailure) {
+      return this.prepareSettlement(
+        mutation.requestId,
+        mutation.fingerprint,
+        policyFailure,
+      );
+    }
+    const transactionId = this.nextTransactionId(
+      current.revision,
+      mutation.requestId,
+    );
+    if (typeof transactionId !== 'string') {
+      return this.prepareSettlement(
+        mutation.requestId,
+        mutation.fingerprint,
+        transactionId,
+      );
+    }
+    const beforeProject = cloneProject(projectFromState(current));
+    const afterProject = projectFromState(next);
+    const record: TransactionRecord = {
+      transactionId,
+      requestId: mutation.requestId,
+      committedRevision: next.revision,
+      beforeProject,
+      afterProjectDigest: projectDigest(next),
+      kind: mutation.kind,
+    };
+    const remainingLedgerBytes =
+      this.limits.maxTransactionLedgerBytes - this.ledgerBytes;
+    const recordBytes = transactionRecordByteLength(
+      record,
+      remainingLedgerBytes,
+    );
+    if (recordBytes > remainingLedgerBytes) {
+      return reject(
+        'RESOURCE_LIMIT',
+        'Transaction ledger byte budget is exhausted for this session.',
+        {
+          details: {
+            currentBytes: this.ledgerBytes,
+            requestedBytesAtLeast: recordBytes,
+            maximumBytes: this.limits.maxTransactionLedgerBytes,
+          },
+        },
+      );
+    }
+    const result: TransactionSuccess = {
+      ok: true,
+      requestId: mutation.requestId,
+      dryRun: false,
+      committed: true,
+      transactionId,
+      previousRevision: current.revision,
+      revision: next.revision,
+      proposedRevision: next.revision,
+      created: Object.create(null),
+      createdEntities: Object.create(null),
+      changed: changedSummary(beforeProject, afterProject),
+      warnings: [],
+    };
+    const settled = this.prepareSettlement(
+      mutation.requestId,
+      mutation.fingerprint,
+      result,
+      { record, recordBytes, incrementSequence: true },
+    );
+    return { ...settled, next };
   }
 
   prepareRevert(
@@ -922,6 +1228,20 @@ export class TransactionSession {
       ledgerEntries: this.ledger.size,
       ledgerBytes: this.ledgerBytes,
     });
+  }
+
+  /**
+   * Content-addressed bytes referenced by rollback snapshots must survive CAS
+   * collection for as long as this bounded session ledger can restore them.
+   */
+  retainedAssetIds(): string[] {
+    const retained = new Set<string>();
+    for (const record of this.ledger.values()) {
+      for (const asset of record.beforeProject.assets ?? []) {
+        retained.add(asset.id);
+      }
+    }
+    return [...retained].sort();
   }
 
   private evaluatePolicy(

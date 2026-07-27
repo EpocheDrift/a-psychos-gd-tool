@@ -44,12 +44,6 @@ function runtime(document = documentWithOutput(), revision = 0): RuntimeDocument
   };
 }
 
-function paddedPngDataUri(byteLength: number): string {
-  const bytes = Buffer.alloc(byteLength);
-  Buffer.from('89504e470d0a1a0a0000000d494844520000000100000001', 'hex').copy(bytes);
-  return `data:image/png;base64,${bytes.toString('base64')}`;
-}
-
 function request(
   commands: TransactionRequest['commands'],
   options: Partial<Pick<TransactionRequest, 'requestId' | 'expectedRevision' | 'dryRun'>> = {},
@@ -752,19 +746,18 @@ describe('pure document transactions', () => {
     });
   });
 
-  it('enforces manifest write policy, structured binds, and escaped error paths', () => {
+  it('accepts content-addressed Image params and rejects the retired source field', () => {
     expect(commandApi).not.toHaveProperty('applyNormalizedTransaction');
     expect(applyDocumentTransaction(runtime(), request([{
       op: 'add_node',
       layerId: 'layer_1',
       clientRef: 'image',
       nodeType: 'Image',
-      params: { src: '' },
+      params: { assetId: '' },
     }], { requestId: 'image_policy' }), {
       transactionId: 'transaction_1',
     }).result).toMatchObject({
-      ok: false,
-      error: { code: 'PERMISSION_REQUIRED', path: '/commands/0/params/src' },
+      ok: true,
     });
     expect(applyDocumentTransaction(runtime(), request([{
       op: 'add_node',
@@ -779,7 +772,7 @@ describe('pure document transactions', () => {
       finalValidationMode: 'structural',
     } as never).result).toMatchObject({
       ok: false,
-      error: { code: 'PERMISSION_REQUIRED', path: '/commands/0/params/src' },
+      error: { code: 'UNKNOWN_PARAM', path: '/commands/0/params/src' },
     });
     if (false) {
       applyDocumentTransaction(runtime(), request([{
@@ -803,6 +796,23 @@ describe('pure document transactions', () => {
     }).result).toMatchObject({
       ok: false,
       error: { code: 'INVALID_ARGUMENT', path: '/commands/0/params/binds' },
+    });
+
+    expect(applyDocumentTransaction(runtime(), request([{
+      op: 'add_node',
+      layerId: 'layer_1',
+      clientRef: 'text',
+      nodeType: 'Text',
+      params: { font: 'Private Local Font' },
+    }], { requestId: 'local_font_policy' }), {
+      transactionId: 'transaction_font_policy',
+    }).result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'PERMISSION_REQUIRED',
+        path: '/commands/0/params/font',
+        details: { nodeType: 'Text', param: 'font' },
+      },
     });
 
     expect(applyDocumentTransaction(runtime(), request([{
@@ -1155,32 +1165,26 @@ describe('pure document transactions', () => {
 
   it('trusted UI preserves transient edits without bypassing global resource budgets', () => {
     const document = documentWithOutput();
-    const twentyMiB = paddedPngDataUri(DEFAULT_AGENT_LIMITS.maxLegacyAssetBytes);
-    for (let index = 1; index <= 3; index++) {
-      document.layers[0].graph.nodes[`image_${index}`] = {
-        id: `image_${index}`,
-        type: 'Image',
-        params: { src: twentyMiB },
-      };
-    }
-    document.layers[0].graph.nodes.image_4 = {
-      id: 'image_4',
-      type: 'Image',
-      params: { src: '' },
+    document.layers[0].graph.nodes.text = {
+      id: 'text',
+      type: 'Text',
+      params: { content: '' },
     };
-    const fiveMiB = paddedPngDataUri(5 * 1024 * 1024);
     const application = applyTrustedUiCommands(runtime(document), [{
       op: 'set_node_params',
       layerId: 'layer_1',
-      nodeId: 'image_4',
-      patch: { src: fiveMiB },
+      nodeId: 'text',
+      patch: { content: 'x'.repeat(DEFAULT_AGENT_LIMITS.maxStringBytes + 1) },
     }]);
 
     expect(application.result).toMatchObject({
       ok: false,
-      error: { code: 'RESOURCE_LIMIT', path: '/document' },
+      error: {
+        code: 'RESOURCE_LIMIT',
+        path: '/commands/0/patch/content',
+      },
     });
     expect(application.next).toBeUndefined();
-    expect(document.layers[0].graph.nodes.image_4.params.src).toBe('');
+    expect(document.layers[0].graph.nodes.text.params.content).toBe('');
   });
 });

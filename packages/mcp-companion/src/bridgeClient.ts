@@ -3,8 +3,8 @@ import type { WebSocket, RawData } from 'ws';
 import {
   COMPANION_PROTOCOL_VERSION,
   COMPANION_TRANSPORT_LIMITS,
-  COMPANION_WRITE_OPERATIONS,
   companionDeadlineMs,
+  isCompanionWriteOperation,
   type CompanionBinaryHeader,
   type CompanionBinaryResult,
   type CompanionCallResult,
@@ -52,7 +52,9 @@ interface CompanionFaultContext {
 }
 
 export interface BridgeClientOptions {
-  requestedScopes: readonly ('read' | 'preview' | 'edit')[];
+  requestedScopes: readonly (
+    'read' | 'preview' | 'edit' | 'assets' | 'model'
+  )[];
   clientLabel?: string;
   now?: () => number;
   onTerminal?: (reason: string) => void;
@@ -308,13 +310,6 @@ function parseBinary(
   };
 }
 
-function isWriteOperation(
-  operation: CompanionOperation,
-): operation is 'applyTransaction' | 'revertTransaction' {
-  return (COMPANION_WRITE_OPERATIONS as readonly string[])
-    .includes(operation);
-}
-
 function validatePairingSummary(
   value: CompanionCallResult,
   clientNonce: string,
@@ -399,6 +394,8 @@ export class BridgeClient {
   private previewCount = 0;
   private generation = 0;
   private rateTokens: number = COMPANION_TRANSPORT_LIMITS.requestBurst;
+  private assetRateTokens: number =
+    COMPANION_TRANSPORT_LIMITS.assetUploadRequestBurst;
   private lastRefillAt: number;
 
   constructor(options: BridgeClientOptions) {
@@ -505,7 +502,7 @@ export class BridgeClient {
         },
       );
     }
-    this.consumeRateToken(faultContext);
+    this.consumeRateToken(operation, faultContext);
     const generation = this.generation;
     this.reserve(operation, faultContext);
     try {
@@ -730,7 +727,7 @@ export class BridgeClient {
         const entry = this.pending.get(requestId);
         if (!entry) return;
         this.settle(requestId);
-        if (isWriteOperation(operation)) {
+        if (isCompanionWriteOperation(operation)) {
           entry.reject(new CompanionFault(
             'TIMEOUT',
             'The write response deadline expired and its outcome is unknown.',
@@ -757,9 +754,9 @@ export class BridgeClient {
         resolve,
         reject,
         timer,
-        ...(signal && !isWriteOperation(operation) ? { signal } : {}),
+        ...(signal && !isCompanionWriteOperation(operation) ? { signal } : {}),
       };
-      if (signal && !isWriteOperation(operation)) {
+      if (signal && !isCompanionWriteOperation(operation)) {
         entry.onAbort = () => {
           const active = this.pending.get(requestId);
           if (!active) return;
@@ -861,7 +858,7 @@ export class BridgeClient {
     faultContext: CompanionFaultContext,
   ): void {
     if (
-      isWriteOperation(operation)
+      isCompanionWriteOperation(operation)
       && this.writeCount >= COMPANION_TRANSPORT_LIMITS.maxConcurrentWrites
     ) {
       throw new CompanionFault(
@@ -890,27 +887,46 @@ export class BridgeClient {
         faultContext,
       );
     }
-    if (isWriteOperation(operation)) this.writeCount++;
+    if (isCompanionWriteOperation(operation)) this.writeCount++;
     if (operation === 'awaitRender') this.awaitCount++;
     if (operation === 'capturePreview') this.previewCount++;
   }
 
   private release(operation: CompanionToolOperation): void {
-    if (isWriteOperation(operation)) this.writeCount--;
+    if (isCompanionWriteOperation(operation)) this.writeCount--;
     if (operation === 'awaitRender') this.awaitCount--;
     if (operation === 'capturePreview') this.previewCount--;
   }
 
-  private consumeRateToken(faultContext: CompanionFaultContext): void {
+  private consumeRateToken(
+    operation: CompanionToolOperation,
+    faultContext: CompanionFaultContext,
+  ): void {
     const now = this.now();
     const elapsed = Math.max(0, now - this.lastRefillAt);
     this.lastRefillAt = now;
+    const refill =
+      elapsed
+      * (COMPANION_TRANSPORT_LIMITS.requestsPerMinute / 60_000);
     this.rateTokens = Math.min(
       COMPANION_TRANSPORT_LIMITS.requestBurst,
-      this.rateTokens
-      + elapsed
-        * (COMPANION_TRANSPORT_LIMITS.requestsPerMinute / 60_000),
+      this.rateTokens + refill,
     );
+    this.assetRateTokens = Math.min(
+      COMPANION_TRANSPORT_LIMITS.assetUploadRequestBurst,
+      this.assetRateTokens + refill,
+    );
+    if (operation === 'putAsset') {
+      if (this.assetRateTokens < 1) {
+        throw new CompanionFault(
+          'RESOURCE_LIMIT',
+          'The asset-upload request-rate budget is exhausted.',
+          faultContext,
+        );
+      }
+      this.assetRateTokens -= 1;
+      return;
+    }
     if (this.rateTokens < 1) {
       throw new CompanionFault(
         'RESOURCE_LIMIT',

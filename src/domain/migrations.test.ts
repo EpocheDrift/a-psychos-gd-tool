@@ -30,7 +30,7 @@ describe('pure project migrations', () => {
       source: 'legacy-single-graph',
       project: {
         format: 'a-psychos-gd-tool',
-        schemaVersion: 3,
+        schemaVersion: 4,
         documentId: 'legacy_v1',
         document: {
           frame: { width: 320, height: 240 },
@@ -130,14 +130,23 @@ describe('pure project migrations', () => {
     }));
   });
 
-  it('treats a valid v3 envelope as idempotent and does not apply legacy aliases', () => {
+  it('migrates a valid v3 envelope once and does not apply unrelated legacy aliases', () => {
     const project = fixture<SerializedProjectV3>('serialized-project-v3.json');
     const migrated = migrateProject(project);
     expect(migrated).toMatchObject({
       ok: true,
       source: 'project-v3',
-      project,
-      warnings: [],
+      project: {
+        schemaVersion: 4,
+        documentId: project.documentId,
+        document: project.document,
+      },
+      warnings: [
+        expect.objectContaining({
+          code: 'LEGACY_FORMAT_MIGRATED',
+          path: '/schemaVersion',
+        }),
+      ],
     });
 
     const legacyAlias = structuredClone(project);

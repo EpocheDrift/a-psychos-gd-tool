@@ -14,6 +14,10 @@ export const COMPANION_TOOL_OPERATIONS = [
   'awaitRender',
   'capturePreview',
   'revertTransaction',
+  'putAsset',
+  'listAssets',
+  'getAssetMetadata',
+  'removeAsset',
 ] as const;
 
 export type CompanionToolOperation =
@@ -33,6 +37,8 @@ export type CompanionOperation =
 export const COMPANION_WRITE_OPERATIONS = [
   'applyTransaction',
   'revertTransaction',
+  'putAsset',
+  'removeAsset',
 ] as const satisfies readonly CompanionToolOperation[];
 
 export const COMPANION_TRANSPORT_LIMITS = Object.freeze({
@@ -48,10 +54,12 @@ export const COMPANION_TRANSPORT_LIMITS = Object.freeze({
   maxConcurrentWrites: 1,
   requestsPerMinute: 120,
   requestBurst: 16,
+  assetUploadRequestBurst: 32,
   helloDeadlineMs: 10_000,
   defaultDeadlineMs: 10_000,
   renderDeadlineMs: 35_000,
   previewDeadlineMs: 20_000,
+  assetDeadlineMs: 35_000,
   pairingDeadlineMs: 60_000,
   heartbeatIntervalMs: 5_000,
   heartbeatTimeoutMs: 15_000,
@@ -160,6 +168,13 @@ export function isCompanionToolOperation(
     && (COMPANION_TOOL_OPERATIONS as readonly string[]).includes(value);
 }
 
+export function isCompanionWriteOperation(
+  operation: CompanionOperation,
+): operation is (typeof COMPANION_WRITE_OPERATIONS)[number] {
+  return (COMPANION_WRITE_OPERATIONS as readonly string[])
+    .includes(operation);
+}
+
 export function isCompanionOperation(
   value: unknown,
 ): value is CompanionOperation {
@@ -180,12 +195,17 @@ export function companionDeadlineMs(
       return COMPANION_TRANSPORT_LIMITS.renderDeadlineMs;
     case 'capturePreview':
       return COMPANION_TRANSPORT_LIMITS.previewDeadlineMs;
+    case 'putAsset':
+      return COMPANION_TRANSPORT_LIMITS.assetDeadlineMs;
     case 'getCapabilities':
     case 'getDocument':
     case 'getRenderStatus':
     case 'validateDocument':
     case 'applyTransaction':
     case 'revertTransaction':
+    case 'listAssets':
+    case 'getAssetMetadata':
+    case 'removeAsset':
       return COMPANION_TRANSPORT_LIMITS.defaultDeadlineMs;
   }
 }
@@ -216,6 +236,8 @@ export function companionTransportCapabilities(): Record<string, unknown> {
     rate: {
       requestsPerMinute: COMPANION_TRANSPORT_LIMITS.requestsPerMinute,
       burst: COMPANION_TRANSPORT_LIMITS.requestBurst,
+      assetUploadBurst:
+        COMPANION_TRANSPORT_LIMITS.assetUploadRequestBurst,
     },
     jsonLimits: {
       depth: COMPANION_TRANSPORT_LIMITS.maxJsonDepth,
@@ -226,6 +248,7 @@ export function companionTransportCapabilities(): Record<string, unknown> {
       queryAndWriteMs: COMPANION_TRANSPORT_LIMITS.defaultDeadlineMs,
       awaitRenderMs: COMPANION_TRANSPORT_LIMITS.renderDeadlineMs,
       previewMs: COMPANION_TRANSPORT_LIMITS.previewDeadlineMs,
+      assetMs: COMPANION_TRANSPORT_LIMITS.assetDeadlineMs,
       pairingMs: COMPANION_TRANSPORT_LIMITS.pairingDeadlineMs,
     },
     heartbeat: {

@@ -103,6 +103,7 @@ export interface ReplacedEdge {
 export interface TransactionChangeSummary {
   frame: boolean;
   layerIds: string[];
+  assetIds: string[];
   /** Precise identities; node IDs are only unique inside a layer. */
   nodes: ChangedNodeRef[];
   edgeCountDelta: number;

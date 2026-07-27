@@ -10,8 +10,10 @@ rollout gates; phase-by-phase implementation evidence lives in
 revision/render/preview evidence, a paired narrow browser controller, and an
 authenticated local stdio MCP companion in an explicit loopback-only static
 Agent artifact. The default artifact exposes no Agent global, and neither
-artifact exposes the raw Zustand store. The isolated asset/persistence boundary
-and broader Agent evals remain staged work.
+artifact exposes the raw Zustand store. The isolated content-addressed asset
+boundary, portable project save/load, and human-approved pinned RMBG-1.4 model
+path are implemented. The broader seven-scenario Agent evaluation suite is the
+remaining delivery stage.
 
 The codebase is unusually well-positioned for adaptation:
 
@@ -48,8 +50,8 @@ An external agent should be able to:
 | L0 | Screenshot-only GUI control | Available, but brittle |
 | L1 | Internal automation/test hook | Replaced by semantic UI + paired controller tests |
 | L2 | Stable, validated command/query API | Implemented |
-| L3 | External tool adapter (MCP/browser bridge) | Implemented with human-approved read/preview and opt-in edit profiles |
-| L4 | Closed-loop visual planning and verification | Proposed after L3 |
+| L3 | External tool adapter (MCP/browser bridge) | Implemented with human-approved read/preview plus independent edit/assets/model profiles |
+| L4 | Closed-loop visual planning and verification | In progress in PR 8 |
 
 The first delivery target is **L3**, with enough preview and render feedback to
 support a constrained L4 loop.

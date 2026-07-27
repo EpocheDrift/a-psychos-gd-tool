@@ -5,7 +5,7 @@ import { CAPABILITY_MANIFEST } from '../domain/capabilityManifest';
 import {
   createSerializedProject,
   type AssetMetadata,
-  type SerializedProjectV3,
+  type SerializedProject,
   validateJsonValueSafety,
 } from '../domain/documentSchema';
 import {
@@ -39,7 +39,7 @@ import {
   AGENT_PROTOCOL_VERSION,
   AGENT_SCOPES,
   DOCUMENT_CONTENT_TRUST,
-  PR5_AVAILABLE_SCOPES,
+  AGENT_V1_AVAILABLE_SCOPES,
 } from './contracts';
 import { controllerFault } from './faults';
 import {
@@ -75,10 +75,10 @@ const VALIDATION_MODES = new Set<ValidationMode>([
 ]);
 const MAX_PUBLIC_RENDER_EVENTS = 256;
 const DATA_URI = /^data:/i;
-const PR7_DEFERRED_AGENT_NODES = new Set<string>([
-  ...PR7_DEFERRED_AGENT_NODE_TYPES,
-  'RemoveBackground',
-]);
+const EMBEDDED_DATA_URI = /data:[^\s"<>\\]+/giu;
+const PR7_DEFERRED_AGENT_NODES = new Set<string>(
+  PR7_DEFERRED_AGENT_NODE_TYPES,
+);
 
 function dataUriMimeType(value: string): string {
   const header = value.slice(5, Math.min(
@@ -91,6 +91,41 @@ function dataUriMimeType(value: string): string {
     .test(candidate)
     ? candidate
     : 'application/octet-stream';
+}
+
+function redactEmbeddedDataUris(
+  value: string,
+  path: string,
+  redactions: DocumentRedaction[],
+): JsonValue {
+  const matches = [...value.matchAll(EMBEDDED_DATA_URI)];
+  if (matches.length === 0) return value;
+  for (const match of matches) {
+    const encoded = match[0];
+    redactions.push({
+      path,
+      kind: 'embedded-image-data',
+      mimeType: dataUriMimeType(encoded),
+      encodedCharacters: encoded.length,
+      sha256: sha256Hex(`gfx.redacted-data-uri.v1\u0000${encoded}`),
+    });
+  }
+  if (
+    matches.length === 1
+    && matches[0]!.index === 0
+    && matches[0]![0].length === value.length
+    && DATA_URI.test(value)
+  ) {
+    return {
+      redacted: true,
+      kind: 'embedded-image-data',
+      mimeType: dataUriMimeType(value),
+    };
+  }
+  return value.replace(
+    EMBEDDED_DATA_URI,
+    '[redacted embedded image data]',
+  );
 }
 
 export interface ControllerDocumentState {
@@ -178,11 +213,11 @@ export function getCapabilitiesQuery(
           }
         : {}),
     }));
-  const available = new Set(PR5_AVAILABLE_SCOPES);
+  const available = new Set(AGENT_V1_AVAILABLE_SCOPES);
   const scopeAvailability = Object.fromEntries(
     AGENT_SCOPES.map((scope) => [
       scope,
-      available.has(scope as (typeof PR5_AVAILABLE_SCOPES)[number])
+      available.has(scope as (typeof AGENT_V1_AVAILABLE_SCOPES)[number])
         ? { available: true }
         : {
             available: false,
@@ -210,6 +245,7 @@ export function getCapabilitiesQuery(
       mcp: profile.mcp,
     },
     preview: asJson(CAPABILITY_MANIFEST.preview) as JsonObject,
+    permissions: asJson(CAPABILITY_MANIFEST.permissions) as JsonObject,
     ...(profile.transport
       ? { transport: publicJsonClone(profile.transport) }
       : {}),
@@ -225,20 +261,9 @@ function publicParamValue(
   path: string,
   redactions: DocumentRedaction[],
 ): JsonValue {
-  if (typeof value === 'string' && DATA_URI.test(value)) {
-    const mimeType = dataUriMimeType(value);
-    redactions.push({
-      path,
-      kind: 'embedded-image-data',
-      mimeType,
-      encodedCharacters: value.length,
-      sha256: sha256Hex(`gfx.redacted-data-uri.v1\u0000${value}`),
-    });
-    return {
-      redacted: true,
-      kind: 'embedded-image-data',
-      mimeType,
-    };
+  if (typeof value === 'string') {
+    const redacted = redactEmbeddedDataUris(value, path, redactions);
+    if (redacted !== value) return redacted;
   }
   const definition = registry.get(node.type);
   const spec = definition?.params.find((candidate) => candidate.name === name);
@@ -333,7 +358,7 @@ export function getDocumentQuery(
   const omitted: string[] = [];
   const response: DocumentSnapshot = {
     protocolVersion: AGENT_PROTOCOL_VERSION,
-    schemaVersion: 3,
+    schemaVersion: 4,
     revision: state.revision,
     documentId: state.documentId,
     trust: DOCUMENT_CONTENT_TRUST,
@@ -361,7 +386,11 @@ export function getDocumentQuery(
       const projected = Object.create(null) as JsonObject;
       projected.id = layer.id;
       if (included.has('layers')) {
-        projected.name = layer.name;
+        projected.name = redactEmbeddedDataUris(
+          layer.name,
+          `/layers/${layerIndex}/name`,
+          redactions,
+        );
         projected.visible = layer.visible;
         projected.opacity = layer.opacity;
         projected.blendMode = layer.blendMode;
@@ -422,10 +451,16 @@ export function getDocumentQuery(
   return publicJsonClone(response);
 }
 
-export function validateDocumentQuery(
+export interface ValidationDocumentEvaluation {
+  result: PublicValidationReport;
+  assets: AssetMetadata[];
+  maxFindings: number;
+}
+
+export function evaluateValidationDocumentQuery(
   state: ControllerDocumentState,
   raw: ValidateDocumentRequest,
-): PublicValidationReport {
+): ValidationDocumentEvaluation {
   const request = captureJsonObject(raw, {
     allowedKeys: ['source', 'project', 'mode', 'maxFindings'],
     revision: state.revision,
@@ -471,7 +506,7 @@ export function validateDocumentQuery(
     );
   }
   const rawProject = own(request, 'project');
-  let project: SerializedProjectV3 | JsonValue;
+  let project: SerializedProject | JsonValue;
   if (source === 'current') {
     if (rawProject !== undefined) {
       throw controllerFault(
@@ -503,10 +538,27 @@ export function validateDocumentQuery(
       ? {}
       : { maxFindings: maxFindingsValue }),
   });
-  return publicJsonClone({
-    trust: DOCUMENT_CONTENT_TRUST,
-    report: sanitizeValidationReport(report),
-  });
+  const projectAssets = isPlainRecord(project)
+    && Array.isArray(project.assets)
+    ? project.assets
+      .filter((asset): asset is JsonObject => isPlainRecord(asset))
+      .map((asset) => ({ ...asset } as unknown as AssetMetadata))
+    : [];
+  return {
+    result: publicJsonClone({
+      trust: DOCUMENT_CONTENT_TRUST,
+      report: sanitizeValidationReport(report),
+    }),
+    assets: report.valid && mode === 'renderable' ? projectAssets : [],
+    maxFindings: maxFindingsValue ?? DEFAULT_AGENT_LIMITS.maxFindings,
+  };
+}
+
+export function validateDocumentQuery(
+  state: ControllerDocumentState,
+  raw: ValidateDocumentRequest,
+): PublicValidationReport {
+  return evaluateValidationDocumentQuery(state, raw).result;
 }
 
 export function normalizeRenderStatusRequest(

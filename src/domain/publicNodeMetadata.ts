@@ -159,6 +159,7 @@ export type ParamFormat =
   | 'math-expression-v1'
   | 'channel-name-v1'
   | 'image-data-uri-v1'
+  | 'asset-id-v1'
   | 'binds-json-string-v1';
 
 export interface ParamPublicMetadata {
@@ -197,7 +198,12 @@ const INTEGER_PARAMS = new Set([
 
 const PARAM_OVERRIDES: Readonly<Record<string, Partial<ParamPublicMetadata>>> = Object.freeze({
   'Text.content': { format: 'plain-text-v1', maxLength: 65_536, maxBytes: 65_536 },
-  'Text.font': { format: 'font-key-v1', minLength: 1, maxLength: 128 },
+  'Text.font': {
+    format: 'font-key-v1',
+    minLength: 1,
+    maxLength: 128,
+    agentWritable: false,
+  },
   'Grid.weightsX': { format: 'positive-number-list-v1', maxLength: 2_048, maxBytes: 2_048 },
   'Grid.weightsY': { format: 'positive-number-list-v1', maxLength: 2_048, maxBytes: 2_048 },
   'Grid.exprX': {
@@ -222,6 +228,13 @@ const PARAM_OVERRIDES: Readonly<Record<string, Partial<ParamPublicMetadata>>> = 
     format: 'image-data-uri-v1',
     agentWritable: false,
   },
+  'Image.assetId': {
+    format: 'asset-id-v1',
+    minLength: 0,
+    maxLength: 70,
+    maxBytes: 70,
+    agentWritable: true,
+  },
   'Filter.channel': {
     format: 'channel-name-v1',
     minLength: 1,
@@ -236,8 +249,9 @@ const PARAM_OVERRIDES: Readonly<Record<string, Partial<ParamPublicMetadata>>> = 
 
 const PARAM_DESCRIPTION_OVERRIDES: Readonly<Record<string, string>> = Object.freeze({
   'Text.content': 'The Unicode text content to shape.',
-  'Text.font': 'An approved font key available in the current document session.',
+  'Text.font': 'A human-selected font key available in the current document session.',
   'Image.src': 'An approved embedded PNG, JPEG, or WebP data URI, the bundled factory image, or an empty value.',
+  'Image.assetId': 'An empty value or a content-addressed image asset ID already present in this project.',
   'Grid.weightsX': 'A comma- or whitespace-separated list of positive horizontal track weights.',
   'Grid.weightsY': 'A comma- or whitespace-separated list of positive vertical track weights.',
   'Grid.exprX': 'A safe arithmetic expression over i, n, and t for horizontal track weights.',
@@ -264,7 +278,13 @@ export function getParamPublicMetadata(
     param.kind === 'channel'
       ? { format: 'channel-name-v1', minLength: 1, maxLength: 128 }
       : param.kind === 'image'
-        ? { format: 'image-data-uri-v1', agentWritable: false }
+        ? {
+            format: 'asset-id-v1',
+            minLength: 0,
+            maxLength: 70,
+            maxBytes: 70,
+            agentWritable: true,
+          }
         : param.kind === 'binds'
           ? { format: 'binds-json-string-v1' }
           : param.kind === 'string'

@@ -4,7 +4,7 @@ import type { JsonObject, JsonValue } from '../domain/json';
 import {
   AGENT_PROTOCOL_VERSION,
   AGENT_SCOPES,
-  PR5_AVAILABLE_SCOPES,
+  AGENT_V1_AVAILABLE_SCOPES,
   type AgentBridgeError,
   type AgentScope,
   type AgentSessionSummary,
@@ -412,7 +412,7 @@ export class AgentSessionManager {
       ));
     }
     const requested = new Set(pending.requestedScopes);
-    const available = new Set<AgentScope>(PR5_AVAILABLE_SCOPES);
+    const available = new Set<AgentScope>(AGENT_V1_AVAILABLE_SCOPES);
     const unique = [...new Set(scopes)];
     const invalid = unique.find(
       (scope) => !requested.has(scope) || !available.has(scope),
@@ -797,7 +797,7 @@ export class AgentSessionManager {
         [...(active?.scopes ?? pending?.approvedScopes ?? [])],
       ) as AgentScope[],
       availableScopes: Object.freeze(
-        [...PR5_AVAILABLE_SCOPES],
+        [...AGENT_V1_AVAILABLE_SCOPES],
       ) as AgentScope[],
       expiresAt:
         active

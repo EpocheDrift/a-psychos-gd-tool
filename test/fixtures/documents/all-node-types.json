@@ -55,7 +55,7 @@
             "id": "image_3",
             "type": "Image",
             "params": {
-              "src": "",
+              "assetId": "",
               "fit": "contain",
               "scaleX": 1,
               "scaleY": 1,

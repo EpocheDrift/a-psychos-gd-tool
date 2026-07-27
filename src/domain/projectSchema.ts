@@ -1,11 +1,30 @@
 import { BLEND_MODES } from '../engine/graph';
+import type { NodeDef, ParamSpec } from '../engine/registry';
 import { PALETTE, type NodeCategory } from '../nodes';
 import { buildPersistedParamSchema, RegistryContractError } from './capabilityManifest';
 import type { JsonObject } from './json';
 import { DEFAULT_AGENT_LIMITS, resolveAgentLimits, type AgentLimits } from './limits';
 import { auditRegistryContract } from './registryContract';
 
-export function buildProjectV3Schema(
+const LEGACY_IMAGE_SOURCE_PARAM: ParamSpec = {
+  name: 'src',
+  kind: 'image',
+  default: '',
+};
+
+function persistedParamsForVersion(
+  definition: NodeDef,
+  version: 3 | 4,
+): readonly ParamSpec[] {
+  if (version !== 3 || definition.type !== 'Image') return definition.params;
+  return [
+    LEGACY_IMAGE_SOURCE_PARAM,
+    ...definition.params.filter((param) => param.name !== 'assetId'),
+  ];
+}
+
+function buildProjectSchema(
+  version: 3 | 4,
   options: {
     categories?: readonly NodeCategory[];
     limits?: Partial<AgentLimits>;
@@ -26,7 +45,7 @@ export function buildProjectV3Schema(
         params: {
           type: 'object',
           additionalProperties: false,
-          properties: Object.fromEntries(definition.params.map((param) => [
+          properties: Object.fromEntries(persistedParamsForVersion(definition, version).map((param) => [
             param.name,
             buildPersistedParamSchema(definition.type, param, limits),
           ])) as JsonObject,
@@ -38,14 +57,14 @@ export function buildProjectV3Schema(
 
   return {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
-    $id: 'urn:a-psychos-gd-tool:schema:project:3',
+    $id: `urn:a-psychos-gd-tool:schema:project:${version}`,
     title: 'a-psychos-gd-tool project',
     type: 'object',
     additionalProperties: false,
     required: ['format', 'schemaVersion', 'documentId', 'document'],
     properties: {
       format: { const: 'a-psychos-gd-tool' },
-      schemaVersion: { const: 3 },
+      schemaVersion: { const: version },
       documentId: { $ref: '#/$defs/id' },
       document: { $ref: '#/$defs/document' },
       assets: {
@@ -155,12 +174,26 @@ export function buildProjectV3Schema(
         additionalProperties: false,
         required: ['id', 'sha256', 'mimeType', 'byteLength', 'width', 'height', 'source'],
         properties: {
-          id: { $ref: '#/$defs/id' },
+          id: version === 4
+            ? { type: 'string', pattern: '^asset_[0-9a-f]{64}$' }
+            : { $ref: '#/$defs/id' },
           sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
           mimeType: { type: 'string', enum: ['image/png', 'image/jpeg', 'image/webp'] },
-          byteLength: { type: 'integer', minimum: 0, maximum: limits.maxLegacyAssetBytes },
-          width: { type: 'integer', minimum: 1 },
-          height: { type: 'integer', minimum: 1 },
+          byteLength: {
+            type: 'integer',
+            minimum: version === 4 ? 1 : 0,
+            maximum: limits.maxLegacyAssetBytes,
+          },
+          width: {
+            type: 'integer',
+            minimum: 1,
+            ...(version === 4 ? { maximum: limits.maxAssetSide } : {}),
+          },
+          height: {
+            type: 'integer',
+            minimum: 1,
+            ...(version === 4 ? { maximum: limits.maxAssetSide } : {}),
+          },
           source: { type: 'string', enum: ['upload', 'generated', 'bundled'] },
         },
       },
@@ -168,6 +201,28 @@ export function buildProjectV3Schema(
   };
 }
 
+export function buildProjectV3Schema(
+  options: {
+    categories?: readonly NodeCategory[];
+    limits?: Partial<AgentLimits>;
+  } = {},
+): JsonObject {
+  return buildProjectSchema(3, options);
+}
+
+export function buildProjectV4Schema(
+  options: {
+    categories?: readonly NodeCategory[];
+    limits?: Partial<AgentLimits>;
+  } = {},
+): JsonObject {
+  return buildProjectSchema(4, options);
+}
+
 export const PROJECT_V3_SCHEMA = buildProjectV3Schema({
+  limits: { ...DEFAULT_AGENT_LIMITS },
+});
+
+export const PROJECT_V4_SCHEMA = buildProjectV4Schema({
   limits: { ...DEFAULT_AGENT_LIMITS },
 });

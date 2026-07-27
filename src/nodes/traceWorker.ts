@@ -10,11 +10,17 @@
 
 import ImageTracer from 'imagetracerjs';
 import type { PathCmd } from '../engine/values';
+import ortWasmFactoryUrl from '../../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs?url';
+import ortWasmBinaryUrl from '../../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm?url';
+import {
+  MODEL_FILES_PATH_PREFIX,
+  RMBG_MODEL_REPOSITORY,
+  RMBG_MODEL_REVISION,
+} from '../../packages/mcp-companion/src/modelPublicContract';
 
 // longest side the tracer/model ever sees. tracing scales linearly-ish in pixel
 // count, so capping an 8MP artboard to ~1MP is a several-fold speedup.
 const TRACE_CAP = 1024;
-const MODEL_ID = 'briaai/RMBG-1.4';
 
 interface Img {
   data: Uint8ClampedArray;
@@ -504,34 +510,66 @@ function loadModel() {
   if (!modelPromise) {
     const loading = (async () => {
       const { AutoModel, AutoProcessor, RawImage, env } = await import('@huggingface/transformers');
-      env.allowLocalModels = false; // fetch from the hub, skip local 404 probing
-
-      // prefer the WebGPU backend; fall back to WASM if it isn't available here.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const base = { config: { model_type: 'custom' } } as any;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let model: any;
-      try {
-        model = await AutoModel.from_pretrained(MODEL_ID, { ...base, device: 'webgpu', dtype: 'fp32' });
-      } catch {
-        model = await AutoModel.from_pretrained(MODEL_ID, base);
+      if (__GFX_AGENT_BUILD__) {
+        // The Agent artifact can read only the companion's fixed, integrity-
+        // verified model routes. Transformers.js receives no remote authority.
+        env.allowLocalModels = true;
+        env.allowRemoteModels = false;
+        env.localModelPath = MODEL_FILES_PATH_PREFIX;
+        env.useBrowserCache = false;
+        // Transformers.js otherwise rewrites the bundled ONNX WASM factory to
+        // a blob: module in dedicated workers. The Agent CSP intentionally
+        // forbids blob scripts, and both runtime files already have fixed
+        // same-origin URLs, so bypass that Cache-API rewrite.
+        env.useWasmCache = false;
+      } else {
+        // Preserve the ordinary human UI while still pinning the upstream
+        // repository revision. The Agent build never enters this branch.
+        env.allowLocalModels = false;
+        env.allowRemoteModels = true;
       }
+      const onnxWasm = env.backends.onnx.wasm;
+      if (!onnxWasm) {
+        throw new Error('The pinned ONNX WASM runtime is unavailable.');
+      }
+      onnxWasm.wasmPaths = {
+        mjs: new URL(ortWasmFactoryUrl, self.location.href).href,
+        wasm: new URL(ortWasmBinaryUrl, self.location.href).href,
+      };
+      // The local host intentionally does not opt into cross-origin isolation.
+      onnxWasm.numThreads = 1;
 
-      const processor = await AutoProcessor.from_pretrained(MODEL_ID, {
-        // RMBG-1.4 preprocessing (the model ships no preprocessor_config.json)
-        config: {
-          do_normalize: true,
-          do_pad: false,
-          do_rescale: true,
-          do_resize: true,
-          image_mean: [0.5, 0.5, 0.5],
-          image_std: [1, 1, 1],
-          resample: 2,
-          rescale_factor: 1 / 255,
-          size: { width: 1024, height: 1024 },
+      // Transformers.js accepts a minimal custom ONNX configuration at
+      // runtime, although its public declaration models only built-in configs.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const common = {
+        config: { model_type: 'custom' },
+        revision: RMBG_MODEL_REVISION,
+        local_files_only: __GFX_AGENT_BUILD__,
+      } as any;
+      const hasWebGpu = typeof navigator !== 'undefined'
+        && 'gpu' in navigator
+        && await navigator.gpu.requestAdapter() !== null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const model: any = hasWebGpu
+        ? await AutoModel.from_pretrained(RMBG_MODEL_REPOSITORY, {
+            ...common,
+            device: 'webgpu',
+            dtype: 'fp32',
+          })
+        : await AutoModel.from_pretrained(RMBG_MODEL_REPOSITORY, {
+            ...common,
+            device: 'wasm',
+            dtype: 'q8',
+          });
+
+      const processor = await AutoProcessor.from_pretrained(
+        RMBG_MODEL_REPOSITORY,
+        {
+          revision: RMBG_MODEL_REVISION,
+          local_files_only: __GFX_AGENT_BUILD__,
         },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
+      );
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const run: RunFn = async (image: any) => {

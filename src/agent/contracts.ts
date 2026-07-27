@@ -4,12 +4,14 @@ import type {
   ValidationReport,
 } from '../domain/agentErrors';
 import type {
+  AgentFailure,
   RevertTransactionRequest,
   TransactionRequest,
-  TransactionResult,
+  TransactionSuccess,
 } from '../domain/commandTypes';
 import type { JsonObject, JsonValue } from '../domain/json';
 import type { AgentLimits } from '../domain/limits';
+import type { AssetMetadata } from '../domain/documentSchema';
 import type { PreviewMetricsV1 } from '../render/previewMetrics';
 
 export const AGENT_PROTOCOL_VERSION = '1.0' as const;
@@ -25,15 +27,56 @@ export const AGENT_SCOPES = [
 
 export type AgentScope = (typeof AGENT_SCOPES)[number];
 
+export type PublicPersistenceStatus =
+  | 'durable'
+  | 'memory-only'
+  | 'not-applicable';
+
+export interface PublicTransactionRenderStatus {
+  /**
+   * A committed write reports the renderer state observed immediately after
+   * linearization. The exact attempt can then be awaited through awaitRender.
+   */
+  state:
+    | 'idle'
+    | 'queued'
+    | 'cooking'
+    | 'complete'
+    | 'failed'
+    | 'superseded'
+    | 'unavailable'
+    | 'not-applicable';
+  ticket: { revision: number; attempt: number } | null;
+}
+
+export type PublicTransactionSuccess = TransactionSuccess & {
+  /**
+   * Persistence is deliberately reported separately from the atomic in-memory
+   * commit. Dry runs and successful no-ops have no persistence side effect.
+   */
+  persistenceStatus: PublicPersistenceStatus;
+  /** Render scheduling is a separate side effect from commit and persistence. */
+  renderStatus: PublicTransactionRenderStatus;
+};
+
+export type PublicTransactionResult =
+  | PublicTransactionSuccess
+  | AgentFailure;
+
 /**
- * PR5 exposes the complete vocabulary, while later rollout gates still keep
- * asset, model-download, and filesystem-export authority unavailable.
+ * The v1 rollout exposes bounded graph, preview, asset, and pinned-model
+ * authority. Filesystem export remains behind its later rollout gate.
  */
-export const PR5_AVAILABLE_SCOPES = [
+export const AGENT_V1_AVAILABLE_SCOPES = [
   'read',
   'preview',
   'edit',
+  'assets',
+  'model',
 ] as const satisfies readonly AgentScope[];
+
+/** @deprecated Use AGENT_V1_AVAILABLE_SCOPES. */
+export const PR5_AVAILABLE_SCOPES = AGENT_V1_AVAILABLE_SCOPES;
 
 export const DOCUMENT_CONTENT_TRUST = 'untrusted-document-content' as const;
 
@@ -153,6 +196,7 @@ export interface CapabilitySnapshot {
     mcp: boolean;
   };
   preview: JsonObject;
+  permissions: JsonObject;
   transport?: JsonObject;
   scopeAvailability: Record<
     AgentScope,
@@ -193,7 +237,7 @@ export interface DocumentRedaction {
 
 export interface DocumentSnapshot {
   protocolVersion: typeof AGENT_PROTOCOL_VERSION;
-  schemaVersion: 3;
+  schemaVersion: 4;
   revision: number;
   documentId: string;
   trust: typeof DOCUMENT_CONTENT_TRUST;
@@ -201,6 +245,110 @@ export interface DocumentSnapshot {
   layers?: JsonValue[];
   omitted: string[];
   redactions: DocumentRedaction[];
+}
+
+export type PutAssetRequest =
+  | {
+      phase: 'begin';
+      requestId: string;
+      mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+      byteLength: number;
+      sha256: string;
+    }
+  | {
+      phase: 'chunk';
+      requestId: string;
+      uploadId: string;
+      offset: number;
+      dataBase64: string;
+      chunkSha256: string;
+    }
+  | {
+      phase: 'status';
+      uploadId: string;
+    }
+  | {
+      phase: 'finalize';
+      requestId: string;
+      uploadId: string;
+      expectedRevision: number;
+    }
+  | {
+      phase: 'abort';
+      requestId: string;
+      uploadId: string;
+    };
+
+export interface PublicAssetUploadStatus {
+  uploadId: string;
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+  byteLength: number;
+  receivedBytes: number;
+  nextOffset: number;
+  chunkBytes: number;
+  idleExpiresAt: string;
+  expiresAt: string;
+  complete: boolean;
+}
+
+export type PutAssetResult =
+  | {
+      phase: 'begin' | 'chunk' | 'status';
+      revision: number;
+      upload: PublicAssetUploadStatus;
+    }
+  | {
+      phase: 'abort';
+      revision: number;
+      aborted: boolean;
+    }
+  | {
+      phase: 'finalize';
+      revision: number;
+      asset: AssetMetadata;
+      /** True only when the content-addressed bytes already existed. */
+      deduplicated: boolean;
+      persistenceStatus: PublicPersistenceStatus;
+      /**
+       * Rendering caused by either the manifest commit or restoration of
+       * missing CAS bytes. This is deliberately separate from transaction.
+       */
+      renderStatus: PublicTransactionRenderStatus;
+      transaction: PublicTransactionSuccess;
+    };
+
+export interface ListAssetsRequest {
+  cursor?: string;
+  limit?: number;
+}
+
+export interface PublicAssetReference {
+  layerId: string;
+  nodeId: string;
+}
+
+export interface PublicAssetMetadata {
+  metadata: AssetMetadata;
+  referenceCount: number;
+  references: PublicAssetReference[];
+  availability: 'available' | 'bundled' | 'missing';
+}
+
+export interface ListAssetsResult {
+  trust: 'untrusted-asset-metadata';
+  revision: number;
+  assets: PublicAssetMetadata[];
+  nextCursor?: string;
+}
+
+export interface GetAssetMetadataRequest {
+  assetId: string;
+}
+
+export interface RemoveAssetRequest {
+  requestId: string;
+  expectedRevision: number;
+  assetId: string;
 }
 
 export type ValidateDocumentRequest =
@@ -292,12 +440,20 @@ export interface PublicPreviewResult {
 export interface AgentController {
   getCapabilities(request?: CapabilityRequest): CapabilitySnapshot;
   getDocument(request?: GetDocumentRequest): DocumentSnapshot;
-  validateDocument(request: ValidateDocumentRequest): PublicValidationReport;
-  applyTransaction(request: TransactionRequest): Promise<TransactionResult>;
+  validateDocument(request: ValidateDocumentRequest): Promise<PublicValidationReport>;
+  applyTransaction(
+    request: TransactionRequest,
+  ): Promise<PublicTransactionResult>;
   getRenderStatus(request?: PublicRenderStatusRequest): PublicRenderStatus;
   awaitRender(request: PublicAwaitRenderRequest): Promise<PublicRenderStatus>;
   capturePreview(request: PublicPreviewRequest): Promise<PublicPreviewResult>;
-  revertTransaction(request: RevertTransactionRequest): Promise<TransactionResult>;
+  revertTransaction(
+    request: RevertTransactionRequest,
+  ): Promise<PublicTransactionResult>;
+  putAsset(request: PutAssetRequest): Promise<PutAssetResult>;
+  listAssets(request?: ListAssetsRequest): Promise<ListAssetsResult>;
+  getAssetMetadata(request: GetAssetMetadataRequest): Promise<PublicAssetMetadata>;
+  removeAsset(request: RemoveAssetRequest): Promise<PublicTransactionResult>;
 }
 
 declare global {

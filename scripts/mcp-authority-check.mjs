@@ -12,6 +12,9 @@ const PACKAGE_DIST = new URL(
   import.meta.url,
 );
 const AGENT_SOURCE = new URL('../src/agent/', import.meta.url);
+const MODEL_PREPARATION_SOURCE_PATH = resolve(fileURLToPath(
+  new URL('../src/agent/modelPreparation.ts', import.meta.url),
+));
 const PACKAGE_SOURCE_PATH = resolve(fileURLToPath(PACKAGE_SOURCE));
 const PACKAGE_DIST_PATH = resolve(fileURLToPath(PACKAGE_DIST));
 
@@ -24,6 +27,11 @@ const PACKAGE_FILE_NAMES = [
   'faults',
   'index',
   'localAppHost',
+  'modelCache',
+  'modelDownloader',
+  'modelManager',
+  'modelManifest',
+  'modelPublicContract',
   'protocol',
   'runtime',
   'toolSchemas',
@@ -73,6 +81,7 @@ const PACKAGE_IMPORT_CAPABILITIES = new Map([
       'node:crypto',
       new Set(['createHash', 'randomBytes', 'timingSafeEqual']),
     ],
+    ['node:events', new Set(['once'])],
     ['node:fs/promises', new Set(['readFile', 'readdir'])],
     [
       'node:http',
@@ -82,6 +91,34 @@ const PACKAGE_IMPORT_CAPABILITIES = new Map([
     ['node:stream', new Set(['Duplex'])],
     ['node:url', new Set(['fileURLToPath'])],
     ['ws', new Set(['WebSocketServer'])],
+  ])],
+  ['modelCache', new Map([
+    ['node:crypto', new Set(['createHash'])],
+    ['node:fs', new Set(['constants'])],
+    [
+      'node:fs/promises',
+      new Set([
+        'lstat',
+        'mkdir',
+        'mkdtemp',
+        'open',
+        'readFile',
+        'rename',
+        'rm',
+      ]),
+    ],
+    ['node:os', new Set(['homedir'])],
+    [
+      'node:path',
+      new Set(['dirname', 'join', 'parse', 'resolve', 'sep']),
+    ],
+  ])],
+  ['modelDownloader', new Map([
+    ['node:http', new Set(['IncomingMessage'])],
+    ['node:https', new Set(['RequestOptions', 'request'])],
+  ])],
+  ['modelManager', new Map([
+    ['node:crypto', new Set(['createHash', 'timingSafeEqual'])],
   ])],
   ['toolSchemas', new Map([
     ['zod/v4', new Set(['*'])],
@@ -426,6 +463,134 @@ function enclosingNamedFunction(node, name) {
     current = current.parent;
   }
   return false;
+}
+
+function objectLiteralProperties(node) {
+  if (!ts.isObjectLiteralExpression(node)) return null;
+  const properties = new Map();
+  for (const property of node.properties) {
+    let name = null;
+    let value = null;
+    if (ts.isPropertyAssignment(property)) {
+      if (ts.isIdentifier(property.name)) name = property.name.text;
+      else name = stringLiteralValue(property.name);
+      value = property.initializer;
+    } else if (ts.isShorthandPropertyAssignment(property)) {
+      name = property.name.text;
+      value = property.name;
+    }
+    if (name === null || value === null || properties.has(name)) return null;
+    properties.set(name, value);
+  }
+  return properties;
+}
+
+function hasExactPropertyNames(properties, expected) {
+  return properties.size === expected.length
+    && expected.every((name) => properties.has(name));
+}
+
+function isStringProperty(properties, name, expected) {
+  const value = properties.get(name);
+  return value !== undefined && stringLiteralValue(value) === expected;
+}
+
+function hasApprovedPinnedRouteBinding(sourceFile, name) {
+  let approved = 0;
+  let rejected = false;
+  const visit = (node) => {
+    if (
+      ts.isIdentifier(node)
+      && node.text === name
+      && isValueBindingIdentifier(node)
+    ) {
+      const declaration = containingImportDeclaration(node);
+      const valid =
+        ts.isImportSpecifier(node.parent)
+        && node.parent.name === node
+        && (node.parent.propertyName ?? node.parent.name).text === name
+        && declaration !== null
+        && stringLiteralValue(declaration.moduleSpecifier)
+          === '../../packages/mcp-companion/src/modelPublicContract';
+      if (valid) approved += 1;
+      else rejected = true;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return approved === 1 && !rejected;
+}
+
+function isAllowedPinnedModelFetch(sourceFile, node) {
+  if (
+    resolve(sourceFile.fileName) !== MODEL_PREPARATION_SOURCE_PATH
+    || !ts.isCallExpression(node)
+    || !ts.isIdentifier(node.expression)
+    || node.expression.text !== 'fetch'
+    || node.arguments.length !== 2
+    || !ts.isIdentifier(node.arguments[0])
+  ) {
+    return false;
+  }
+  const route = node.arguments[0].text;
+  if (!hasApprovedPinnedRouteBinding(sourceFile, route)) return false;
+  const statusRequest =
+    route === 'MODEL_STATUS_PATH'
+    && enclosingNamedFunction(node, 'getPinnedModelStatus');
+  const prepareRequest =
+    route === 'MODEL_PREPARE_PATH'
+    && enclosingNamedFunction(node, 'preparePinnedModelFromTrustedUi');
+  if (!statusRequest && !prepareRequest) return false;
+
+  const properties = objectLiteralProperties(node.arguments[1]);
+  const expectedNames = statusRequest
+    ? ['method', 'signal', 'credentials', 'cache', 'redirect', 'headers']
+    : [
+        'method',
+        'signal',
+        'credentials',
+        'cache',
+        'redirect',
+        'headers',
+        'body',
+      ];
+  if (
+    !properties
+    || !hasExactPropertyNames(properties, expectedNames)
+    || !ts.isIdentifier(properties.get('signal'))
+    || properties.get('signal').text !== 'signal'
+    || !isStringProperty(
+      properties,
+      'method',
+      statusRequest ? 'GET' : 'POST',
+    )
+    || !isStringProperty(properties, 'credentials', 'same-origin')
+    || !isStringProperty(properties, 'cache', 'no-store')
+    || !isStringProperty(properties, 'redirect', 'error')
+  ) {
+    return false;
+  }
+
+  const headers = objectLiteralProperties(properties.get('headers'));
+  if (
+    !headers
+    || !hasExactPropertyNames(
+      headers,
+      statusRequest ? ['Accept'] : ['Accept', 'Content-Type'],
+    )
+    || !isStringProperty(headers, 'Accept', 'application/json')
+    || (
+      prepareRequest
+      && !isStringProperty(
+        headers,
+        'Content-Type',
+        'application/json',
+      )
+    )
+  ) {
+    return false;
+  }
+  return statusRequest || ts.isCallExpression(properties.get('body'));
 }
 
 function enclosingCreatedSessionConstructor(node) {
@@ -820,7 +985,10 @@ export function authorityViolations(
         && (
           node.expression.text === 'eval'
           || node.expression.text === 'Function'
-          || node.expression.text === 'fetch'
+          || (
+            node.expression.text === 'fetch'
+            && !isAllowedPinnedModelFetch(sourceFile, node)
+          )
         )
       ) {
         violations.push(

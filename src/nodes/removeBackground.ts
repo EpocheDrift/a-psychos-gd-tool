@@ -2,7 +2,9 @@
 // Transformers.js) decides which pixels are the foreground subject, and its mask
 // is folded into the image's alpha so the background becomes transparent. The
 // model and the masking run in a Web Worker (see traceWorker.ts), so the UI stays
-// responsive; weights download from the HF hub on first cook and are then cached.
+// responsive. In the Agent build, a separate human action downloads the fixed
+// revision into the companion's verified managed cache before this node can be
+// added; the worker itself has no remote-model authority.
 
 import type { NodeDef } from '../engine/registry';
 import type { RasterValue } from '../engine/values';

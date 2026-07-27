@@ -9,6 +9,7 @@ import {
   COMPANION_PROTOCOL_VERSION,
   COMPANION_TRANSPORT_LIMITS,
   isCompanionOperation,
+  isCompanionWriteOperation,
   type CompanionBinaryHeader,
   type CompanionCancel,
   type CompanionRequest,
@@ -279,7 +280,10 @@ async function dispatchControllerRequest(
     case 'getRenderStatus':
       return { kind: 'json', value: controller.getRenderStatus(input as never) };
     case 'validateDocument':
-      return { kind: 'json', value: controller.validateDocument(input as never) };
+      return {
+        kind: 'json',
+        value: await controller.validateDocument(input as never),
+      };
     case 'applyTransaction':
       return {
         kind: 'json',
@@ -308,6 +312,26 @@ async function dispatchControllerRequest(
       return {
         kind: 'json',
         value: await controller.revertTransaction(input as never),
+      };
+    case 'putAsset':
+      return {
+        kind: 'json',
+        value: await controller.putAsset(input as never),
+      };
+    case 'listAssets':
+      return {
+        kind: 'json',
+        value: await controller.listAssets(input as never),
+      };
+    case 'getAssetMetadata':
+      return {
+        kind: 'json',
+        value: await controller.getAssetMetadata(input as never),
+      };
+    case 'removeAsset':
+      return {
+        kind: 'json',
+        value: await controller.removeAsset(input as never),
       };
     case 'capturePreview': {
       const companionController = bindings.getCompanionController();
@@ -439,6 +463,8 @@ export function installLocalCompanionBridge(
   let activeRenderWaits = 0;
   let activePreviews = 0;
   let rateTokens: number = COMPANION_TRANSPORT_LIMITS.requestBurst;
+  let assetRateTokens: number =
+    COMPANION_TRANSPORT_LIMITS.assetUploadRequestBurst;
   let lastRateRefill = Date.now();
 
   const closeProtocol = (reason: string) => {
@@ -487,15 +513,26 @@ export function installLocalCompanionBridge(
       + Math.max(0, now - lastRateRefill)
         * (COMPANION_TRANSPORT_LIMITS.requestsPerMinute / 60_000),
     );
+    assetRateTokens = Math.min(
+      COMPANION_TRANSPORT_LIMITS.assetUploadRequestBurst,
+      assetRateTokens
+      + Math.max(0, now - lastRateRefill)
+        * (COMPANION_TRANSPORT_LIMITS.requestsPerMinute / 60_000),
+    );
     lastRateRefill = now;
-    const isWrite =
-      request.operation === 'applyTransaction'
-      || request.operation === 'revertTransaction';
+    const isWrite = isCompanionWriteOperation(request.operation);
     const isRenderWait = request.operation === 'awaitRender';
     const isPreview = request.operation === 'capturePreview';
     const countsAgainstPublicRate = request.operation !== 'pairRequest';
     if (
-      (countsAgainstPublicRate && rateTokens < 1)
+      (
+        countsAgainstPublicRate
+        && (
+          request.operation === 'putAsset'
+            ? assetRateTokens < 1
+            : rateTokens < 1
+        )
+      )
       || activeRequests.size
         >= COMPANION_TRANSPORT_LIMITS.maxPendingRequests
       || activeRequests.has(request.requestId)
@@ -518,7 +555,10 @@ export function installLocalCompanionBridge(
       closeProtocol('request budget or replay violation');
       return;
     }
-    if (countsAgainstPublicRate) rateTokens -= 1;
+    if (countsAgainstPublicRate) {
+      if (request.operation === 'putAsset') assetRateTokens -= 1;
+      else rateTokens -= 1;
+    }
     activeRequests.add(request.requestId);
     const abortController =
       !isWrite

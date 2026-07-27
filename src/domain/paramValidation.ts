@@ -13,6 +13,7 @@ import {
   type ImageSourceInfo,
   type PublicBind,
 } from './paramCodecs';
+import { isAssetId } from './assetPolicy';
 import { getParamPublicMetadata } from './publicNodeMetadata';
 
 export interface ParamIssue {
@@ -207,6 +208,20 @@ export function validateParamValue(
     }
 
     case 'image': {
+      if (metadata.format === 'asset-id-v1') {
+        if (typeof value !== 'string') {
+          return { issues: [typeIssue('an asset ID string', value)] };
+        }
+        return value === '' || isAssetId(value)
+          ? { issues }
+          : {
+              issues: [{
+                code: 'ASSET_POLICY_VIOLATION',
+                message:
+                  'Image assetId must be empty or use asset_<sha256> content addressing.',
+              }],
+            };
+      }
       const validated = validateImageSource(value, limits.maxLegacyAssetBytes, limits.maxAssetPixels);
       if (!validated.ok) {
         const resourceLimit = validated.issue.details !== undefined

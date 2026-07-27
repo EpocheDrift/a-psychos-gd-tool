@@ -14,14 +14,23 @@ import type {
   AgentConnectionSnapshot,
   AgentSessionManager,
 } from './sessionManager';
+import type {
+  PublicModelStatus,
+} from '../../packages/mcp-companion/src/modelPublicContract';
+import {
+  ModelPreparationClientError,
+  getPinnedModelStatus,
+  preparePinnedModelFromTrustedUi,
+} from './modelPreparation';
 import './agentConnectionPanel.css';
 
 const SCOPE_DESCRIPTIONS: Record<AgentScope, string> = {
   read: 'Read capabilities, document summaries, validation, and render status.',
   preview: 'Capture a bounded exact-revision preview and visual metrics.',
   edit: 'Apply validated revision-checked transactions and revert owned transactions.',
-  assets: 'Ingest bounded binary assets. Unavailable until PR7.',
-  model: 'Run an approved, pinned model. Unavailable until PR7.',
+  assets: 'Ingest bounded, content-addressed image assets.',
+  model:
+    'Run pinned BRIA RMBG 1.4 after a separate human-approved ~210 MiB download; non-commercial use only unless separately licensed.',
   export: 'Create a human-approved external artifact. Unavailable until a later gate.',
 };
 
@@ -55,6 +64,49 @@ function connectionMessage(snapshot: AgentConnectionSnapshot): string {
   }
 }
 
+function modelRequestId(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return `model_${btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '')}`;
+}
+
+function mebibytes(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function modelStatusText(status: PublicModelStatus | null): string {
+  if (!status) return 'Checking the managed model cache…';
+  switch (status.state) {
+    case 'not-installed':
+      return 'Not installed.';
+    case 'approval-required':
+      return status.error
+        ? `Confirmation expired or failed safely (${status.error.code}).`
+        : 'A direct human confirmation is required.';
+    case 'downloading':
+      return `Downloading ${mebibytes(status.bytes)} of ${mebibytes(status.totalBytes)}.`;
+    case 'verifying':
+      return `Verifying ${mebibytes(status.bytes)} of ${mebibytes(status.totalBytes)}.`;
+    case 'ready':
+      return `Ready — ${mebibytes(status.totalBytes)} verified locally.`;
+    case 'failed':
+      return `Preparation failed safely (${status.error?.code ?? 'MODEL_PREPARATION_FAILED'}).`;
+  }
+}
+
+export function isModelPreparationPollingComplete(
+  status: PublicModelStatus | null,
+): boolean {
+  return status?.state === 'ready'
+    || status?.state === 'failed'
+    || status?.error !== undefined;
+}
+
 export function AgentConnectionPanel({
   manager,
 }: {
@@ -67,6 +119,9 @@ export function AgentConnectionPanel({
   );
   const [selected, setSelected] = useState<AgentScope[]>([]);
   const [uiError, setUiError] = useState<AgentBridgeError | null>(null);
+  const [modelStatus, setModelStatus] =
+    useState<PublicModelStatus | null>(null);
+  const [modelPreparing, setModelPreparing] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const connectRef = useRef<HTMLButtonElement>(null);
@@ -85,6 +140,9 @@ export function AgentConnectionPanel({
   const showDialog =
     snapshot.phase === 'pending'
     || snapshot.phase === 'approved';
+  const modelGranted =
+    snapshot.phase === 'connected'
+    && snapshot.grantedScopes.includes('model');
 
   useEffect(() => {
     if (snapshot.phase === 'pending') {
@@ -122,6 +180,57 @@ export function AgentConnectionPanel({
       }
     });
   }, [showDialog, snapshot.phase]);
+
+  useEffect(() => {
+    if (!modelGranted) {
+      setModelStatus(null);
+      setModelPreparing(false);
+      return;
+    }
+    const abort = new AbortController();
+    void getPinnedModelStatus(abort.signal).then(
+      (status) => setModelStatus(status),
+      () => {
+        if (!abort.signal.aborted) {
+          setUiError({
+            code: 'MODEL_DOWNLOAD_REQUIRED',
+            message: 'The local model status could not be verified.',
+            recoverable: true,
+          });
+        }
+      },
+    );
+    return () => abort.abort();
+  }, [modelGranted]);
+
+  useEffect(() => {
+    if (!modelGranted || !modelPreparing) return;
+    if (isModelPreparationPollingComplete(modelStatus)) {
+      setModelPreparing(false);
+      return;
+    }
+    const abort = new AbortController();
+    const timer = setTimeout(() => {
+      void getPinnedModelStatus(abort.signal).then(
+        (status) => setModelStatus(status),
+        (error) => {
+          if (abort.signal.aborted) return;
+          setModelPreparing(false);
+          setUiError({
+            code: 'MODEL_DOWNLOAD_REQUIRED',
+            message: error instanceof ModelPreparationClientError
+              ? error.message
+              : 'The local model status could not be verified.',
+            recoverable: true,
+          });
+        },
+      );
+    }, 750);
+    return () => {
+      clearTimeout(timer);
+      abort.abort();
+    };
+  }, [modelGranted, modelPreparing, modelStatus]);
 
   const requireTrustedGesture = (
     event: React.SyntheticEvent,
@@ -227,6 +336,59 @@ export function AgentConnectionPanel({
           >
             Revoke now
           </button>
+        </div>
+      )}
+
+      {modelGranted && (
+        <div
+          className="agent-model-summary"
+          data-agent-model-state={modelStatus?.state ?? 'checking'}
+          data-agent-model-manifest={
+            modelStatus?.manifestSha256 ?? ''
+          }
+        >
+          <strong>BRIA RMBG 1.4</strong>
+          <span role="status" aria-live="polite">
+            {modelStatusText(modelStatus)}
+          </span>
+          <span>
+            Non-commercial use only unless you have a separate BRIA
+            commercial license. The first preparation downloads and verifies
+            about 210.3 MiB from the fixed BRIA Hugging Face revision.
+          </span>
+          {modelStatus
+            && modelStatus.state !== 'ready'
+            && modelStatus?.state !== 'downloading'
+            && modelStatus?.state !== 'verifying' && (
+              <button
+                type="button"
+                disabled={modelPreparing}
+                data-agent-action="prepare-pinned-model"
+                onClick={(event) => requireTrustedGesture(event, () => {
+                  setModelPreparing(true);
+                  void preparePinnedModelFromTrustedUi(
+                    modelRequestId(),
+                  ).then(
+                    (status) => setModelStatus(status),
+                    (error) => {
+                      setModelPreparing(false);
+                      setUiError({
+                        code: 'MODEL_DOWNLOAD_REQUIRED',
+                        message:
+                          error instanceof ModelPreparationClientError
+                            ? error.message
+                            : 'The pinned model preparation failed safely.',
+                        recoverable: true,
+                      });
+                    },
+                  );
+                })}
+              >
+                {modelPreparing
+                  ? 'Preparing…'
+                  : 'Approve model download'}
+              </button>
+            )}
         </div>
       )}
 

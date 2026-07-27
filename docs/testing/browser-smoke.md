@@ -86,9 +86,10 @@ diagnostic and the semantic color/bounds checks still gate the run.
 Every pull request runs typecheck, Vitest, the default and Agent production
 builds, the compiled MCP authority gate, a real child-process stdio-to-browser
 MCP E2E, the compiled companion stdio lifecycle check, and
-`check:agent-artifacts`. The MCP E2E exercises all eight tools through the
-official stdio client transport, including the in-app browser-trusted approval
-flow, exact preview bytes, revert, revoke, and teardown. The local
+`check:agent-artifacts`. The MCP E2E exercises the enabled read, preview, edit,
+asset, and model handlers through the official stdio client transport,
+including in-app browser-trusted approval, exact preview bytes, pinned
+same-origin model routing, revert, revoke, and teardown. The local
 `check:agent-build` additionally uses real Chrome to verify the
 default/wrong-origin paths and prove that dynamically importing the Agent HTML
 entry exposes no raw store namespace. Full WebGPU visual smokes remain a

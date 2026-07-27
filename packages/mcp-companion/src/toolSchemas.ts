@@ -165,6 +165,79 @@ export const revertTransactionInputSchema = z.strictObject({
   transactionId: safeIdSchema,
 });
 
+const uploadIdSchema = z.string().regex(/^upload_[A-Za-z0-9_-]{22}$/);
+const assetIdSchema = z.string().regex(/^asset_[0-9a-f]{64}$/);
+const canonicalBase64Schema = z.string()
+  .min(4)
+  .max(1_398_104)
+  .regex(/^[A-Za-z0-9+/]+={0,2}$/)
+  .refine((value) => {
+    if (value.length % 4 !== 0) return false;
+    const alphabet =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    if (value.endsWith('==')) {
+      return (alphabet.indexOf(value[value.length - 3]!) & 0x0f) === 0;
+    }
+    if (value.endsWith('=')) {
+      return (alphabet.indexOf(value[value.length - 2]!) & 0x03) === 0;
+    }
+    return true;
+  }, 'Base64 must use canonical padding bits.');
+
+export const putAssetInputSchema = z.discriminatedUnion('phase', [
+  z.strictObject({
+    phase: z.literal('begin'),
+    requestId: safeIdSchema,
+    mimeType: z.enum(['image/png', 'image/jpeg', 'image/webp']),
+    byteLength: positiveIntegerSchema.max(20 * 1024 * 1024),
+    sha256: z.string().regex(HASH),
+  }),
+  z.strictObject({
+    phase: z.literal('chunk'),
+    requestId: safeIdSchema,
+    uploadId: uploadIdSchema,
+    offset: revisionSchema.max(20 * 1024 * 1024),
+    dataBase64: canonicalBase64Schema,
+    chunkSha256: z.string().regex(HASH),
+  }),
+  z.strictObject({
+    phase: z.literal('status'),
+    uploadId: uploadIdSchema,
+  }),
+  z.strictObject({
+    phase: z.literal('finalize'),
+    requestId: safeIdSchema,
+    uploadId: uploadIdSchema,
+    expectedRevision: revisionSchema,
+  }),
+  z.strictObject({
+    phase: z.literal('abort'),
+    requestId: safeIdSchema,
+    uploadId: uploadIdSchema,
+  }),
+]);
+
+export const listAssetsInputSchema = z.strictObject({
+  cursor: z.string().max(64).regex(/^r\d+_o\d+$/).optional(),
+  limit: positiveIntegerSchema.max(64).optional(),
+});
+
+export const getAssetMetadataInputSchema = z.strictObject({
+  assetId: assetIdSchema,
+});
+
+export const removeAssetInputSchema = z.strictObject({
+  requestId: safeIdSchema,
+  expectedRevision: revisionSchema,
+  assetId: assetIdSchema,
+});
+
+export const getModelStatusInputSchema = z.strictObject({});
+
+export const prepareModelInputSchema = z.strictObject({
+  requestId: safeIdSchema,
+});
+
 export const publicErrorSchema = z.strictObject({
   code: z.string().min(1).max(128),
   message: z.string().max(2_048),
@@ -225,6 +298,13 @@ export const capabilitySnapshotSchema = z.strictObject({
     mcp: z.boolean(),
   }),
   preview: jsonObjectSchema,
+  permissions: z.strictObject({
+    localFonts: z.strictObject({
+      agentAvailable: z.literal(false),
+      requiresHumanGesture: z.literal(true),
+      familyEnumeration: z.literal('disabled'),
+    }),
+  }),
   transport: jsonObjectSchema.optional(),
   scopeAvailability: z.strictObject({
     read: z.strictObject({
@@ -257,7 +337,7 @@ export const capabilitySnapshotSchema = z.strictObject({
 
 export const documentSnapshotSchema = z.strictObject({
   protocolVersion: z.literal('1.0'),
-  schemaVersion: z.literal(3),
+  schemaVersion: z.literal(4),
   revision: revisionSchema,
   documentId: safeIdSchema,
   trust: z.literal('untrusted-document-content'),
@@ -329,12 +409,9 @@ export const validationReportSchema = z.strictObject({
   }),
 });
 
-export const transactionSuccessSchema = z.strictObject({
+const transactionSuccessCommonShape = {
   ok: z.literal(true),
   requestId: safeIdSchema,
-  dryRun: z.boolean(),
-  committed: z.boolean(),
-  transactionId: safeIdSchema.nullable(),
   previousRevision: revisionSchema,
   revision: revisionSchema,
   proposedRevision: revisionSchema,
@@ -347,6 +424,7 @@ export const transactionSuccessSchema = z.strictObject({
   changed: z.strictObject({
     frame: z.boolean(),
     layerIds: z.array(safeIdSchema),
+    assetIds: z.array(safeIdSchema),
     nodes: z.array(z.strictObject({
       layerId: safeIdSchema,
       nodeId: safeIdSchema,
@@ -355,6 +433,253 @@ export const transactionSuccessSchema = z.strictObject({
     replacedEdges: z.array(z.unknown()),
   }),
   warnings: z.array(validationFindingSchema),
+};
+
+const committedTransactionRenderStatusSchema = z.discriminatedUnion('state', [
+  z.strictObject({
+    state: z.enum([
+      'idle',
+      'queued',
+      'cooking',
+      'complete',
+      'failed',
+      'superseded',
+    ]),
+    ticket: z.strictObject({
+      revision: revisionSchema,
+      attempt: positiveIntegerSchema,
+    }).nullable(),
+  }),
+  z.strictObject({
+    state: z.literal('unavailable'),
+    ticket: z.null(),
+  }),
+]);
+
+const committedTransactionSuccessSchema = z.strictObject({
+  ...transactionSuccessCommonShape,
+  dryRun: z.literal(false),
+  committed: z.literal(true),
+  transactionId: safeIdSchema,
+  persistenceStatus: z.enum(['durable', 'memory-only']),
+  renderStatus: committedTransactionRenderStatusSchema,
+});
+
+const uncommittedTransactionSuccessSchema = z.strictObject({
+  ...transactionSuccessCommonShape,
+  dryRun: z.boolean(),
+  committed: z.literal(false),
+  transactionId: z.null(),
+  persistenceStatus: z.literal('not-applicable'),
+  renderStatus: z.strictObject({
+    state: z.literal('not-applicable'),
+    ticket: z.null(),
+  }),
+});
+
+export const transactionSuccessSchema = z.discriminatedUnion('committed', [
+  committedTransactionSuccessSchema,
+  uncommittedTransactionSuccessSchema,
+]).superRefine((value, context) => {
+  if (
+    value.committed
+    && value.renderStatus.ticket
+    && value.renderStatus.ticket.revision !== value.revision
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Render ticket revision must match the committed transaction.',
+      path: ['renderStatus', 'ticket', 'revision'],
+    });
+  }
+  if (
+    value.committed
+    && (
+      value.previousRevision + 1 !== value.revision
+      || value.proposedRevision !== value.revision
+    )
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Committed transaction revisions are inconsistent.',
+      path: ['revision'],
+    });
+  }
+  if (
+    !value.committed
+    && !value.dryRun
+    && (
+      value.previousRevision !== value.revision
+      || value.proposedRevision !== value.revision
+    )
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'No-op transaction revisions are inconsistent.',
+      path: ['revision'],
+    });
+  }
+});
+
+const assetMetadataSchema = z.strictObject({
+  id: assetIdSchema,
+  sha256: z.string().regex(HASH),
+  mimeType: z.enum(['image/png', 'image/jpeg', 'image/webp']),
+  byteLength: positiveIntegerSchema.max(20 * 1024 * 1024),
+  width: positiveIntegerSchema.max(8192),
+  height: positiveIntegerSchema.max(8192),
+  source: z.enum(['upload', 'generated', 'bundled']),
+});
+
+const assetUploadStatusSchema = z.strictObject({
+  uploadId: uploadIdSchema,
+  mimeType: z.enum(['image/png', 'image/jpeg', 'image/webp']),
+  byteLength: positiveIntegerSchema.max(20 * 1024 * 1024),
+  receivedBytes: revisionSchema.max(20 * 1024 * 1024),
+  nextOffset: revisionSchema.max(20 * 1024 * 1024),
+  chunkBytes: positiveIntegerSchema.max(1024 * 1024),
+  idleExpiresAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+  complete: z.boolean(),
+});
+
+const publicAssetMetadataSchema = z.strictObject({
+  metadata: assetMetadataSchema,
+  referenceCount: revisionSchema.max(1024),
+  references: z.array(z.strictObject({
+    layerId: safeIdSchema,
+    nodeId: safeIdSchema,
+  })).max(1024),
+  availability: z.enum(['available', 'bundled', 'missing']),
+});
+
+const publicTransactionRenderStatusSchema = z.union([
+  committedTransactionRenderStatusSchema,
+  z.strictObject({
+    state: z.literal('not-applicable'),
+    ticket: z.null(),
+  }),
+]);
+
+const finalizedAssetResultSchema = z.strictObject({
+  phase: z.literal('finalize'),
+  revision: revisionSchema,
+  asset: assetMetadataSchema,
+  /** CAS deduplication is independent from whether the manifest committed. */
+  deduplicated: z.boolean(),
+  persistenceStatus: z.enum([
+    'durable',
+    'memory-only',
+    'not-applicable',
+  ]),
+  renderStatus: publicTransactionRenderStatusSchema,
+  transaction: transactionSuccessSchema,
+}).superRefine((value, context) => {
+  if (value.revision !== value.transaction.revision) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Finalize revision must match its nested transaction.',
+      path: ['revision'],
+    });
+  }
+  if (value.persistenceStatus !== value.transaction.persistenceStatus) {
+    context.addIssue({
+      code: 'custom',
+      message:
+        'Finalize persistence status must match its nested transaction.',
+      path: ['persistenceStatus'],
+    });
+  }
+  if (value.transaction.dryRun) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Asset finalization can never be a dry run.',
+      path: ['transaction', 'dryRun'],
+    });
+  }
+  if (
+    value.renderStatus.ticket
+    && value.renderStatus.ticket.revision !== value.revision
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Finalize render ticket revision must match its revision.',
+      path: ['renderStatus', 'ticket', 'revision'],
+    });
+  }
+  if (
+    value.transaction.committed
+    && JSON.stringify(value.renderStatus)
+      !== JSON.stringify(value.transaction.renderStatus)
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message:
+        'Committed finalize render status must match its nested transaction.',
+      path: ['renderStatus'],
+    });
+  }
+});
+
+const putAssetResultSchema = z.union([
+  z.strictObject({
+    phase: z.enum(['begin', 'chunk', 'status']),
+    revision: revisionSchema,
+    upload: assetUploadStatusSchema,
+  }),
+  z.strictObject({
+    phase: z.literal('abort'),
+    revision: revisionSchema,
+    aborted: z.boolean(),
+  }),
+  finalizedAssetResultSchema,
+]);
+
+const listAssetsResultSchema = z.strictObject({
+  trust: z.literal('untrusted-asset-metadata'),
+  revision: revisionSchema,
+  assets: z.array(publicAssetMetadataSchema).max(64),
+  nextCursor: z.string().max(64).regex(/^r\d+_o\d+$/).optional(),
+});
+
+export const publicModelStatusSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  modelKey: z.literal('rmbg-1.4'),
+  revision: z.string().regex(/^[0-9a-f]{40}$/),
+  manifestSha256: z.string().regex(HASH),
+  state: z.enum([
+    'not-installed',
+    'approval-required',
+    'downloading',
+    'verifying',
+    'ready',
+    'failed',
+  ]),
+  bytes: revisionSchema.max(1024 * 1024 * 1024),
+  totalBytes: positiveIntegerSchema.max(1024 * 1024 * 1024),
+  artifacts: z.array(z.strictObject({
+    id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
+    state: z.enum([
+      'missing',
+      'downloading',
+      'verifying',
+      'ready',
+      'invalid',
+    ]),
+    bytes: revisionSchema.max(1024 * 1024 * 1024),
+    totalBytes: positiveIntegerSchema.max(1024 * 1024 * 1024),
+  })).min(1).max(16),
+  license: z.strictObject({
+    id: z.literal('bria-rmbg-1.4'),
+    name: z.string().min(1).max(128),
+    summary: z.string().min(1).max(1_024),
+    commercialUse: z.literal('separate-agreement-required'),
+    requiresExplicitApproval: z.literal(true),
+  }),
+  error: z.strictObject({
+    code: z.string().min(1).max(128),
+    recoverable: z.boolean(),
+  }).optional(),
 });
 
 const previewMetricsSchema = z.strictObject({
@@ -436,6 +761,18 @@ export const capturePreviewOutputSchema =
   outputEnvelopeSchema(previewMetadataSchema);
 export const revertTransactionOutputSchema =
   outputEnvelopeSchema(transactionSuccessSchema);
+export const putAssetOutputSchema =
+  outputEnvelopeSchema(putAssetResultSchema);
+export const listAssetsOutputSchema =
+  outputEnvelopeSchema(listAssetsResultSchema);
+export const getAssetMetadataOutputSchema =
+  outputEnvelopeSchema(publicAssetMetadataSchema);
+export const removeAssetOutputSchema =
+  outputEnvelopeSchema(transactionSuccessSchema);
+export const getModelStatusOutputSchema =
+  outputEnvelopeSchema(publicModelStatusSchema);
+export const prepareModelOutputSchema =
+  outputEnvelopeSchema(publicModelStatusSchema);
 
 export type ToolOutputEnvelope = {
   outcome:
@@ -457,4 +794,10 @@ export const TOOL_INPUT_SCHEMAS = Object.freeze({
   awaitRender: awaitRenderInputSchema,
   capturePreview: capturePreviewInputSchema,
   revertTransaction: revertTransactionInputSchema,
+  putAsset: putAssetInputSchema,
+  listAssets: listAssetsInputSchema,
+  getAssetMetadata: getAssetMetadataInputSchema,
+  removeAsset: removeAssetInputSchema,
+  getModelStatus: getModelStatusInputSchema,
+  prepareModel: prepareModelInputSchema,
 });

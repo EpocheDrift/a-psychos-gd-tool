@@ -30,10 +30,13 @@ import type { GpuContext } from '../gpu/device';
 import type { PooledTexture } from '../gpu/pool';
 import { registry } from '../nodes';
 import type { Font } from 'opentype.js';
+import type { AssetMetadata } from '../domain/documentSchema';
 
 export interface RenderDocumentInput {
   document: Doc;
   fonts: ReadonlyMap<string, Font>;
+  assets?: readonly AssetMetadata[];
+  resolveAsset?: (assetId: string, signal?: AbortSignal) => Promise<Blob>;
   environmentRevision?: number;
 }
 
@@ -167,6 +170,7 @@ function contextForLayer(
     signal: runtime.signal,
     deadline: runtime.deadline,
     environmentRevision: input.environmentRevision,
+    resolveAsset: input.resolveAsset,
     maxPendingWorkerRequests: limits.maxPendingWorkerRequests,
     maxPendingWorkerBytes: limits.maxPendingWorkerBytes,
     maxVectorPaths: limits.maxVectorPaths,

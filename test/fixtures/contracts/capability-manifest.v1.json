@@ -1,7 +1,8 @@
 {
   "protocolVersion": "1.0",
   "documentSchemaVersions": [
-    3
+    3,
+    4
   ],
   "socketTypes": [
     "text",
@@ -58,7 +59,7 @@
         {
           "name": "font",
           "kind": "string",
-          "description": "An approved font key available in the current document session.",
+          "description": "A human-selected font key available in the current document session.",
           "default": "default",
           "schema": {
             "type": "string",
@@ -67,7 +68,7 @@
             "format": "font-key-v1",
             "maxUtf8Bytes": 65536
           },
-          "agentWritable": true
+          "agentWritable": false
         },
         {
           "name": "weight",
@@ -379,17 +380,17 @@
       ],
       "params": [
         {
-          "name": "src",
+          "name": "assetId",
           "kind": "image",
-          "description": "An approved embedded PNG, JPEG, or WebP data URI, the bundled factory image, or an empty value.",
+          "description": "An empty value or a content-addressed image asset ID already present in this project.",
           "default": "",
           "schema": {
             "type": "string",
-            "format": "image-data-uri-v1",
-            "maxContentBytes": 20971520,
-            "maxPixels": 33554432
+            "format": "asset-id-v1",
+            "pattern": "^(?:|asset_[0-9a-f]{64})$",
+            "maxLength": 70
           },
-          "agentWritable": false
+          "agentWritable": true
         },
         {
           "name": "fit",
@@ -3530,7 +3531,13 @@
     "maxExpressionBytes": 2048,
     "maxLegacyAssetBytes": 20971520,
     "maxAssetPixels": 33554432,
+    "maxAssetSide": 8192,
     "maxLegacyAssetBytesPerDocument": 67108864,
+    "maxAssetChunkBytes": 1048576,
+    "maxAssetChunks": 20,
+    "maxPendingAssetUploads": 1,
+    "assetUploadIdleMs": 60000,
+    "assetUploadDeadlineMs": 300000,
     "maxBinds": 64,
     "maxGeneratedItems": 100000,
     "maxVectorPaths": 250000,
@@ -3568,8 +3575,15 @@
     "transactions": true,
     "dryRun": true,
     "previews": true,
-    "assets": false,
+    "assets": true,
     "mcp": false
+  },
+  "permissions": {
+    "localFonts": {
+      "agentAvailable": false,
+      "requiresHumanGesture": true,
+      "familyEnumeration": "disabled"
+    }
   },
   "preview": {
     "formats": [

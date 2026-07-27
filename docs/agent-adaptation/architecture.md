@@ -1,6 +1,6 @@
 # Target Architecture for Agent Control
 
-Status: **proposed**
+Status: **implemented through the asset/model boundary; PR 8 evals in progress**
 
 ## Goals
 
@@ -417,8 +417,10 @@ their references so drag and scrub history remains structurally shared.
 Working-copy persistence also stays off continuous-edit hot paths: drag, scrub,
 and typing saves are debounced and coalesced, with a best-effort page-hide
 flush. Browser quota/private-mode failures preserve the previous safe save and
-raise a visible `PERSISTENCE_FAILED` diagnostic. PR 7 still owns durable asset
-storage and controller-visible persistence completion.
+raise a visible `PERSISTENCE_FAILED` diagnostic. Non-bundled image bytes live
+in a bounded content-addressed repository outside graph JSON; the controller
+reports project checkpoint status independently from its in-memory commit and
+render ticket.
 
 If an input already has an edge, `connect` returns
 `INPUT_ALREADY_CONNECTED` by default. The caller must set
@@ -475,9 +477,9 @@ interface AgentFailure {
 A dry run has `committed: false`, `transactionId: null`, an unchanged
 `revision`, and `proposedRevision = revision + 1`. It performs the same command
 and final-document validation but does not update the store, history,
-persistence, renderer, ID allocation, or transaction ledger. Render and
-persistence status join this result in PR 3 and PR 7 respectively; PR 2 does
-not claim either side effect has completed.
+persistence, renderer, ID allocation, or transaction ledger. Public results
+now report transaction commit, project checkpoint, and render scheduling as
+three separate facts.
 
 Initial stable error codes:
 
@@ -625,7 +627,7 @@ absolute deadline are all hard-bounded by the capability manifest.
 
 ## Asset boundary
 
-The public command API should ingest assets separately:
+The public command API ingests assets separately:
 
 ```ts
 interface AssetMetadata {
@@ -639,15 +641,18 @@ interface AssetMetadata {
 }
 ```
 
-Recommended tools:
+Implemented tools:
 
 - `put_asset` — bounded binary ingestion, returns `assetId`;
 - `list_assets`;
 - `remove_asset` — only when unreferenced, or with confirmation;
 - `get_asset_metadata`.
 
-Public `Image` creation should reference an `assetId`. A migration layer may
-continue to accept existing data URIs and `/factory-image.jpg` internally.
+Public `Image` creation references an `assetId`. Migration accepts legacy data
+URIs and the fixed `/factory-image.jpg` reference internally, verifies them,
+and emits a version 4 manifest. Human Save Project/Load Project actions use a
+strict portable envelope containing verified non-bundled bytes; the Agent has
+no project-replacement or filesystem authority.
 
 Default policy:
 
@@ -657,6 +662,12 @@ Default policy:
 - content hash/deduplication;
 - no image bytes or data URIs in logs;
 - model downloads are separately disclosed and permission-gated.
+
+The origin-shared IndexedDB CAS is capped at 256 MiB and deliberately performs
+no process-local destructive GC: another tab's retention set is unknowable.
+At the cap it fails closed with `RESOURCE_LIMIT`. Process-local memory fallback
+storage may reclaim only records outside current/history/session/staging and
+last-durable-save retention sets.
 
 ## Browser bridge
 

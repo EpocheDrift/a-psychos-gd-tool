@@ -1,6 +1,6 @@
-// Small synchronous SHA-256 for canonical request fingerprints. Web Crypto is
-// asynchronous, while the pure command/store boundary must commit atomically in
-// one JavaScript turn. This implementation handles UTF-8 text only.
+// Small synchronous SHA-256 for canonical request fingerprints and bounded
+// asset-ingestion preflight. Web Crypto is asynchronous, while the pure
+// command/migration boundary must finish atomically in one JavaScript turn.
 
 const ROUND_CONSTANTS = new Uint32Array([
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
@@ -25,8 +25,7 @@ function rotateRight(value: number, bits: number): number {
   return (value >>> bits) | (value << (32 - bits));
 }
 
-export function sha256Hex(text: string): string {
-  const input = new TextEncoder().encode(text);
+export function sha256BytesHex(input: Uint8Array): string {
   const bitLength = input.length * 8;
   const paddedLength = Math.ceil((input.length + 9) / 64) * 64;
   const padded = new Uint8Array(paddedLength);
@@ -105,4 +104,8 @@ export function sha256Hex(text: string): string {
   return [h0, h1, h2, h3, h4, h5, h6, h7]
     .map((word) => word.toString(16).padStart(8, '0'))
     .join('');
+}
+
+export function sha256Hex(text: string): string {
+  return sha256BytesHex(new TextEncoder().encode(text));
 }

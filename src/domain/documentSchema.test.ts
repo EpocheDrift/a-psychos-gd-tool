@@ -4,11 +4,11 @@ import {
   createSerializedProject,
   validateJsonValueSafety,
   validateSerializedProjectStructure,
-  type SerializedProjectV3,
+  type SerializedProject,
 } from './documentSchema';
 import { validateSerializedProject } from './semanticValidation';
 
-function minimalProject(): SerializedProjectV3 {
+function minimalProject(): SerializedProject {
   return createSerializedProject('document_1', {
     frame: { width: 320, height: 240 },
     layers: [{
@@ -33,11 +33,11 @@ function finding(project: unknown, code: string, path: string): void {
   expect(report.errors).toContainEqual(expect.objectContaining({ code, path }));
 }
 
-describe('version 3 structural validation', () => {
+describe('version 4 structural validation', () => {
   it('accepts a strict minimal envelope', () => {
     expect(validateSerializedProjectStructure(minimalProject())).toMatchObject({
       valid: true,
-      schemaVersion: 3,
+      schemaVersion: 4,
       errors: [],
     });
   });
@@ -134,7 +134,7 @@ describe('version 3 structural validation', () => {
   it('enforces strict asset metadata and total budgets', () => {
     const project = minimalProject();
     project.assets = [{
-      id: 'asset_1',
+      id: `asset_${'a'.repeat(64)}`,
       sha256: 'a'.repeat(64),
       mimeType: 'image/png',
       byteLength: 20,
@@ -146,6 +146,7 @@ describe('version 3 structural validation', () => {
       limits: {
         maxLegacyAssetBytes: 20,
         maxLegacyAssetBytesPerDocument: 20,
+        maxAssetChunkBytes: 20,
         maxAssetPixels: 16,
       },
     }).valid).toBe(true);
@@ -155,6 +156,7 @@ describe('version 3 structural validation', () => {
       limits: {
         maxLegacyAssetBytes: 20,
         maxLegacyAssetBytesPerDocument: 20,
+        maxAssetChunkBytes: 20,
         maxAssetPixels: 16,
       },
     });

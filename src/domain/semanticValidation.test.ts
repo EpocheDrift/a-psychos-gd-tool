@@ -2,17 +2,30 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Edge, NodeInstance } from '../engine/graph';
 import {
   createSerializedProject,
-  type SerializedProjectV3,
+  type SerializedProject,
 } from './documentSchema';
 import { validateSerializedProject } from './semanticValidation';
 
-const ONE_PIXEL_PNG =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+const ONE_PIXEL_SHA =
+  '431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460';
+const ONE_PIXEL_ASSET_ID = `asset_${ONE_PIXEL_SHA}`;
+
+function onePixelAsset() {
+  return {
+    id: ONE_PIXEL_ASSET_ID,
+    sha256: ONE_PIXEL_SHA,
+    mimeType: 'image/png' as const,
+    byteLength: 68,
+    width: 1,
+    height: 1,
+    source: 'upload' as const,
+  };
+}
 
 function projectWith(
   nodes: Record<string, NodeInstance>,
   edges: Edge[] = [],
-): SerializedProjectV3 {
+): SerializedProject {
   return createSerializedProject('document_1', {
     frame: { width: 320, height: 240 },
     layers: [{
@@ -31,7 +44,7 @@ function output(id = 'out'): NodeInstance {
 }
 
 function expectFinding(
-  project: SerializedProjectV3,
+  project: SerializedProject,
   code: string,
   path: string,
   mode: 'editable' | 'renderable' = 'renderable',
@@ -264,34 +277,39 @@ describe('semantic project validation', () => {
     ]));
   });
 
-  it('rejects unsafe Image sources without network or decoder work', () => {
+  it('rejects unsafe Image asset references without network or decoder work', () => {
     const fetch = vi.fn();
     vi.stubGlobal('fetch', fetch);
     const project = projectWith({
-      image: { id: 'image', type: 'Image', params: { src: 'https://tracker.invalid/pixel.png' } },
+      image: { id: 'image', type: 'Image', params: { assetId: 'https://tracker.invalid/pixel.png' } },
       out: output(),
     });
     expectFinding(
       project,
       'ASSET_POLICY_VIOLATION',
-      '/document/layers/0/graph/nodes/image/params/src',
+      '/document/layers/0/graph/nodes/image/params/assetId',
     );
     expect(fetch).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
 
-  it('accepts a verified embedded image and enforces embedded byte budgets', () => {
+  it('accepts a content-addressed image and enforces asset byte budgets', () => {
     const project = projectWith({
-      image: { id: 'image', type: 'Image', params: { src: ONE_PIXEL_PNG } },
+      image: { id: 'image', type: 'Image', params: { assetId: ONE_PIXEL_ASSET_ID } },
       out: output(),
     });
+    project.assets = [onePixelAsset()];
     expect(validateSerializedProject(project).valid).toBe(true);
     const report = validateSerializedProject(project, {
-      limits: { maxLegacyAssetBytes: 1 },
+      limits: {
+        maxLegacyAssetBytes: 1,
+        maxAssetChunkBytes: 1,
+        maxAssetChunks: 1,
+      },
     });
     expect(report.errors).toContainEqual(expect.objectContaining({
       code: 'RESOURCE_LIMIT',
-      path: '/document/layers/0/graph/nodes/image/params/src',
+      path: '/assets/0/byteLength',
     }));
   });
 
@@ -445,22 +463,34 @@ describe('semantic project validation', () => {
     }));
 
     const assets = projectWith({
-      image: { id: 'image', type: 'Image', params: { src: ONE_PIXEL_PNG } },
+      image: { id: 'image', type: 'Image', params: { assetId: `asset_${'a'.repeat(64)}` } },
       out: output(),
     });
-    assets.assets = [{
-      id: 'asset_1',
-      sha256: 'a'.repeat(64),
-      mimeType: 'image/png',
-      byteLength: 50,
-      width: 1,
-      height: 1,
-      source: 'upload',
-    }];
+    assets.assets = [
+      {
+        id: `asset_${'a'.repeat(64)}`,
+        sha256: 'a'.repeat(64),
+        mimeType: 'image/png',
+        byteLength: 60,
+        width: 1,
+        height: 1,
+        source: 'upload',
+      },
+      {
+        id: `asset_${'b'.repeat(64)}`,
+        sha256: 'b'.repeat(64),
+        mimeType: 'image/png',
+        byteLength: 60,
+        width: 1,
+        height: 1,
+        source: 'upload',
+      },
+    ];
     expect(validateSerializedProject(assets, {
       limits: {
         maxLegacyAssetBytes: 100,
         maxLegacyAssetBytesPerDocument: 100,
+        maxAssetChunkBytes: 100,
       },
     }).errors).toContainEqual(expect.objectContaining({
       code: 'RESOURCE_LIMIT',

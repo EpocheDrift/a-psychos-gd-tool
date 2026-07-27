@@ -1,6 +1,6 @@
 # Agent Adaptation Implementation Plan
 
-Status: **proposed**
+Status: **implemented through PR 7; PR 8 evaluation work in progress**
 
 This plan is intentionally split into reviewable pull requests. Each step
 produces useful internal quality improvements even if later MCP work is paused.

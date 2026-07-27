@@ -10,6 +10,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import {
   StdioClientTransport,
 } from '@modelcontextprotocol/sdk/client/stdio.js';
+import {
+  COMPANION_TRANSPORT_LIMITS,
+} from '../packages/mcp-companion/dist/protocol.js';
 import { checkMcpAuthority } from './mcp-authority-check.mjs';
 
 const REPOSITORY_ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -32,6 +35,13 @@ function successValue(result, label) {
     throw new Error(`${label} failed: ${JSON.stringify(value)}`);
   }
   return value.value;
+}
+
+async function waitForGeneralRateTokens(count) {
+  const refillMs = Math.ceil(
+    count * 60_000 / COMPANION_TRANSPORT_LIMITS.requestsPerMinute,
+  );
+  await new Promise((resolveWait) => setTimeout(resolveWait, refillMs + 50));
 }
 
 await checkMcpAuthority();
@@ -95,7 +105,13 @@ try {
     'gfx_get_document',
     'gfx_get_render_status',
     'gfx_validate_document',
+    'gfx_get_model_status',
+    'gfx_prepare_model',
     'gfx_apply_transaction',
+    'gfx_put_asset',
+    'gfx_list_assets',
+    'gfx_get_asset_metadata',
+    'gfx_remove_asset',
     'gfx_await_render',
     'gfx_capture_preview',
     'gfx_revert_transaction',
@@ -120,12 +136,52 @@ try {
     || capabilities.transport?.deadlines?.queryAndWriteMs !== 10_000
     || capabilities.transport?.deadlines?.awaitRenderMs !== 35_000
     || capabilities.transport?.deadlines?.previewMs !== 20_000
+    || capabilities.transport?.deadlines?.assetMs !== 35_000
     || capabilities.transport?.deadlines?.pairingMs !== 60_000
-    || capabilities.scopeAvailability?.assets?.available !== false
-    || capabilities.scopeAvailability?.model?.available !== false
+    || capabilities.transport?.rate?.assetUploadBurst !== 32
+    || capabilities.scopeAvailability?.assets?.available !== true
+    || capabilities.scopeAvailability?.model?.available !== true
   ) {
     throw new Error(
       `Companion capability profile is inaccurate: ${JSON.stringify(capabilities)}`,
+    );
+  }
+
+  const modelStatus = successValue(await mcpClient.callTool({
+    name: 'gfx_get_model_status',
+    arguments: {},
+  }), 'model status');
+  if (
+    modelStatus.modelKey !== 'rmbg-1.4'
+    || typeof modelStatus.manifestSha256 !== 'string'
+    || JSON.stringify(modelStatus).includes('http')
+  ) {
+    throw new Error(
+      `Model status exposed an invalid contract: ${
+        JSON.stringify(modelStatus)
+      }`,
+    );
+  }
+  const prepareCheck = await mcpClient.callTool({
+    name: 'gfx_prepare_model',
+    arguments: { requestId: 'mcp_model_prepare_check_v1' },
+  });
+  const prepareOutcome = outcome(prepareCheck);
+  const alreadyAvailable =
+    prepareOutcome.ok === true
+    && ['downloading', 'verifying', 'ready'].includes(
+      prepareOutcome.value?.state,
+    );
+  const humanRequired =
+    prepareCheck.isError
+    && prepareOutcome.ok === false
+    && prepareOutcome.error?.code === 'MODEL_DOWNLOAD_REQUIRED'
+    && prepareOutcome.error?.details?.reason === 'CONFIRMATION_REQUIRED';
+  if (!alreadyAvailable && !humanRequired) {
+    throw new Error(
+      `MCP model preparation bypassed its human gate: ${
+        JSON.stringify(prepareOutcome)
+      }`,
     );
   }
 
@@ -133,9 +189,236 @@ try {
     name: 'gfx_get_document',
     arguments: { include: ['frame'] },
   }), 'initial document');
+  const assetBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  const assetBytes = Buffer.from(assetBase64, 'base64');
+  const assetSha256 = createHash('sha256')
+    .update(assetBytes)
+    .digest('hex');
+  const begunAsset = successValue(await mcpClient.callTool({
+    name: 'gfx_put_asset',
+    arguments: {
+      phase: 'begin',
+      requestId: 'mcp_asset_begin_v1',
+      mimeType: 'image/png',
+      byteLength: assetBytes.byteLength,
+      sha256: assetSha256,
+    },
+  }), 'asset begin');
+  if (
+    begunAsset.phase !== 'begin'
+    || begunAsset.revision !== before.revision
+    || begunAsset.upload?.nextOffset !== 0
+  ) {
+    throw new Error(
+      `Unexpected asset begin result: ${JSON.stringify(begunAsset)}`,
+    );
+  }
+  const chunkedAsset = successValue(await mcpClient.callTool({
+    name: 'gfx_put_asset',
+    arguments: {
+      phase: 'chunk',
+      requestId: 'mcp_asset_chunk_v1',
+      uploadId: begunAsset.upload.uploadId,
+      offset: 0,
+      dataBase64: assetBase64,
+      chunkSha256: assetSha256,
+    },
+  }), 'asset chunk');
+  if (
+    chunkedAsset.phase !== 'chunk'
+    || !chunkedAsset.upload?.complete
+    || chunkedAsset.upload?.receivedBytes !== assetBytes.byteLength
+    || chunkedAsset.revision !== before.revision
+  ) {
+    throw new Error(
+      `Unexpected asset chunk result: ${JSON.stringify(chunkedAsset)}`,
+    );
+  }
+  const finalizedAsset = successValue(await mcpClient.callTool({
+    name: 'gfx_put_asset',
+    arguments: {
+      phase: 'finalize',
+      requestId: 'mcp_asset_finalize_v1',
+      uploadId: begunAsset.upload.uploadId,
+      expectedRevision: before.revision,
+    },
+  }), 'asset finalize');
+  if (
+    finalizedAsset.phase !== 'finalize'
+    || finalizedAsset.asset?.sha256 !== assetSha256
+    || finalizedAsset.revision !== before.revision + 1
+    || finalizedAsset.transaction?.committed !== true
+    || finalizedAsset.persistenceStatus !== 'durable'
+    || finalizedAsset.transaction?.persistenceStatus !== 'durable'
+    || finalizedAsset.renderStatus?.ticket?.revision
+      !== finalizedAsset.revision
+    || finalizedAsset.transaction?.renderStatus?.ticket?.revision
+      !== finalizedAsset.revision
+  ) {
+    throw new Error(
+      `Unexpected asset finalize result: ${JSON.stringify(finalizedAsset)}`,
+    );
+  }
+  const listedAssets = successValue(await mcpClient.callTool({
+    name: 'gfx_list_assets',
+    arguments: { limit: 64 },
+  }), 'asset list');
+  if (
+    listedAssets.revision !== finalizedAsset.revision
+    || !listedAssets.assets?.some(
+      (asset) => asset.metadata?.id === finalizedAsset.asset.id,
+    )
+  ) {
+    throw new Error(
+      `Finalized asset was not listed: ${JSON.stringify(listedAssets)}`,
+    );
+  }
+  const assetMetadata = successValue(await mcpClient.callTool({
+    name: 'gfx_get_asset_metadata',
+    arguments: { assetId: finalizedAsset.asset.id },
+  }), 'asset metadata');
+  if (
+    assetMetadata.metadata?.sha256 !== assetSha256
+    || assetMetadata.referenceCount !== 0
+    || assetMetadata.availability !== 'available'
+  ) {
+    throw new Error(
+      `Unexpected asset metadata: ${JSON.stringify(assetMetadata)}`,
+    );
+  }
+  const removedAsset = successValue(await mcpClient.callTool({
+    name: 'gfx_remove_asset',
+    arguments: {
+      requestId: 'mcp_asset_remove_v1',
+      expectedRevision: finalizedAsset.revision,
+      assetId: finalizedAsset.asset.id,
+    },
+  }), 'asset removal');
+  if (
+    !removedAsset.committed
+    || removedAsset.revision !== finalizedAsset.revision + 1
+    || removedAsset.persistenceStatus !== 'durable'
+    || removedAsset.renderStatus?.ticket?.revision !== removedAsset.revision
+  ) {
+    throw new Error(
+      `Asset removal failed: ${JSON.stringify(removedAsset)}`,
+    );
+  }
+  const restoredAsset = successValue(await mcpClient.callTool({
+    name: 'gfx_revert_transaction',
+    arguments: {
+      requestId: 'mcp_asset_remove_revert_v1',
+      expectedRevision: removedAsset.revision,
+      transactionId: removedAsset.transactionId,
+    },
+  }), 'asset removal revert');
+  if (
+    !restoredAsset.committed
+    || restoredAsset.revision !== removedAsset.revision + 1
+    || restoredAsset.persistenceStatus !== 'durable'
+    || restoredAsset.renderStatus?.ticket?.revision !== restoredAsset.revision
+  ) {
+    throw new Error(
+      `Asset removal revert failed: ${JSON.stringify(restoredAsset)}`,
+    );
+  }
+  const modelTransaction = {
+    requestId: 'mcp_model_route_v1',
+    expectedRevision: restoredAsset.revision,
+    commands: [
+      {
+        op: 'add_layer',
+        clientRef: 'model_layer',
+        name: 'Local model route probe',
+      },
+      {
+        op: 'add_node',
+        layerId: { clientRef: 'model_layer' },
+        clientRef: 'model_image',
+        nodeType: 'Image',
+        params: { assetId: finalizedAsset.asset.id },
+      },
+      {
+        op: 'add_node',
+        layerId: { clientRef: 'model_layer' },
+        clientRef: 'remove_background',
+        nodeType: 'RemoveBackground',
+      },
+      {
+        op: 'connect',
+        layerId: { clientRef: 'model_layer' },
+        from: { nodeId: { clientRef: 'model_image' }, socket: 'out' },
+        to: {
+          nodeId: { clientRef: 'remove_background' },
+          socket: 'in',
+        },
+      },
+      {
+        op: 'connect',
+        layerId: { clientRef: 'model_layer' },
+        from: {
+          nodeId: { clientRef: 'remove_background' },
+          socket: 'out',
+        },
+        to: { nodeId: 'out', socket: 'in' },
+      },
+    ],
+  };
+  const modelApplied = successValue(await mcpClient.callTool({
+    name: 'gfx_apply_transaction',
+    arguments: modelTransaction,
+  }), 'model route transaction');
+  if (
+    !modelApplied.committed
+    || modelApplied.persistenceStatus !== 'durable'
+    || modelApplied.renderStatus?.ticket?.revision !== modelApplied.revision
+  ) {
+    throw new Error(
+      `Model transaction did not commit: ${JSON.stringify(modelApplied)}`,
+    );
+  }
+  const modelRender = successValue(await mcpClient.callTool({
+    name: 'gfx_await_render',
+    arguments: {
+      revision: modelApplied.revision,
+      timeoutMs: 30_000,
+    },
+  }), 'model route render');
+  if (
+    modelRender.state !== 'failed'
+    || modelRender.requestedRevision !== modelApplied.revision
+    || modelRender.ticket?.revision !== modelApplied.revision
+    || modelRender.error?.nodeType !== 'RemoveBackground'
+    || modelRender.error?.phase !== 'worker'
+  ) {
+    throw new Error(
+      `Authorized model render did not enter its local worker path: ${
+        JSON.stringify(modelRender)
+      }`,
+    );
+  }
+  await waitForDiagnostic('MODEL_ROUTE_SEEN');
+  const modelReverted = successValue(await mcpClient.callTool({
+    name: 'gfx_revert_transaction',
+    arguments: {
+      requestId: 'mcp_model_route_revert_v1',
+      expectedRevision: modelApplied.revision,
+      transactionId: modelApplied.transactionId,
+    },
+  }), 'model route revert');
+  if (
+    !modelReverted.committed
+    || modelReverted.persistenceStatus !== 'durable'
+    || modelReverted.renderStatus?.ticket?.revision !== modelReverted.revision
+  ) {
+    throw new Error(
+      `Model transaction revert failed: ${JSON.stringify(modelReverted)}`,
+    );
+  }
   const transaction = {
     requestId: 'mcp_text_poster_v1',
-    expectedRevision: before.revision,
+    expectedRevision: modelReverted.revision,
     commands: [
       { op: 'set_frame', width: 320, height: 240 },
       {
@@ -195,7 +478,12 @@ try {
     name: 'gfx_apply_transaction',
     arguments: transaction,
   }), 'poster transaction');
-  if (!applied.committed || applied.revision !== before.revision + 1) {
+  if (
+    !applied.committed
+    || applied.revision !== modelReverted.revision + 1
+    || applied.persistenceStatus !== 'durable'
+    || applied.renderStatus?.ticket?.revision !== applied.revision
+  ) {
     throw new Error(`Unexpected transaction result: ${JSON.stringify(applied)}`);
   }
 
@@ -268,6 +556,11 @@ try {
   if (afterInvalid.revision !== applied.revision) {
     throw new Error('Invalid wiring changed the document revision.');
   }
+
+  // This gate intentionally exercises more calls than the published burst.
+  // Refill through the real rate limiter instead of weakening production
+  // limits or creating a test-only transport bypass.
+  await waitForGeneralRateTokens(4);
 
   const rendered = successValue(await mcpClient.callTool({
     name: 'gfx_await_render',
@@ -358,7 +651,12 @@ try {
       transactionId: applied.transactionId,
     },
   }), 'transaction revert');
-  if (!reverted.committed || reverted.revision !== applied.revision + 1) {
+  if (
+    !reverted.committed
+    || reverted.revision !== applied.revision + 1
+    || reverted.persistenceStatus !== 'durable'
+    || reverted.renderStatus?.ticket?.revision !== reverted.revision
+  ) {
     throw new Error(`Revert failed: ${JSON.stringify(reverted)}`);
   }
 
@@ -395,7 +693,8 @@ try {
   }
   process.stdout.write(
     `MCP stdio E2E passed: revision ${applied.revision}, `
-    + `${previewBytes.byteLength} preview bytes, exact revert and revoke.\n`,
+    + `${assetBytes.byteLength} asset bytes, `
+    + `${previewBytes.byteLength} preview bytes, exact reverts and revoke.\n`,
   );
 } finally {
   await mcpClient.close().catch(() => undefined);

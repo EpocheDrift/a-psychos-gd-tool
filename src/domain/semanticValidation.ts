@@ -591,6 +591,57 @@ function declaredAssetBytes(value: unknown, ceiling: number): number {
   return total;
 }
 
+function validateAssetReferences(
+  value: unknown,
+  collector: FindingCollector,
+): void {
+  if (!isPlainRecord(value)) return;
+  const assets = readOwnData(value, 'assets');
+  const assetIds = new Set<string>();
+  if (Array.isArray(assets)) {
+    for (const asset of assets) {
+      if (!isPlainRecord(asset)) continue;
+      const id = readOwnData(asset, 'id');
+      if (typeof id === 'string') assetIds.add(id);
+    }
+  }
+  const document = readOwnData(value, 'document');
+  if (!isPlainRecord(document)) return;
+  const layers = readOwnData(document, 'layers');
+  if (!Array.isArray(layers)) return;
+  layers.forEach((layer, layerIndex) => {
+    if (!isPlainRecord(layer)) return;
+    const graph = readOwnData(layer, 'graph');
+    if (!isPlainRecord(graph)) return;
+    const nodes = readOwnData(graph, 'nodes');
+    if (!isPlainRecord(nodes)) return;
+    for (const nodeId of Object.keys(nodes).sort()) {
+      const node = readOwnData(nodes, nodeId);
+      if (!isPlainRecord(node) || readOwnData(node, 'type') !== 'Image') {
+        continue;
+      }
+      const params = readOwnData(node, 'params');
+      if (!isPlainRecord(params)) continue;
+      const assetId = readOwnData(params, 'assetId');
+      if (
+        typeof assetId === 'string'
+        && assetId !== ''
+        && !assetIds.has(assetId)
+      ) {
+        collector.error({
+          code: 'ASSET_POLICY_VIOLATION',
+          message: 'Image assetId is not present in the project asset manifest.',
+          path:
+            `/document/layers/${layerIndex}/graph/nodes/${
+              nodeId.replaceAll('~', '~0').replaceAll('/', '~1')
+            }/params/assetId`,
+          details: { assetId },
+        });
+      }
+    }
+  });
+}
+
 export function findOutputNodeIds(graph: Graph): string[] {
   return Object.keys(graph.nodes)
     .filter((nodeId) => graph.nodes[nodeId].type === 'Output')
@@ -628,6 +679,7 @@ export function validateSerializedProject(
     generatedItems: 0,
     assetBytes: declaredAssetBytes(value, limits.maxLegacyAssetBytesPerDocument + 1),
   };
+  validateAssetReferences(value, semanticCollector);
   for (const candidate of semanticGraphCandidates(value)) {
     validateGraphSemantics(
       candidate.graph,

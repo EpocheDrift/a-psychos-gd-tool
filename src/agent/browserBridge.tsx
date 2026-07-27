@@ -14,6 +14,7 @@ import type {
   PairingResult,
   PairingRequest,
 } from './contracts';
+import type { AgentSessionLease } from './sessionManager';
 import { bridgeError } from './faults';
 import {
   browserRuntimeContext,
@@ -27,6 +28,7 @@ import {
 } from './localCompanionBridge';
 import { companionTransportCapabilities } from '../../packages/mcp-companion/src/protocol';
 import type { JsonObject } from '../domain/json';
+import { subscribePinnedModelStatus } from './modelPreparation';
 
 interface InternalInstallation {
   manager: AgentSessionManager;
@@ -35,6 +37,7 @@ interface InternalInstallation {
   unsubscribe: () => void;
   onPageHide: () => void;
   companionCleanup: () => void;
+  unsubscribeModelStatus: () => void;
 }
 
 let installation: InternalInstallation | null = null;
@@ -78,6 +81,7 @@ export function installBrowserAgentBridge(
   let activeController: AgentController | undefined;
   let activeCompanionController: AgentCompanionController | undefined;
   let activePreviewVault: PreviewHandleVault | null = null;
+  let activeLease: AgentSessionLease | null = null;
   const companionMode = hasLocalCompanionMarker(target.document);
 
   const completePairing = (
@@ -113,6 +117,7 @@ export function installBrowserAgentBridge(
       );
       activePreviewVault?.clear();
       activePreviewVault = created.previewVault;
+      activeLease = result.value.lease;
       activeController = created.controller;
       activeCompanionController = created.companionController;
       return { ok: true, value: result.value.summary };
@@ -138,10 +143,32 @@ export function installBrowserAgentBridge(
 
   const unsubscribe = manager.subscribe(() => {
     if (manager.getSnapshot().phase === 'connected') return;
+    const previousLease = activeLease;
+    activeLease = null;
+    if (previousLease) {
+      dependencies.setModelExecutionAuthorization(previousLease, false);
+    }
     activeController = undefined;
     activeCompanionController = undefined;
     activePreviewVault?.clear();
     activePreviewVault = null;
+  });
+  const unsubscribeModelStatus = subscribePinnedModelStatus((status) => {
+    const lease = activeLease;
+    if (!lease || !lease.scopes.has('model')) return;
+    try {
+      manager.assertActive(
+        lease,
+        dependencies.getDocumentState().revision,
+        'model',
+      );
+      dependencies.setModelExecutionAuthorization(
+        lease,
+        status.state === 'ready',
+      );
+    } catch {
+      dependencies.setModelExecutionAuthorization(lease, false);
+    }
   });
   const onPageHide = () => manager.revoke('pagehide');
   target.addEventListener('pagehide', onPageHide);
@@ -169,5 +196,6 @@ export function installBrowserAgentBridge(
     unsubscribe,
     onPageHide,
     companionCleanup,
+    unsubscribeModelStatus,
   };
 }
