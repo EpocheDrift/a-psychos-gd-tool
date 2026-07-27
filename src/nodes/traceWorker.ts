@@ -547,6 +547,16 @@ function loadModel() {
         revision: RMBG_MODEL_REVISION,
         local_files_only: __GFX_AGENT_BUILD__,
       } as any;
+      // Resolve the pinned processor from the companion before probing a model
+      // backend. A missing or incomplete local install should fail through the
+      // fixed model route instead of being obscured by a slow adapter probe.
+      const processor = await AutoProcessor.from_pretrained(
+        RMBG_MODEL_REPOSITORY,
+        {
+          revision: RMBG_MODEL_REVISION,
+          local_files_only: __GFX_AGENT_BUILD__,
+        },
+      );
       const hasWebGpu = typeof navigator !== 'undefined'
         && 'gpu' in navigator
         && await navigator.gpu.requestAdapter() !== null;
@@ -562,14 +572,6 @@ function loadModel() {
             device: 'wasm',
             dtype: 'q8',
           });
-
-      const processor = await AutoProcessor.from_pretrained(
-        RMBG_MODEL_REPOSITORY,
-        {
-          revision: RMBG_MODEL_REVISION,
-          local_files_only: __GFX_AGENT_BUILD__,
-        },
-      );
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const run: RunFn = async (image: any) => {

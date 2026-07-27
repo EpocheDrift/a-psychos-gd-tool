@@ -108,15 +108,6 @@ const runtime = new CompanionRuntime({
       },
       args: [
         '--enable-unsafe-webgpu',
-        ...(process.platform === 'linux'
-          ? [
-              // Match Chromium's WebGPU SwiftShader test profile: force the
-              // fallback adapter and initialize ANGLE for Dawn in headless CI.
-              '--use-webgpu-adapter=swiftshader',
-              '--use-gpu-in-tests',
-              '--enable-accelerated-2d-canvas',
-            ]
-          : []),
         '--hide-scrollbars',
         '--window-size=1280,800',
       ],
