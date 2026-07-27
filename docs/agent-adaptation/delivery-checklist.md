@@ -15,8 +15,8 @@ Integration branch: `agent/agent-ready-v1`
 | PR 4 — Preview evidence and stable UI automation | Complete | Commit [`a257449`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/a257449) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 5 — Gated browser AgentController | Complete | Commit [`a02f74f`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/a02f74f6f83158d706dda14923147a321c63bcb5) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 6 — Local MCP companion | Complete | Commit [`1a2a833`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/1a2a8339bd60056797963904291b6dd5c8855dbd) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
-| PR 7 — Asset and persistence boundary | Not started | Asset/model tools remain disabled. |
-| PR 8 — Agent evals and high-level helpers | Not started | Blocked by sequence. |
+| PR 7 — Asset and persistence boundary | Complete | Commit [`f22ff34`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/f22ff34cd3fe5be8876b21af56a72e2f633aee3d) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
+| PR 8 — Agent evals and high-level helpers | In progress | PR 7 prerequisites are complete; seven-scenario eval implementation remains. |
 
 ## PR 0 checklist
 
@@ -294,14 +294,76 @@ Integration branch: `agent/agent-ready-v1`
   audits.
 - [x] Commit and push the stage to the fork and update the Draft integration PR.
 
-## Open risks carried beyond PR 6
+## PR 7 checklist
+
+- [x] Introduce strict version 4 working projects with content-addressed asset
+  manifests, a generated Draft 2020-12 golden, and deterministic v3/data-URI/
+  bundled-image migration without arbitrary URL fetches.
+- [x] Add a strict portable-project v1 envelope that carries every
+  non-bundled image byte, rejects unknown/missing/duplicate/extra payloads,
+  rechecks base64/length/hash/MIME/dimensions/budgets, and round-trips between
+  fresh repositories while localStorage remains metadata-only.
+- [x] Add explicit human Save Project/Load Project UI with file-size preflight,
+  revision capture before asynchronous reads, editable-draft preservation, and
+  no new Agent project-replacement/filesystem authority.
+- [x] Replace public `Image.src` with validated `assetId`, retain only the fixed
+  bundled factory route internally, and enforce PNG/JPEG/WebP byte, pixel,
+  dimension, document-total, and decode policy before manifest publication.
+- [x] Add bounded content-addressed browser storage, verified-blob LRU caching,
+  immutable reads, SHA-256 deduplication, integrity-aware availability, and
+  exact manifest resolution for render and portable export.
+- [x] Pin current/history/future/session/staging/import/export/pending-write and
+  last-durable-save assets across every CAS-to-manifest window; clean failed
+  process-local writes only after releasing their temporary pin.
+- [x] Fail closed for the origin-shared IndexedDB CAS: no tab-local destructive
+  GC can delete another tab's bytes, and the 256 MiB physical cap returns
+  `RESOURCE_LIMIT`; process-local fallback reclaims only proven-unretained
+  records.
+- [x] Make startup storage-read/malformed-candidate handling fail closed, keep
+  the last safe save untouched, and let a valid explicit import abort and
+  supersede a pending old image bootstrap without blocking new render/export.
+- [x] Add strict begin/chunk/status/finalize/abort asset upload sessions with
+  1 MiB chunks, declared length/hash, bounded expiry/cache/concurrency, stable
+  replay, independent `assets` scope, safe list/metadata/remove, and referenced
+  removal rejection.
+- [x] Separate CAS deduplication, manifest commit, local project persistence,
+  and exact render scheduling in public results; preserve committed success
+  across quota failure, render-status failure, synchronous revoke, and retry.
+- [x] Make Trace and Outline Image available under the shipped worker/resource
+  gates, while keeping Remove Background behind independent human-approved
+  `model` scope plus verified local model readiness.
+- [x] Pin RMBG-1.4 revision, artifact paths, byte lengths, SHA-256 manifest,
+  preprocessing contract, and license disclosure; require one-shot human
+  approval before a first download and never accept a model URL/path from MCP.
+- [x] Add a bounded resumable downloader, no-follow managed cache, atomic
+  promotion, startup re-verification, exact same-origin artifact routes,
+  CSP-compatible worker loading, and stable status/failure attribution.
+- [x] Add `gfx_get_model_status` and `gfx_prepare_model` without granting MCP
+  the human confirmation action; expose machine-readable local-font support
+  while preventing Agent permission prompts or unapproved family enumeration.
+- [x] Add CLI and real-process stdin redaction regressions proving rejected
+  data URIs/secrets never enter stdout/stderr, plus exact request, JSON,
+  binary, rate, model, and asset transport limits.
+- [x] Run final typecheck, 524 application tests, 87 companion tests, schema/
+  fixture drift and authority gates, and default/Agent production builds.
+- [x] Run the real official-client MCP → authenticated WebSocket → Chrome/
+  WebGPU flow through asset ingest/remove/revert, pinned model-worker routing,
+  Text poster render, exact preview hash, rollback, revoke, and teardown.
+- [x] Run all nine browser/WebGPU smokes: zero changed baseline pixels, factory,
+  controller, frame, blur, fringe, interaction, r18/a1 render churn, and 50/50
+  semantic/accessibility/collision workflows.
+- [x] Close every blocker from independent portable-bundle, CAS lifecycle,
+  public-result/schema, model-route, and stdio security audits.
+- [x] Commit and push the stage to the fork and update the Draft integration PR.
+
+## Open risks carried beyond PR 7
 
 - The WebGPU suite is a required manual gate until CI has a real, reliable GPU
   runner; ordinary `ubuntu-latest` browser success is not rendering evidence.
-- Preview `ArrayBuffer` bytes remain private to the page/companion path and are
-  transferred only after exact binary verification. Asset isolation and Agent
-  evals have not landed; asset, model, export, project-replacement, arbitrary
-  fetch, and filesystem tools remain absent.
+- Preview and asset bytes remain private to their explicitly bounded binary
+  paths. Project replacement, filesystem export, arbitrary fetch, and general
+  filesystem tools remain absent. The seven-scenario Agent eval suite is still
+  PR 8 work.
 - Browser-trusted `Event.isTrusted` rejects page-script synthetic approval but
   does not prove a physical human when an attacker controls CDP/input. The
   companion exposes no CDP, navigation, browser-input, or page-evaluation tool;
@@ -321,18 +383,21 @@ Integration branch: `agent/agent-ready-v1`
   forbids HTTP adapter imports; the remaining high paths are in the existing
   model/native-image toolchain. The suggested SDK downgrade was not applied;
   dependency remediation remains separately reviewable.
-- Version 3 currently preserves asset metadata only. PR 7 owns isolated asset
-  bytes, content-addressed storage, quotas, and lifecycle management.
+- The shared IndexedDB CAS deliberately does not automatically delete orphaned
+  records because one tab cannot prove another tab's retention set. It is
+  bounded at 256 MiB and fails closed with `RESOURCE_LIMIT`; reclaiming shared
+  storage later requires a real cross-tab ownership protocol or explicit human
+  reset.
+- RMBG-1.4 is the approved A-path model and its bundled disclosure marks
+  commercial use as requiring a separate agreement. Model bytes are not in git
+  or portable project files; the managed local cache is approximately 220 MiB.
 - A local working edit that is structurally traversable but semantically invalid
   remains in memory with autosave paused and a visible diagnostic; explicit
   external imports continue to require a renderable project.
-- Browser storage read failures currently fall back to the factory project
-  without a distinct startup warning, and the page-hide autosave hook has no
-  explicit HMR disposal. These are non-blocking persistence hardening items for
-  PR 7.
-- OpenType shaping/path extraction and `createImageBitmap` remain native calls
-  that cannot be forcibly interrupted; current input/glyph/decode boundaries
-  limit exposure, while PR 7 owns stricter custom-asset/font isolation.
+- OpenType shaping/path extraction and an already-entered
+  `createImageBitmap` call remain browser-native work that cannot be forcibly
+  interrupted. Input/glyph/decode limits bound exposure, and bootstrap
+  supersession prevents old native work from blocking a replacement project.
 - Geometry accounting is attempt-cumulative and intentionally conservative, so
   a high-detail Trace → Rasterize chain may exhaust the command budget after
   revisiting otherwise valid geometry. CPU evaluator-cache bytes are not yet a
