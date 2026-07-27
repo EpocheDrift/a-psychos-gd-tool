@@ -1,11 +1,13 @@
 # AI Agent Adaptation
 
-Status: **Agent-ready v1 implementation complete through PR 8 and
-owner-approved on 2026-07-27**. The owner waived an additional full capability
+Status: **Agent-ready v1 implementation complete through PR 8,
+owner-approved, and merged manually through
+[#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2) on
+2026-07-27**. Before merge, the owner waived an additional full capability
 sweep and a current-head remote CI record as approval prerequisites. This is
-not a claim that those checks ran, and it does not itself approve merge,
-production release, or commercial RMBG-1.4 use. Phase-by-phase implementation
-evidence and the remaining disclosed risks live in
+not a claim that those checks ran, and the merge does not approve production
+release or commercial RMBG-1.4 use. Phase-by-phase implementation evidence and
+the remaining disclosed risks live in
 [`delivery-checklist.md`](./delivery-checklist.md).
 
 ## Executive summary

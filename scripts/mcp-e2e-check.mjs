@@ -185,10 +185,49 @@ try {
     );
   }
 
-  const before = successValue(await mcpClient.callTool({
+  const initial = successValue(await mcpClient.callTool({
     name: 'gfx_get_document',
-    arguments: { include: ['frame'] },
+    arguments: { include: ['frame', 'layers'] },
   }), 'initial document');
+  let baselineRevision = initial.revision;
+  const initiallyVisible = (initial.layers ?? [])
+    .filter((layer) => layer?.visible === true)
+    .map((layer) => layer.id);
+  // This transport gate should exercise its own model/poster layers, not pay
+  // the software-GPU cost of the full factory artwork on headless CI.
+  const isolationCommands = [
+    ...(
+      initial.frame?.width === 128 && initial.frame?.height === 128
+        ? []
+        : [{ op: 'set_frame', width: 128, height: 128 }]
+    ),
+    ...initiallyVisible.map((layerId) => ({
+      op: 'update_layer',
+      layerId,
+      patch: { visible: false },
+    })),
+  ];
+  if (isolationCommands.length > 0) {
+    const isolated = successValue(await mcpClient.callTool({
+      name: 'gfx_apply_transaction',
+      arguments: {
+        requestId: 'mcp_isolate_initial_layers_v1',
+        expectedRevision: baselineRevision,
+        commands: isolationCommands,
+      },
+    }), 'initial layer isolation');
+    if (
+      !isolated.committed
+      || isolated.revision !== baselineRevision + 1
+      || isolated.persistenceStatus !== 'durable'
+      || isolated.renderStatus?.ticket?.revision !== isolated.revision
+    ) {
+      throw new Error(
+        `Initial layer isolation failed: ${JSON.stringify(isolated)}`,
+      );
+    }
+    baselineRevision = isolated.revision;
+  }
   const assetBase64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
   const assetBytes = Buffer.from(assetBase64, 'base64');
@@ -207,7 +246,7 @@ try {
   }), 'asset begin');
   if (
     begunAsset.phase !== 'begin'
-    || begunAsset.revision !== before.revision
+    || begunAsset.revision !== baselineRevision
     || begunAsset.upload?.nextOffset !== 0
   ) {
     throw new Error(
@@ -229,7 +268,7 @@ try {
     chunkedAsset.phase !== 'chunk'
     || !chunkedAsset.upload?.complete
     || chunkedAsset.upload?.receivedBytes !== assetBytes.byteLength
-    || chunkedAsset.revision !== before.revision
+    || chunkedAsset.revision !== baselineRevision
   ) {
     throw new Error(
       `Unexpected asset chunk result: ${JSON.stringify(chunkedAsset)}`,
@@ -241,13 +280,13 @@ try {
       phase: 'finalize',
       requestId: 'mcp_asset_finalize_v1',
       uploadId: begunAsset.upload.uploadId,
-      expectedRevision: before.revision,
+      expectedRevision: baselineRevision,
     },
   }), 'asset finalize');
   if (
     finalizedAsset.phase !== 'finalize'
     || finalizedAsset.asset?.sha256 !== assetSha256
-    || finalizedAsset.revision !== before.revision + 1
+    || finalizedAsset.revision !== baselineRevision + 1
     || finalizedAsset.transaction?.committed !== true
     || finalizedAsset.persistenceStatus !== 'durable'
     || finalizedAsset.transaction?.persistenceStatus !== 'durable'
@@ -596,7 +635,7 @@ try {
   const stalePreviewResult = await mcpClient.callTool({
     name: 'gfx_capture_preview',
     arguments: {
-      revision: before.revision,
+      revision: baselineRevision,
       maxWidth: 64,
       maxHeight: 64,
       format: 'png',

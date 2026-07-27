@@ -14,6 +14,10 @@ const SERVER_ENTRY = resolve(
   REPOSITORY_ROOT,
   'packages/mcp-companion/dist/index.js',
 );
+// Production browser navigation is bounded at 20 seconds. Keep the hosted
+// runner lifecycle probe on the same bound so a cold Chrome start is not
+// mistaken for a stdio failure.
+const LIFECYCLE_WAIT_MS = 20_000;
 const READ_TOOLS = Object.freeze([
   'gfx_get_capabilities',
   'gfx_get_document',
@@ -223,7 +227,7 @@ async function runRedactionRegressions() {
 }
 
 async function waitFor(predicate, description) {
-  const deadline = Date.now() + 8_000;
+  const deadline = Date.now() + LIFECYCLE_WAIT_MS;
   while (Date.now() < deadline) {
     if (await predicate()) return;
     await new Promise((resolveWait) => setTimeout(resolveWait, 50));
