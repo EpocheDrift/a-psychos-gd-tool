@@ -16,7 +16,7 @@ Integration branch: `agent/agent-ready-v1`
 | PR 5 — Gated browser AgentController | Complete | Commit [`a02f74f`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/a02f74f6f83158d706dda14923147a321c63bcb5) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 6 — Local MCP companion | Complete | Commit [`1a2a833`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/1a2a8339bd60056797963904291b6dd5c8855dbd) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 7 — Asset and persistence boundary | Complete | Commit [`f22ff34`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/f22ff34cd3fe5be8876b21af56a72e2f633aee3d) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
-| PR 8 — Agent evals and high-level helpers | Implementation complete | Seven real MCP scenarios pass locally with 49 tool calls, 4 verified recoveries, and 3 reviewed PNGs; final commit/push evidence is pending. |
+| PR 8 — Agent evals and high-level helpers | Complete | Commit [`ea7c863`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/ea7c8637251a6f6ad3e335d316f65b690ad3db88) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); seven real MCP scenarios pass with 49 tool calls, 4 verified recoveries, and 3 reviewed PNGs. |
 
 ## PR 0 checklist
 
@@ -393,7 +393,7 @@ Integration branch: `agent/agent-ready-v1`
 - [x] Run the final full typecheck, 527 application tests, 87 companion tests,
   default/Agent builds and artifact gate, all MCP gates including the
   7-scenario/49-call eval, and all nine browser/WebGPU smokes.
-- [ ] Commit and push the stage to the fork and update the Draft integration PR.
+- [x] Commit and push the stage to the fork and update the Draft integration PR.
 
 ## Residual risks after Agent-ready v1
 
