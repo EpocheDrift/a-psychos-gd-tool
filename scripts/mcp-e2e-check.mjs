@@ -374,9 +374,9 @@ try {
       {
         op: 'add_node',
         layerId: { clientRef: 'model_layer' },
-        clientRef: 'model_noise',
-        nodeType: 'Noise',
-        params: { mode: 'grain', scale: 64, seed: 7 },
+        clientRef: 'model_image',
+        nodeType: 'Image',
+        params: { assetId: finalizedAsset.asset.id },
       },
       {
         op: 'add_node',
@@ -387,7 +387,7 @@ try {
       {
         op: 'connect',
         layerId: { clientRef: 'model_layer' },
-        from: { nodeId: { clientRef: 'model_noise' }, socket: 'out' },
+        from: { nodeId: { clientRef: 'model_image' }, socket: 'out' },
         to: {
           nodeId: { clientRef: 'remove_background' },
           socket: 'in',
@@ -434,7 +434,7 @@ try {
     throw new Error(
       `Authorized model render did not enter its local worker path: ${
         JSON.stringify(modelRender)
-      }; child diagnostics: ${stderrText}`,
+      }`,
     );
   }
   await waitForDiagnostic('MODEL_ROUTE_SEEN');
