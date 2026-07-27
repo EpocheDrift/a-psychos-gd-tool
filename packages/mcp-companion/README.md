@@ -1,5 +1,8 @@
 # Local MCP companion
 
+[Beginner walkthrough](../../docs/getting-started.md#connect-an-agent-in-about-10-minutes)
+· [中文入门教程](../../docs/getting-started.zh-CN.md#大约-10-分钟接入-agent)
+
 The companion is the authenticated local adapter for the explicit Agent build.
 It starts one fixed loopback app host, launches an isolated Chrome context, and
 maps MCP stdio calls to the named `AgentController` operations through a
@@ -14,7 +17,7 @@ MCP client ↔ bounded stdio ↔ local companion
 It does not expose Puppeteer, CDP, page evaluation, navigation, pointer input,
 shell commands, arbitrary URLs, or general filesystem access as tools.
 
-## Build and run
+## Build once
 
 From the repository root:
 
@@ -22,29 +25,14 @@ From the repository root:
 npm install
 npm run build:agent
 npm run build:mcp
-npm run mcp:start
 ```
 
-The default profile requests only `read` and `preview`. Editing, project
-assets, and local model execution are independent opt-ins:
+After building, choose exactly one launch mode below. Do not manually run a
+second companion when an MCP client is already configured to spawn it: one
+companion owns one stdio stream, one fixed loopback port, and one isolated
+Chrome session.
 
-```sh
-npm run mcp:start -- --allow-edit
-npm run mcp:start -- --allow-assets
-npm run mcp:start -- --allow-model
-npm run mcp:start -- --allow-edit --allow-assets --allow-model
-```
-
-The companion opens a headed Chrome window. Click **Connect Agent**, review the
-requested scopes, select the scopes you intend to grant, and approve them. The
-MCP tools fail with a structured `PAIRING_NOT_APPROVED` outcome until this
-happens. Approval is required again after process restart, page reload,
-30-minute session expiry, transport loss, or **Revoke now**.
-
-`--headless` exists for the automated E2E gate and is not useful for ordinary
-operation because the approval UI is then invisible.
-
-## MCP client configuration
+## Launch mode A: let the MCP client manage it (recommended)
 
 Point the client at the built bin using an absolute repository path. The
 read/preview profile is:
@@ -58,11 +46,57 @@ read/preview profile is:
 }
 ```
 
-Append any intended combination of `"--allow-edit"`, `"--allow-assets"`, and
-`"--allow-model"` to `args`. An explicit Chrome can be selected with
-`--chrome /absolute/path/to/chrome` or the `CHROME` environment variable. The
-first release launches a new isolated Chrome session; it does not attach to an
-existing user profile.
+Restart or reload the MCP client after changing its configuration. The client
+starts and stops the companion together with its MCP connection.
+
+Append only the scopes needed for the session:
+
+- `"--allow-edit"` for graph transactions;
+- `"--allow-assets"` for bounded PNG/JPEG/WebP ingestion;
+- `"--allow-model"` for the pinned local RMBG-1.4 workflow.
+
+For example, a poster session using a local image but not background removal
+uses:
+
+```json
+{
+  "command": "node",
+  "args": [
+    "/absolute/path/to/a-psychos-gd-tool/packages/mcp-companion/dist/index.js",
+    "--allow-edit",
+    "--allow-assets"
+  ]
+}
+```
+
+## Launch mode B: run it manually for debugging
+
+Manual foreground runs are useful for inspecting startup diagnostics or
+driving stdio yourself:
+
+```sh
+npm run mcp:start
+npm run mcp:start -- --allow-edit
+npm run mcp:start -- --allow-assets
+npm run mcp:start -- --allow-model
+npm run mcp:start -- --allow-edit --allow-assets --allow-model
+```
+
+The default profile requests only `read` and `preview`. Editing, project
+assets, and local model execution are independent opt-ins.
+
+The companion opens a headed Chrome window. Click **Connect Agent**, review the
+requested scopes, select the scopes you intend to grant, and approve them. The
+MCP tools fail with a structured `PAIRING_NOT_APPROVED` outcome until this
+happens. Approval is required again after process restart, page reload,
+30-minute session expiry, transport loss, or **Revoke now**.
+
+`--headless` exists for the automated E2E gate and is not useful for ordinary
+operation because the approval UI is then invisible.
+
+An explicit Chrome can be selected with `--chrome /absolute/path/to/chrome` or
+the `CHROME` environment variable. The first release launches a new isolated
+Chrome session; it does not attach to an existing user profile.
 
 Node.js 20.19 or newer and a WebGPU-capable Chrome/Chromium are required. The
 host is intentionally fixed at `http://127.0.0.1:5199`; a port conflict is a

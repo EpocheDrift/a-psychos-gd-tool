@@ -58,6 +58,15 @@ An external agent can:
 Agent-ready v1 delivers **L3** plus the tested, constrained **L4** loop. Broader
 autonomous art direction remains outside the first-release scope.
 
+## Try it
+
+- [Getting started: Web UI and Agent MCP](../getting-started.md)
+- [中文入门：Web UI 与 Agent MCP](../getting-started.zh-CN.md)
+- [Local MCP companion reference](../../packages/mcp-companion/README.md)
+
+The walkthroughs are the user-facing entry point. The documents below are the
+architecture, security, implementation, and review record.
+
 ## Key architecture decisions
 
 1. **One domain API, multiple adapters.** UI, browser bridge, tests, and MCP

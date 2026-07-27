@@ -1,11 +1,25 @@
 # a-psychos-gd-tool
 
+English · [简体中文](README.zh-CN.md)
+
 **Hosted version:** [a-psychos-gd-tool.vercel.app](https://a-psychos-gd-tool.vercel.app/) — needs a WebGPU browser (Chrome/Edge 113+ or Safari 18+).
 
 A node-based graphic design tool that runs in the browser, on the GPU. You build a poster by wiring nodes on a canvas: text is shaped into vector outlines, vectors are warped and combined, rasters are blurred and dithered — every conversion is an explicit node on a typed wire, never a hidden coercion. The engine only re-computes what a change actually touches, so dragging a parameter stays interactive even in deep graphs.
 
 **Status:** experimental, under active development. 31 node types; undo/redo,
 versioned local working saves, and portable project save/load are built in.
+
+## Start here
+
+- **First time in the Web UI:** follow the
+  [10-minute guided poster](docs/getting-started.md#make-your-first-poster).
+- **Connecting Codex, Claude Code, or another MCP host:** follow the
+  [Agent MCP walkthrough](docs/getting-started.md#connect-an-agent-in-about-10-minutes).
+- **Prefer Chinese:** use the
+  [简体中文 README](README.zh-CN.md) and
+  [中文入门教程](docs/getting-started.zh-CN.md).
+- **Reviewing the Agent architecture:** start with the
+  [adaptation overview](docs/agent-adaptation/README.md).
 
 ## Requirements
 
@@ -123,13 +137,16 @@ The final seven-scenario official-client evaluation covers three creative
 workflows and four recovery paths through the real MCP/WebSocket/browser
 rendering chain, with reviewed PNGs and redacted metrics.
 
-Project replacement and portable save/load remain explicit human UI actions;
-the Agent receives no filesystem, arbitrary URL fetch, CDP input, navigation,
-page evaluation, or shell tool. Browser-trusted approval rejects page-script
-synthetic events but is not physical-user proof. Build/run details are in the
+Project replacement and portable save/load remain explicit human UI actions.
+Through this MCP, an Agent receives no filesystem, arbitrary URL fetch, CDP
+input, navigation, page evaluation, or shell tool. A host such as Codex or
+Claude Code may separately have permissions granted by its own runtime; this
+project neither grants nor revokes those host-level permissions.
+Browser-trusted approval rejects page-script synthetic events but is not
+physical-user proof. Build/run details are in the
 [companion guide](packages/mcp-companion/README.md); the readiness audit,
-target architecture, security model, and staged implementation/evidence live in
-[`docs/agent-adaptation/`](docs/agent-adaptation/README.md).
+target architecture, security model, and staged implementation/evidence live
+in [`docs/agent-adaptation/`](docs/agent-adaptation/README.md).
 
 ### Dev scripts
 

@@ -166,6 +166,9 @@ subgraph duplication 等 helper 暂时没有真实 trace 证明值得扩权。
 ## 下一次实操验收建议
 
 建议把实操拆成两个独立 session，不和代码 review 混在一起。
+第一次使用时可直接跟随
+[中文 Web UI 与 Agent MCP 入门](../getting-started.zh-CN.md)；对应英文版本是
+[Getting started](../getting-started.md)。
 
 ### Session A：人类 Web UI，约 15–20 分钟
 
