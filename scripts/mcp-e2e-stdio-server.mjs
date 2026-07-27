@@ -110,8 +110,11 @@ const runtime = new CompanionRuntime({
         '--enable-unsafe-webgpu',
         ...(process.platform === 'linux'
           ? [
-              // Hosted Linux runners have no hardware adapter. Select Dawn's
-              // SwiftShader fallback explicitly for deterministic WebGPU tests.
+              // Hosted Linux runners have no hardware adapter. Initialize the
+              // headless Vulkan path and select Dawn's SwiftShader fallback.
+              '--use-angle=vulkan',
+              '--enable-features=Vulkan',
+              '--disable-vulkan-surface',
               '--use-webgpu-adapter=swiftshader',
             ]
           : []),
