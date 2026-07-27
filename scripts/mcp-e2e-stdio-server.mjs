@@ -108,6 +108,13 @@ const runtime = new CompanionRuntime({
       },
       args: [
         '--enable-unsafe-webgpu',
+        ...(process.platform === 'linux'
+          ? [
+              // Hosted Linux runners have no hardware adapter. Select Dawn's
+              // SwiftShader fallback explicitly for deterministic WebGPU tests.
+              '--use-webgpu-adapter=swiftshader',
+            ]
+          : []),
         '--hide-scrollbars',
         '--window-size=1280,800',
       ],
