@@ -20,5 +20,14 @@ jobs:
       - run: npm run build
       - run: npm run check:mcp:authority
       - run: node scripts/mcp-e2e-check.mjs
+      - run: node scripts/agent-eval-check.mjs
+        timeout-minutes: 10
       - run: npm run check:mcp:stdio
       - run: npm run check:agent-artifacts
+      - name: Upload Agent evaluation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-eval-evidence
+          path: test-results/agent-evals
+          if-no-files-found: ignore

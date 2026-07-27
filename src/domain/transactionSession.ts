@@ -1313,7 +1313,12 @@ export class TransactionSession {
         revision,
         'REQUEST_ID_REUSED',
         `requestId "${requestId}" was already used with different arguments.`,
-        { requestId, path: '/requestId' },
+        {
+          requestId,
+          path: '/requestId',
+          suggestedFix:
+            'Replay the original request byte-for-byte to retrieve its original result. If expectedRevision, commands, or any other argument changed, submit the new plan with a new requestId.',
+        },
       ),
       replayed: false,
       finalizeToken: null,

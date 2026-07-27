@@ -23,6 +23,7 @@ import {
 } from './json';
 import { resolveAgentLimits, type AgentLimits } from './limits';
 import { validateParamValue } from './paramValidation';
+import { socketTypeMismatchDiagnostic } from './socketDiagnostics';
 
 export interface ValidationOptions {
   mode?: ValidationMode;
@@ -383,16 +384,18 @@ function validateGraphSemantics(
     }
     if (!fromSocket || !toSocket) return;
     if (!canConnect(fromSocket, toSocket)) {
+      const diagnostic = socketTypeMismatchDiagnostic(
+        fromNode,
+        fromSocket,
+        toNode,
+        toSocket,
+      );
       collector.error({
         code: 'TYPE_MISMATCH',
-        message: 'Edge socket types are incompatible.',
+        message: diagnostic.message,
         path: edgePath,
-        details: {
-          fromNodeId: fromNode.id,
-          fromSocket: fromSocket.name,
-          toNodeId: toNode.id,
-          toSocket: toSocket.name,
-        },
+        details: diagnostic.details,
+        suggestedFix: diagnostic.suggestedFix,
       });
       return;
     }

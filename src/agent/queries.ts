@@ -602,7 +602,10 @@ export function normalizeRenderStatusRequest(
   };
 }
 
-function safeRenderError(error: RenderStatus['error']): JsonObject | undefined {
+function safeRenderError(
+  error: RenderStatus['error'],
+  documentRevision: number,
+): JsonObject | undefined {
   if (!error) return undefined;
   const detailsSafety = error.details === undefined
     ? null
@@ -610,6 +613,40 @@ function safeRenderError(error: RenderStatus['error']): JsonObject | undefined {
   const details = detailsSafety?.valid && isPlainRecord(error.details)
     ? redactDiagnosticDetails(error.details as Record<string, JsonValue>)
     : undefined;
+  const suggestedFix = (() => {
+    if (!error.recoverable) return undefined;
+    if (error.code === 'RENDER_SUPERSEDED') {
+      return 'This attempt was superseded by a newer render. Query gfx_get_render_status or gfx_await_render for the current revision and exact ticket; do not revert solely because an older attempt was superseded.';
+    }
+    if (error.code === 'WEBGPU_UNAVAILABLE') {
+      return 'Restore WebGPU support in a compatible browser or environment, then re-read the document and request its current render status; changing or reverting the document will not repair the renderer.';
+    }
+    if (
+      error.code === 'MODEL_DOWNLOAD_REQUIRED'
+      || error.code === 'CONFIRMATION_REQUIRED'
+    ) {
+      return 'Query gfx_get_model_status, call gfx_prepare_model, and complete any required human confirmation before requesting the render again.';
+    }
+    if (error.code === 'PERMISSION_REQUIRED') {
+      return 'Re-pair with the scope named by the public error, then re-read the current document and render status.';
+    }
+    if (error.revision !== documentRevision) {
+      return 'A newer document revision exists. Re-read the document and render status before choosing a recovery; do not revert across intervening edits.';
+    }
+    if ([
+      'RENDER_FAILED',
+      'RESOURCE_LIMIT',
+      'TIMEOUT',
+      'OUTPUT_MISSING',
+      'OUTPUT_AMBIGUOUS',
+      'REQUIRED_INPUT_MISSING',
+      'INVARIANT_VIOLATION',
+      'ASSET_POLICY_VIOLATION',
+    ].includes(error.code)) {
+      return 'If this failure came from your latest committed transaction and no newer edit exists, call gfx_revert_transaction with that transactionId, the current revision, and a new requestId.';
+    }
+    return 'Re-read the current document and exact render status, correct the reported cause with a new requestId, and avoid reverting across intervening edits.';
+  })();
   return {
     code: error.code,
     message: redactDiagnosticString(error.message),
@@ -621,6 +658,7 @@ function safeRenderError(error: RenderStatus['error']): JsonObject | undefined {
     ...(error.nodeType ? { nodeType: error.nodeType } : {}),
     ...(error.phase ? { phase: error.phase } : {}),
     ...(details ? { details } : {}),
+    ...(suggestedFix ? { suggestedFix } : {}),
   };
 }
 
@@ -651,7 +689,9 @@ export function publicRenderStatus(
     ...(status.completedAt ? { completedAt: status.completedAt } : {}),
     ...(status.width === undefined ? {} : { width: status.width }),
     ...(status.height === undefined ? {} : { height: status.height }),
-    ...(status.error ? { error: safeRenderError(status.error)! } : {}),
+    ...(status.error
+      ? { error: safeRenderError(status.error, status.documentRevision)! }
+      : {}),
     ...(includeEvents && events
       ? { events: events.map((event) => asJson(event)) }
       : {}),

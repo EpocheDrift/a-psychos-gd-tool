@@ -1,7 +1,8 @@
 # AI Agent Adaptation
 
-Status: **implementation in progress** — these documents define the target and
-rollout gates; phase-by-phase implementation evidence lives in
+Status: **Agent-ready v1 implementation complete through PR 8** — these
+documents define the delivered contract and rollout gates; phase-by-phase
+implementation evidence lives in
 [`delivery-checklist.md`](./delivery-checklist.md).
 
 ## Executive summary
@@ -12,8 +13,10 @@ authenticated local stdio MCP companion in an explicit loopback-only static
 Agent artifact. The default artifact exposes no Agent global, and neither
 artifact exposes the raw Zustand store. The isolated content-addressed asset
 boundary, portable project save/load, and human-approved pinned RMBG-1.4 model
-path are implemented. The broader seven-scenario Agent evaluation suite is the
-remaining delivery stage.
+path are implemented. The seven-scenario Agent evaluation suite is the
+final delivered stage: it runs through the real MCP/stdio/WebSocket/browser
+path, verifies three creative workflows and four recovery workflows, and emits
+reviewed visual evidence plus redacted metrics.
 
 The codebase is unusually well-positioned for adaptation:
 
@@ -25,13 +28,12 @@ The codebase is unusually well-positioned for adaptation:
 - rendering already emits cache events and user-visible errors;
 - Puppeteer smoke tests already exercise the app through a real WebGPU browser.
 
-The recommended path is to make the existing domain model a supported tool
-surface, rather than teaching an agent to drag small sockets by screen
-coordinates.
+The implementation makes the existing domain model the supported tool surface,
+so an agent does not need to drag small sockets by screen coordinates.
 
-## Target outcome
+## Delivered v1 outcome
 
-An external agent should be able to:
+An external agent can:
 
 1. discover every supported node and parameter;
 2. inspect a compact, revisioned document snapshot;
@@ -43,7 +45,7 @@ An external agent should be able to:
 8. operate through either a browser bridge or a local MCP server without direct
    access to the raw Zustand store.
 
-## Proposed maturity model
+## Delivered maturity model
 
 | Level | Capability | Project status |
 | --- | --- | --- |
@@ -51,10 +53,10 @@ An external agent should be able to:
 | L1 | Internal automation/test hook | Replaced by semantic UI + paired controller tests |
 | L2 | Stable, validated command/query API | Implemented |
 | L3 | External tool adapter (MCP/browser bridge) | Implemented with human-approved read/preview plus independent edit/assets/model profiles |
-| L4 | Closed-loop visual planning and verification | In progress in PR 8 |
+| L4 | Closed-loop visual planning and verification | Implemented for the bounded PR 8 workflow suite |
 
-The first delivery target is **L3**, with enough preview and render feedback to
-support a constrained L4 loop.
+Agent-ready v1 delivers **L3** plus the tested, constrained **L4** loop. Broader
+autonomous art direction remains outside the first-release scope.
 
 ## Key architecture decisions
 
@@ -83,12 +85,14 @@ support a constrained L4 loop.
 
 ## Documents
 
-- [Readiness audit](./readiness-audit.md) — current evidence, gaps, risks, and
-  threat model.
+- [Readiness audit](./readiness-audit.md) — original baseline gap analysis and
+  the enduring threat model.
 - [Target architecture](./architecture.md) — components, command/query
   contracts, MCP/browser transport, render lifecycle, and error model.
 - [Implementation plan](./implementation-plan.md) — staged PRs, acceptance
   criteria, test matrix, and rollout gates.
+- [Agent evaluation suite](./evaluation-suite.md) — seven real MCP scenarios,
+  golden/preview policy, recovery traces, metrics, and helper decisions.
 - [Delivery evidence](./delivery-checklist.md) — non-normative phase status and
   reproducible verification links.
 

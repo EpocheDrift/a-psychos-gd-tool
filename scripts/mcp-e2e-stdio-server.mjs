@@ -1,5 +1,8 @@
 // Test-only stdio child. Puppeteer is used solely to perform the trusted
 // approval/revoke clicks that a human performs in normal companion use.
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import process from 'node:process';
 import puppeteer from 'puppeteer-core';
 import {
@@ -15,6 +18,13 @@ import {
 import {
   CompanionRuntime,
 } from '../packages/mcp-companion/dist/runtime.js';
+import {
+  FileModelCache,
+} from '../packages/mcp-companion/dist/modelCache.js';
+import {
+  ModelManager,
+  OneShotModelApprovalGate,
+} from '../packages/mcp-companion/dist/modelManager.js';
 import {
   createToolServer,
 } from '../packages/mcp-companion/dist/tools.js';
@@ -40,10 +50,27 @@ let stdio;
 let shuttingDown;
 const browserProblems = [];
 let modelRouteReported = false;
+let evalRetryDelayed = false;
 const expectedModelArtifactPaths = new Set(
   RMBG_MODEL_ARTIFACTS.map((artifact) =>
     `${RMBG_MODEL_FILES_PATH_PREFIX}${artifact.relativePath}`),
 );
+// This child is test-only. Always isolate its fixed-model state so both the
+// regular MCP E2E and Agent eval remain deterministic when a developer has
+// already installed RMBG in their normal companion cache.
+const e2eModelCacheRoot = await mkdtemp(
+  join(tmpdir(), 'gfx-mcp-e2e-model-'),
+);
+const e2eModelRuntime = (() => {
+  const approvalGate = new OneShotModelApprovalGate();
+  return {
+    approvalGate,
+    manager: new ModelManager({
+      approvalProvider: approvalGate,
+      cache: new FileModelCache(e2eModelCacheRoot),
+    }),
+  };
+})();
 
 const testReadyModelStatus = {
   schemaVersion: 1,
@@ -67,6 +94,7 @@ const runtime = new CompanionRuntime({
   allowAssets: true,
   allowModel: true,
   headless: true,
+  modelRuntime: e2eModelRuntime,
   launchBrowser: async ({ bootstrapToken, onDisconnected }) => {
     const executablePath = await resolveChromeExecutable();
     browser = await puppeteer.launch({
@@ -209,7 +237,11 @@ const shutdown = (reason) => {
     diagnostics(`shutdown: ${reason}`);
     stdio?.detach();
     await server?.close().catch(() => undefined);
-    await runtime.close();
+    try {
+      await runtime.close();
+    } finally {
+      await rm(e2eModelCacheRoot, { recursive: true, force: true });
+    }
     if (browserProblems.length > 0) {
       throw new Error(browserProblems.join(' | '));
     }
@@ -246,6 +278,41 @@ process.once('SIGUSR1', () => {
   });
 });
 
+process.once('SIGUSR2', () => {
+  void (async () => {
+    if (process.env.GFX_AGENT_EVAL !== '1') {
+      throw new Error('The human-edit probe is enabled only for Agent evals.');
+    }
+    if (!page) throw new Error('The E2E page is unavailable.');
+    const before = await page.evaluate(() =>
+      Array.from(
+        document.querySelectorAll('[data-agent-target="layer"]'),
+        (element) => element.getAttribute('data-agent-layer-id'),
+      ).filter((id) => typeof id === 'string'));
+    await page.click('[data-agent-action="add-layer"]');
+    await page.waitForFunction((known) =>
+      Array.from(
+        document.querySelectorAll('[data-agent-target="layer"]'),
+        (element) => element.getAttribute('data-agent-layer-id'),
+      ).some((id) => typeof id === 'string' && !known.includes(id)), {}, before);
+    const after = await page.evaluate(() =>
+      Array.from(
+        document.querySelectorAll('[data-agent-target="layer"]'),
+        (element) => element.getAttribute('data-agent-layer-id'),
+      ).filter((id) => typeof id === 'string'));
+    const created = after.find((id) => !before.includes(id));
+    if (!created) throw new Error('The human UI did not create a layer.');
+    diagnostics(`HUMAN_EDIT_COMPLETE:${created}`);
+  })().catch((error) => {
+    diagnostics(
+      `CONTROL_ERROR: ${
+        error instanceof Error ? error.message : 'unknown human-edit failure'
+      }`,
+    );
+    process.exitCode = 1;
+  });
+});
+
 process.once('SIGINT', () => {
   void shutdown('SIGINT').finally(() => process.exit(process.exitCode ?? 0));
 });
@@ -274,13 +341,38 @@ try {
     };
     inspect();
   });
-    server = createToolServer({
-      bridge: runtime.bridge,
-      allowEdit: true,
-      allowAssets: true,
-      allowModel: true,
-      modelManager: runtime.modelManager,
-    });
+  const toolBridge = process.env.GFX_AGENT_EVAL === '1'
+    ? {
+        call: async (operation, input, signal) => {
+          const retryProbe =
+            operation === 'applyTransaction'
+            && input !== null
+            && typeof input === 'object'
+            && input.requestId === 'agent_eval_retry_v1';
+          const result = await runtime.bridge.call(
+            operation,
+            input,
+            retryProbe ? new AbortController().signal : signal,
+          );
+          if (retryProbe && !evalRetryDelayed) {
+            evalRetryDelayed = true;
+            diagnostics('RETRY_COMMITTED');
+            // Test-only lost-response simulation: the browser commit and
+            // replay-cache settlement are complete before the MCP caller's
+            // deliberately short timeout expires.
+            await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+          }
+          return result;
+        },
+      }
+    : runtime.bridge;
+  server = createToolServer({
+    bridge: toolBridge,
+    allowEdit: true,
+    allowAssets: true,
+    allowModel: true,
+    modelManager: runtime.modelManager,
+  });
   stdio = createBoundedStdio();
   stdio.input.once('error', (error) => {
     diagnostics(`stdio input error: ${error.message}`);

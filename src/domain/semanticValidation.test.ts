@@ -351,6 +351,97 @@ describe('semantic project validation', () => {
       to: { node: 'out', socket: 'in' },
     }]);
     expectFinding(mismatch, 'TYPE_MISMATCH', '/document/layers/0/graph/edges/0', 'editable');
+
+    const rasterToVector = projectWith({
+      raster: { id: 'raster', type: 'Noise', params: {} },
+      vector: { id: 'vector', type: 'Warp', params: {} },
+      out: output(),
+    }, [{
+      from: { node: 'raster', socket: 'out' },
+      to: { node: 'vector', socket: 'in' },
+    }]);
+    const report = validateSerializedProject(rasterToVector, {
+      mode: 'editable',
+    });
+    expect(report.errors).toContainEqual(expect.objectContaining({
+      code: 'TYPE_MISMATCH',
+      path: '/document/layers/0/graph/edges/0',
+      details: expect.objectContaining({
+        source: expect.objectContaining({
+          nodeType: 'Noise',
+          types: ['raster'],
+        }),
+        target: expect.objectContaining({
+          nodeType: 'Warp',
+          types: ['vector'],
+        }),
+        requiredConversion: expect.objectContaining({
+          nodeType: 'Trace',
+          inputSocket: 'in',
+          outputSocket: 'out',
+        }),
+      }),
+      suggestedFix: expect.stringMatching(
+        /Trace\.out to Warp\.in.*new requestId/,
+      ),
+    }));
+
+    const elementsToVector = projectWith({
+      shape: { id: 'shape', type: 'Shape', params: {} },
+      duplicator: { id: 'duplicator', type: 'Duplicator', params: {} },
+      warp: { id: 'warp', type: 'Warp', params: {} },
+      out: output(),
+    }, [
+      {
+        from: { node: 'shape', socket: 'out' },
+        to: { node: 'duplicator', socket: 'in' },
+      },
+      {
+        from: { node: 'duplicator', socket: 'out' },
+        to: { node: 'warp', socket: 'in' },
+      },
+    ]);
+    expect(validateSerializedProject(elementsToVector, {
+      mode: 'editable',
+    }).errors).toContainEqual(expect.objectContaining({
+      code: 'TYPE_MISMATCH',
+      details: expect.objectContaining({
+        requiredConversion: expect.objectContaining({
+          nodeType: 'Flatten',
+        }),
+      }),
+      suggestedFix: expect.stringMatching(
+        /Flatten can convert only vector\/text elements.*Trace the raster/,
+      ),
+    }));
+  });
+
+  it('does not expose mutable registry socket unions in diagnostics', () => {
+    const mismatch = projectWith({
+      shape: { id: 'shape', type: 'Shape', params: {} },
+      out: output(),
+    }, [{
+      from: { node: 'shape', socket: 'out' },
+      to: { node: 'out', socket: 'in' },
+    }]);
+    const first = validateSerializedProject(mismatch, { mode: 'editable' });
+    const finding = first.errors.find((error) =>
+      error.code === 'TYPE_MISMATCH');
+    const targetTypes = (
+      finding?.details?.target as { types?: unknown[] } | undefined
+    )?.types;
+    expect(targetTypes).toEqual(['raster', 'elements']);
+    targetTypes?.push('vector');
+
+    const second = validateSerializedProject(mismatch, { mode: 'editable' });
+    expect(second.errors).toContainEqual(expect.objectContaining({
+      code: 'TYPE_MISMATCH',
+      details: expect.objectContaining({
+        target: expect.objectContaining({
+          types: ['raster', 'elements'],
+        }),
+      }),
+    }));
   });
 
   it('rejects a second incoming edge and detects cycles, including self loops', () => {

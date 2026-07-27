@@ -238,6 +238,61 @@ describe('pure document transactions', () => {
     expect(before.document).toEqual(snapshot);
   });
 
+  it('explains the explicit Trace conversion for raster-to-vector plans', () => {
+    const applied = applyDocumentTransaction(runtime(), request([
+      {
+        op: 'add_node',
+        layerId: 'layer_1',
+        clientRef: 'raster',
+        nodeType: 'Noise',
+      },
+      {
+        op: 'add_node',
+        layerId: 'layer_1',
+        clientRef: 'vector',
+        nodeType: 'Warp',
+      },
+      {
+        op: 'connect',
+        layerId: 'layer_1',
+        from: { nodeId: { clientRef: 'raster' }, socket: 'out' },
+        to: { nodeId: { clientRef: 'vector' }, socket: 'in' },
+      },
+    ]), { transactionId: 'transaction_1' });
+
+    expect(applied.result).toMatchObject({
+      ok: false,
+      revision: 0,
+      error: {
+        code: 'TYPE_MISMATCH',
+        commandIndex: 2,
+        details: {
+          source: {
+            nodeType: 'Noise',
+            socket: 'out',
+            types: ['raster'],
+          },
+          target: {
+            nodeType: 'Warp',
+            socket: 'in',
+            types: ['vector'],
+          },
+          requiredConversion: {
+            nodeType: 'Trace',
+            inputSocket: 'in',
+            outputSocket: 'out',
+            fromType: 'raster',
+            toType: 'vector',
+          },
+        },
+        suggestedFix: expect.stringMatching(
+          /connect Noise\.out to Trace\.in, then Trace\.out to Warp\.in.*new requestId/,
+        ),
+      },
+    });
+    expect(applied.next).toBeUndefined();
+  });
+
   it('dry-runs with deterministic proposed IDs and no committed next state', () => {
     const before = runtime();
     const commands: TransactionRequest['commands'] = [{
@@ -277,7 +332,14 @@ describe('pure document transactions', () => {
     expect(applied.result).toMatchObject({
       ok: false,
       revision: 4,
-      error: { code: 'REVISION_CONFLICT', path: '/expectedRevision' },
+      error: {
+        code: 'REVISION_CONFLICT',
+        path: '/expectedRevision',
+        details: { expectedRevision: 3, currentRevision: 4 },
+        suggestedFix: expect.stringMatching(
+          /Re-read.*revision 4.*new requestId/,
+        ),
+      },
     });
   });
 

@@ -254,6 +254,14 @@ describe('TransactionSession replay and capacity', () => {
     expect(first.result.ok).toBe(true);
     const reused = commitApply(session, first.next!, setFrameRequest('same', 1, 800));
     expectFailureCode(reused.result, 'REQUEST_ID_REUSED');
+    expect(reused.result).toMatchObject({
+      ok: false,
+      error: {
+        suggestedFix: expect.stringMatching(
+          /original request byte-for-byte.*new requestId/,
+        ),
+      },
+    });
     expect(reused.next).toBeUndefined();
   });
 

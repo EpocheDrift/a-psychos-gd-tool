@@ -6,12 +6,18 @@ This is the original gap analysis for that frozen baseline, not current
 delivery status. Implemented evidence is tracked in
 [`delivery-checklist.md`](./delivery-checklist.md).
 
+Current closure: the PR 0–PR 8 implementation now satisfies the Agent-ready v1
+definition, including the real seven-scenario MCP evaluation suite documented
+in [`evaluation-suite.md`](./evaluation-suite.md). The historical verdict and
+findings below remain unchanged so the original design rationale is auditable.
+
 Audit scope: document model, node registry, state mutations, evaluator,
 rendering, persistence, browser automation, assets, and external tool safety.
 
-## Verdict
+## Baseline verdict
 
-The application is **automatable but not agent-adapted**.
+At the audited baseline, the application was **automatable but not
+agent-adapted**.
 
 A browser agent can use visible controls, and test scripts can call the
 development-only Zustand handle. Neither path is a stable product contract:
@@ -380,7 +386,7 @@ Local font names and bytes are private data. Agents should see only the default
 font and aliases the user has explicitly approved for the current document;
 they must never trigger the Local Font Access permission prompt.
 
-## Audit conclusion
+## Baseline conclusion
 
 No blocking rewrite is required. The evaluator, node implementations, and
 ReactFlow UI can remain in place. The adaptation should extract and harden the

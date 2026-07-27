@@ -110,7 +110,7 @@ Evaluation is pull-based from Output with hash-keyed memoization: a node's key i
 - `src/editor/` — xyflow canvas + custom node component; handles and wires colored by socket type.
 - `src/util/` — font parsing (sfnt), expression evaluation, color, noise.
 
-### AI agent adaptation — in progress
+### AI agent adaptation — Agent-ready v1 complete
 
 The default production artifact exposes no Agent global. An explicit
 loopback-only static Agent artifact provides a paired, scope-gated browser
@@ -119,6 +119,9 @@ read/preview; edit, bounded content-addressed assets, and the pinned local
 RMBG-1.4 model are independent command-line plus in-app scope grants. A first
 model download also requires a separate human license confirmation, and every
 artifact is byte-length/SHA-256 verified before same-origin worker use.
+The final seven-scenario official-client evaluation covers three creative
+workflows and four recovery paths through the real MCP/WebSocket/browser
+rendering chain, with reviewed PNGs and redacted metrics.
 
 Project replacement and portable save/load remain explicit human UI actions;
 the Agent receives no filesystem, arbitrary URL fetch, CDP input, navigation,

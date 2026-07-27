@@ -735,7 +735,7 @@ export class BridgeClient {
               ...faultContext,
               recoverable: true,
               suggestedFix:
-                'Restart pairing, query the document revision, then retry only the identical requestId if appropriate.',
+                'The pairing will close. Reconnect, read the current document, and verify whether the write committed; replay identity is guaranteed only inside the original live session, so do not assume a cross-session retry can recover the prior result.',
             },
           ));
           this.close('write response deadline');

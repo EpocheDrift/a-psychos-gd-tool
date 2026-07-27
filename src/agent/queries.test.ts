@@ -285,7 +285,60 @@ describe('Agent queries', () => {
     const json = JSON.stringify(result);
     expect(json).not.toContain('do-not-leak');
     expect(json).not.toContain('AAAA');
+    expect(result.error).toMatchObject({
+      suggestedFix: expect.stringMatching(
+        /gfx_revert_transaction.*new requestId/,
+      ),
+    });
     expect(result.omitted).toContain('/events/256+');
+  });
+
+  it('tailors render recovery to superseded attempts and renderer failures', () => {
+    const superseded = publicRenderStatus({
+      documentRevision: 5,
+      ticket: { revision: 4, attempt: 1 },
+      displayedTicket: null,
+      displayedRevision: null,
+      requestedRevision: 4,
+      renderRevision: null,
+      state: 'superseded',
+      error: {
+        code: 'RENDER_SUPERSEDED',
+        message: 'superseded',
+        revision: 4,
+        attempt: 1,
+        recoverable: true,
+      },
+    }, false);
+    expect(superseded.error?.suggestedFix).toMatch(
+      /newer render.*do not revert/iu,
+    );
+    expect(superseded.error?.suggestedFix).not.toContain(
+      'gfx_revert_transaction',
+    );
+
+    const unavailable = publicRenderStatus({
+      documentRevision: 4,
+      ticket: { revision: 4, attempt: 1 },
+      displayedTicket: null,
+      displayedRevision: null,
+      requestedRevision: 4,
+      renderRevision: null,
+      state: 'failed',
+      error: {
+        code: 'WEBGPU_UNAVAILABLE',
+        message: 'WebGPU unavailable',
+        revision: 4,
+        attempt: 1,
+        recoverable: true,
+      },
+    }, false);
+    expect(unavailable.error?.suggestedFix).toMatch(
+      /Restore WebGPU.*will not repair the renderer/iu,
+    );
+    expect(unavailable.error?.suggestedFix).not.toContain(
+      'gfx_revert_transaction',
+    );
   });
 
   it('omits non-JSON internal render diagnostics without breaking the public boundary', () => {

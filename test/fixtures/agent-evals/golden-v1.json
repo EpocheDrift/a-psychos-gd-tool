@@ -1,0 +1,217 @@
+{
+  "schemaVersion": 1,
+  "creativeScenarios": {
+    "typography_chain": {
+      "prompt": "Create a warped, recolored AGENT READY headline and render it on a transparent 512×384 frame.",
+      "frame": {
+        "width": 512,
+        "height": 384
+      },
+      "nodeTypes": [
+        "Outline",
+        "Output",
+        "Rasterize",
+        "Recolor",
+        "Text",
+        "Warp"
+      ],
+      "edges": [
+        "Outline.out->Warp.in",
+        "Rasterize.out->Recolor.in",
+        "Recolor.out->Output.in",
+        "Text.out->Outline.text",
+        "Warp.out->Rasterize.vector"
+      ],
+      "params": {
+        "Text": {
+          "content": "AGENT READY",
+          "fontSize": 68,
+          "fill": "#20104f",
+          "weight": 700
+        },
+        "Warp": {
+          "axis": "y",
+          "amplitude": 28,
+          "wavelength": 260,
+          "phase": 0.35
+        },
+        "Recolor": {
+          "dark": "#32145f",
+          "light": "#ffb45c"
+        },
+        "Output": {
+          "transparent": true
+        }
+      },
+      "preview": {
+        "width": 256,
+        "height": 192,
+        "sourceWidth": 512,
+        "sourceHeight": 384,
+        "minByteLength": 300,
+        "minAlphaCoverage": 0.001,
+        "minLuminanceRange": 0.02,
+        "requireNonBackgroundBounds": true,
+        "perceptualHash": "aef0d10f2ef0910f",
+        "maxHammingDistance": 12
+      }
+    },
+    "circular_type": {
+      "prompt": "Split CIRCULAR AGENT into characters, place them around a mathematical circle, and render the result.",
+      "frame": {
+        "width": 512,
+        "height": 384
+      },
+      "nodeTypes": [
+        "Function",
+        "Output",
+        "Place",
+        "Split",
+        "Text"
+      ],
+      "edges": [
+        "Function.out->Place.layout",
+        "Place.out->Output.in",
+        "Split.out->Place.elements",
+        "Text.out->Split.text"
+      ],
+      "params": {
+        "Text": {
+          "content": "CIRCULAR AGENT",
+          "fontSize": 48,
+          "fill": "#172554",
+          "weight": 600
+        },
+        "Split": {
+          "by": "characters"
+        },
+        "Function": {
+          "fn": "circle",
+          "gap": 52,
+          "radius": 122
+        },
+        "Place": {
+          "distribute": "spread"
+        }
+      },
+      "preview": {
+        "width": 256,
+        "height": 192,
+        "sourceWidth": 512,
+        "sourceHeight": 384,
+        "minByteLength": 300,
+        "minAlphaCoverage": 0.001,
+        "minLuminanceRange": 0.02,
+        "requireNonBackgroundBounds": true,
+        "perceptualHash": "edf0e40e97c0d91c",
+        "maxHammingDistance": 12
+      }
+    },
+    "masked_scatter": {
+      "prompt": "Use an uploaded image as a mask, jitter a grid inside it, duplicate a shape across the layout, and render.",
+      "frame": {
+        "width": 512,
+        "height": 384
+      },
+      "nodeTypes": [
+        "Duplicator",
+        "Grid",
+        "Image",
+        "Output",
+        "Place",
+        "Random",
+        "Shape"
+      ],
+      "edges": [
+        "Duplicator.out->Place.elements",
+        "Grid.out->Random.layout",
+        "Image.out->Grid.mask",
+        "Image.out->Random.mask",
+        "Place.out->Output.in",
+        "Random.out->Place.layout",
+        "Shape.out->Duplicator.in"
+      ],
+      "params": {
+        "Image": {
+          "assetId": "asset_431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460",
+          "fit": "contain"
+        },
+        "Grid": {
+          "columns": 6,
+          "rows": 4,
+          "gapX": 12,
+          "gapY": 12,
+          "padX": 50,
+          "padY": 50
+        },
+        "Random": {
+          "offset": 18,
+          "rotate": 0.45,
+          "scaleJitter": 0.25,
+          "seed": 31
+        },
+        "Shape": {
+          "kind": "ellipse",
+          "width": 34,
+          "height": 34,
+          "fill": "#e11d48"
+        },
+        "Duplicator": {
+          "count": 24
+        },
+        "Place": {
+          "distribute": "by-order"
+        },
+        "Output": {
+          "transparent": true
+        }
+      },
+      "preview": {
+        "width": 256,
+        "height": 192,
+        "sourceWidth": 512,
+        "sourceHeight": 384,
+        "minByteLength": 300,
+        "minAlphaCoverage": 0.001,
+        "minLuminanceRange": 0.02,
+        "requireNonBackgroundBounds": true,
+        "perceptualHash": "bb87c1189d66d6b0",
+        "maxHammingDistance": 12
+      }
+    }
+  },
+  "recoveryScenarios": {
+    "human_edit_conflict": {
+      "errorCode": "REVISION_CONFLICT",
+      "preserveHumanLayer": true,
+      "requiresFreshRequestId": true
+    },
+    "bad_plan_recovery": {
+      "errorCode": "TYPE_MISMATCH",
+      "requiredConversion": "Trace",
+      "sourceTypes": [
+        "raster"
+      ],
+      "targetTypes": [
+        "vector"
+      ]
+    },
+    "render_failure_recovery": {
+      "state": "failed",
+      "nodeType": "RemoveBackground",
+      "phase": "worker",
+      "revertToComplete": true
+    },
+    "timed_out_retry": {
+      "clientTimeoutMs": 25,
+      "sameRequestReturnsOriginalIds": true
+    }
+  },
+  "metricRequirements": {
+    "scenarioCount": 7,
+    "successfulRecoveries": 4,
+    "expectedInvalidPlans": 1,
+    "expectedRevisionConflicts": 1,
+    "expectedTimedOutRetries": 1
+  }
+}

@@ -16,7 +16,7 @@ Integration branch: `agent/agent-ready-v1`
 | PR 5 — Gated browser AgentController | Complete | Commit [`a02f74f`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/a02f74f6f83158d706dda14923147a321c63bcb5) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 6 — Local MCP companion | Complete | Commit [`1a2a833`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/1a2a8339bd60056797963904291b6dd5c8855dbd) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
 | PR 7 — Asset and persistence boundary | Complete | Commit [`f22ff34`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/f22ff34cd3fe5be8876b21af56a72e2f633aee3d) is pushed and tracked in Draft PR [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2); all local gates pass. |
-| PR 8 — Agent evals and high-level helpers | In progress | PR 7 prerequisites are complete; seven-scenario eval implementation remains. |
+| PR 8 — Agent evals and high-level helpers | Implementation complete | Seven real MCP scenarios pass locally with 49 tool calls, 4 verified recoveries, and 3 reviewed PNGs; final commit/push evidence is pending. |
 
 ## PR 0 checklist
 
@@ -356,14 +356,54 @@ Integration branch: `agent/agent-ready-v1`
   public-result/schema, model-route, and stdio security audits.
 - [x] Commit and push the stage to the fork and update the Draft integration PR.
 
-## Open risks carried beyond PR 7
+## PR 8 checklist
 
-- The WebGPU suite is a required manual gate until CI has a real, reliable GPU
-  runner; ordinary `ubuntu-latest` browser success is not rendering evidence.
+- [x] Add a single-session official MCP runner over bounded stdio,
+  authenticated same-origin WebSocket, the public AgentController, and real
+  Chrome/WebGPU rendering.
+- [x] Create and validate the Typography chain, Circular type, and Masked
+  scatter workflows as atomic transactions with exact frame, parameter,
+  topology, typed-edge, render-ticket, and document goldens.
+- [x] Capture and review three 256×192 PNG previews with byte/dimension,
+  luminance, visibility, non-background, SHA-256, and tolerant perceptual-hash
+  evidence.
+- [x] Reject a transaction planned before a real human “Add layer” UI edit,
+  re-read and re-plan with a fresh request ID, and prove the human layer is
+  preserved byte-for-byte.
+- [x] Return bounded socket/type details plus an explicit `Trace.in` /
+  `Trace.out` route for raster-to-vector mistakes, require a fresh request ID,
+  and verify the corrected graph renders.
+- [x] Surface a deterministic local model-worker failure with exact
+  revision/attempt/node/phase, revert only the responsible head transaction,
+  and prove the new revision renders successfully.
+- [x] Lose one MCP response after its browser commit, replay the byte-identical
+  request in the same live session, and prove the original created IDs return
+  without a second mutation.
+- [x] Record redacted tool-call, invalid-plan, revision-conflict, retry,
+  recovery, preview, and latency metrics without arguments, binary payloads,
+  credentials, model paths, or child stderr.
+- [x] Keep eval-only human-edit, lost-response, and isolated-model-cache hooks
+  behind the test child and prove the ordinary MCP E2E remains unchanged.
+- [x] Add the Agent eval to local scripts and CI, with always-uploaded evidence
+  on failure or success.
+- [x] Document prompts, expected traces, golden policy, recovery rules, and the
+  trace-backed decision not to add new high-level helpers.
+- [x] Close every blocker from independent error-contract, replay, security,
+  lifecycle, runner, golden, metrics, and CI audits.
+- [x] Run the final full typecheck, 527 application tests, 87 companion tests,
+  default/Agent builds and artifact gate, all MCP gates including the
+  7-scenario/49-call eval, and all nine browser/WebGPU smokes.
+- [ ] Commit and push the stage to the fork and update the Draft integration PR.
+
+## Residual risks after Agent-ready v1
+
+- The CI eval is real browser/WebGPU regression evidence, but it is not
+  cross-vendor or hardware-GPU release approval; the hardware GPU suite remains
+  a required manual gate until CI has a reliable representative runner.
 - Preview and asset bytes remain private to their explicitly bounded binary
   paths. Project replacement, filesystem export, arbitrary fetch, and general
-  filesystem tools remain absent. The seven-scenario Agent eval suite is still
-  PR 8 work.
+  filesystem tools remain absent. The delivered seven-scenario eval exercises
+  only those bounded paths.
 - Browser-trusted `Event.isTrusted` rejects page-script synthetic approval but
   does not prove a physical human when an attacker controls CDP/input. The
   companion exposes no CDP, navigation, browser-input, or page-evaluation tool;

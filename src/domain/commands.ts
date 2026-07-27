@@ -58,6 +58,7 @@ import { validateParamValue } from './paramValidation';
 import { getParamPublicMetadata } from './publicNodeMetadata';
 import { validateSerializedProject } from './semanticValidation';
 import { sha256Hex } from './sha256';
+import { socketTypeMismatchDiagnostic } from './socketDiagnostics';
 
 export interface AgentTransactionApplyOptions {
   limits?: Partial<AgentLimits>;
@@ -1079,6 +1080,7 @@ function applyNormalizedTransactionCore(
           '/expectedRevision',
           undefined,
           { expectedRevision: request.expectedRevision, currentRevision: state.revision },
+          `Re-read the current document at revision ${state.revision}, re-plan against that state, and submit the corrected transaction with a new requestId.`,
         ),
         request.requestId,
       ),
@@ -1785,11 +1787,19 @@ function applyNormalizedTransactionCore(
             );
           }
           if (!canConnect(fromSocket, toSocket)) {
+            const diagnostic = socketTypeMismatchDiagnostic(
+              fromNode,
+              fromSocket,
+              toNode,
+              toSocket,
+            );
             throw new CommandProblem(
               'TYPE_MISMATCH',
-              'Edge socket types are incompatible.',
+              diagnostic.message,
               path,
               index,
+              diagnostic.details,
+              diagnostic.suggestedFix,
             );
           }
           const incoming = layer.graph.edges.filter(

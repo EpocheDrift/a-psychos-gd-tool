@@ -1,6 +1,6 @@
 # Target Architecture for Agent Control
 
-Status: **implemented through the asset/model boundary; PR 8 evals in progress**
+Status: **implemented through PR 8; Agent-ready v1 complete**
 
 ## Goals
 
