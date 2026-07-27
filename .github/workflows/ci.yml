@@ -20,7 +20,6 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run check:mcp:authority
-      - run: npm run check:mcp:stdio
       - run: npm run check:agent-artifacts
 
   agent-e2e:
@@ -36,6 +35,7 @@ jobs:
       - run: npm ci
       - run: npm run build:agent
       - run: npm run build:mcp
+      - run: npm run check:mcp:stdio
       - run: node scripts/mcp-e2e-check.mjs
       - run: node scripts/agent-eval-check.mjs
         timeout-minutes: 10
