@@ -116,6 +116,18 @@ const runtime = new CompanionRuntime({
       context = await browser.createBrowserContext();
       page = await context.newPage();
       page.setDefaultTimeout(20_000);
+      await page.evaluateOnNewDocument(() => {
+        Object.defineProperty(
+          globalThis,
+          '__GFX_MODEL_E2E_DIAGNOSTICS__',
+          {
+            value: true,
+            configurable: false,
+            enumerable: false,
+            writable: false,
+          },
+        );
+      });
       await page.setRequestInterception(true);
       page.on('request', (request) => {
         void (async () => {
@@ -152,6 +164,10 @@ const runtime = new CompanionRuntime({
         browserProblems.push(`pageerror: ${error.message}`);
       });
       page.on('console', (message) => {
+        if (message.text().startsWith('[gfx-model-e2e] ')) {
+          diagnostics(message.text());
+          return;
+        }
         if (message.type() !== 'error') return;
         const location = message.location().url;
         // The app deliberately probes this optional font before falling back to

@@ -434,7 +434,7 @@ try {
     throw new Error(
       `Authorized model render did not enter its local worker path: ${
         JSON.stringify(modelRender)
-      }`,
+      }; child diagnostics: ${stderrText}`,
     );
   }
   await waitForDiagnostic('MODEL_ROUTE_SEEN');

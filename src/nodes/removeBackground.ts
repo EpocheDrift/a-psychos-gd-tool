@@ -12,6 +12,15 @@ import { runRemoveBg } from './traceClient';
 import { throwIfCookInterrupted } from '../engine/cookControl';
 import { gpuWorkBudgetFor } from '../engine/gpuWorkBudget';
 
+function reportModelDiagnostic(phase: string): void {
+  const enabled = (
+    globalThis as typeof globalThis & {
+      __GFX_MODEL_E2E_DIAGNOSTICS__?: boolean;
+    }
+  ).__GFX_MODEL_E2E_DIAGNOSTICS__ === true;
+  if (enabled) console.info(`[gfx-model-e2e] ${phase}`);
+}
+
 export const RemoveBackgroundNode: NodeDef = {
   type: 'RemoveBackground',
   label: 'Remove Background',
@@ -23,8 +32,11 @@ export const RemoveBackgroundNode: NodeDef = {
     if (!gpu) throw new Error('Remove Background needs a GPU context');
     const src = inputs.in as RasterValue;
 
+    reportModelDiagnostic('readback:start');
     const imageData = await gpu.readback(src.texture, ctx);
+    reportModelDiagnostic('readback:complete');
     throwIfCookInterrupted(ctx);
+    reportModelDiagnostic('worker:dispatch');
     const cut = await runRemoveBg(imageData, {
       signal: ctx.signal,
       deadline: ctx.deadline,
@@ -32,6 +44,7 @@ export const RemoveBackgroundNode: NodeDef = {
       maxPendingRequests: ctx.maxPendingWorkerRequests,
       maxPendingBytes: ctx.maxPendingWorkerBytes,
     });
+    reportModelDiagnostic('worker:complete');
     throwIfCookInterrupted(ctx);
 
     // upload the masked pixels back into a texture (browser is the uploader, as
