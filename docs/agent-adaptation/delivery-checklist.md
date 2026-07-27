@@ -4,7 +4,12 @@ This is a non-normative progress ledger. Scope and acceptance criteria come
 only from `README.md`, `readiness-audit.md`, `architecture.md`, and
 `implementation-plan.md` in this directory.
 
-Integration branch: `agent/agent-ready-v1`
+Historical integration branch: `agent/agent-ready-v1`
+
+Merged outcome: PR
+[#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2) was merged
+manually into `main` on **2026-07-27** as
+[`4c8fe01`](https://github.com/EpocheDrift/a-psychos-gd-tool/commit/4c8fe01d3c7600793f0da8c274cddcb01293fbe5).
 
 ## Owner approval
 
@@ -14,8 +19,9 @@ waived an additional full 31-node capability sweep and a current-head remote CI
 record as approval prerequisites.
 
 This records a risk decision, not fabricated evidence: those waived checks are
-not marked as passed. Approval does not itself merge the PR, approve a
-production release, or grant commercial rights for RMBG-1.4.
+not marked as passed. Approval did not itself merge the PR; the owner performed
+that action separately. Neither approval nor merge authorizes a production
+release or grants commercial rights for RMBG-1.4.
 
 | Stage | Status | Evidence |
 | --- | --- | --- |
@@ -408,9 +414,10 @@ production release, or grant commercial rights for RMBG-1.4.
 
 ## Residual risks after Agent-ready v1
 
-- The current PR head has no GitHub Actions status rollup. The owner waived a
-  remote CI record as an approval prerequisite; this is not a claim that
-  remote CI passed, and reviewers or release owners may still require it.
+- PR #2 had no GitHub Actions status rollup when it was merged. The owner
+  waived a remote CI record as an approval prerequisite; this is not a claim
+  that remote CI passed. The repository workflow remains the evidence path for
+  subsequent PRs, pushes to `main`, and manual dispatches.
 - The CI eval is real browser/WebGPU regression evidence, but it is not
   cross-vendor or hardware-GPU release approval. The owner waived an additional
   hardware sweep as an approval prerequisite; target-environment validation

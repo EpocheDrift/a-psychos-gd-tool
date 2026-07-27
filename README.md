@@ -147,8 +147,10 @@ physical-user proof. Build/run details are in the
 [companion guide](packages/mcp-companion/README.md); the readiness audit,
 target architecture, security model, and staged implementation/evidence live
 in [`docs/agent-adaptation/`](docs/agent-adaptation/README.md).
-The project owner approved this v1 scope on 2026-07-27; that approval does not
-by itself merge the integration PR or approve production/commercial release.
+The project owner approved this v1 scope on 2026-07-27, and PR
+[#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2) was subsequently
+merged manually into `main`. Neither the approval nor the merge approves a
+production/commercial release.
 
 ### Dev scripts
 

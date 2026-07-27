@@ -139,10 +139,11 @@ Shape → Place ← Grid
 
 ## AI Agent 适配
 
-Agent-ready v1 已实现，并于 2026-07-27 获得项目所有者正式批准。该批准不自动
-合并集成 PR，也不等于生产发布或商业许可放行。普通生产构建不会暴露 Agent
-全局接口；显式的本地 Agent 构建通过固定 loopback 服务、隔离 Chrome、浏览器
-人工配对和 scope 授权，连接到本地 stdio MCP Companion。
+Agent-ready v1 已实现，并于 2026-07-27 获得项目所有者正式批准；随后 PR
+[#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2) 已由所有者手动
+合并到 `main`。批准与合并均不等于生产发布或商业许可放行。普通生产构建不会
+暴露 Agent 全局接口；显式的本地 Agent 构建通过固定 loopback 服务、隔离
+Chrome、浏览器人工配对和 scope 授权，连接到本地 stdio MCP Companion。
 
 默认权限只有 `read` 和 `preview`。下面三类权限需要命令行允许，并在浏览器
 中再次由人确认：
