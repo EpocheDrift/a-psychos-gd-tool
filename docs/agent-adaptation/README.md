@@ -85,6 +85,8 @@ autonomous art direction remains outside the first-release scope.
 
 ## Documents
 
+- [中文审批简报](./approval-brief.zh-CN.md) — 精简后的审批决定、推荐选项、
+  风险分层和下一步 Web UI/MCP 实操验收计划。
 - [Readiness audit](./readiness-audit.md) — original baseline gap analysis and
   the enduring threat model.
 - [Target architecture](./architecture.md) — components, command/query
