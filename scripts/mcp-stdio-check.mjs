@@ -26,6 +26,7 @@ const READ_TOOLS = Object.freeze([
   'gfx_validate_document',
   'gfx_await_render',
   'gfx_capture_preview',
+  'gfx_measure_rendered_nodes',
 ]);
 const EDIT_TOOLS = Object.freeze([
   'gfx_get_capabilities',
@@ -35,6 +36,7 @@ const EDIT_TOOLS = Object.freeze([
   'gfx_apply_transaction',
   'gfx_await_render',
   'gfx_capture_preview',
+  'gfx_measure_rendered_nodes',
   'gfx_revert_transaction',
 ]);
 const ASSET_TOOLS = Object.freeze([
@@ -48,6 +50,7 @@ const ASSET_TOOLS = Object.freeze([
   'gfx_remove_asset',
   'gfx_await_render',
   'gfx_capture_preview',
+  'gfx_measure_rendered_nodes',
 ]);
 const EDIT_ASSET_TOOLS = Object.freeze([
   'gfx_get_capabilities',
@@ -61,6 +64,7 @@ const EDIT_ASSET_TOOLS = Object.freeze([
   'gfx_remove_asset',
   'gfx_await_render',
   'gfx_capture_preview',
+  'gfx_measure_rendered_nodes',
   'gfx_revert_transaction',
 ]);
 

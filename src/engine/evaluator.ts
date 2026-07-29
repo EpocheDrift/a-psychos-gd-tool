@@ -48,11 +48,14 @@ interface EvaluationAttempt {
   entries: Map<string, CacheEntry>;
   latestHash: Map<NodeId, string>;
   events: CookEvent[];
+  nodeResults: Map<NodeId, CookResult>;
 }
 
 export interface PreparedEvaluation {
   readonly result: CookResult;
   readonly events: readonly CookEvent[];
+  /** Exact resolved outputs for every node reached by this evaluation. */
+  readonly nodeResults: ReadonlyMap<NodeId, CookResult>;
   /**
    * Publish this attempt only after the outer GPU error scopes and presentation
    * have completed successfully.
@@ -149,6 +152,7 @@ export class Evaluator {
       entries: new Map(),
       latestHash: new Map(),
       events: [],
+      nodeResults: new Map(),
     };
     this.events = attempt.events;
     // per-evaluation memo so a diamond dependency cooks each node once
@@ -168,6 +172,7 @@ export class Evaluator {
       return {
         result,
         events: attempt.events,
+        nodeResults: new Map(attempt.nodeResults),
         commit: () => {
           if (settled) return;
           settled = true;
@@ -331,7 +336,9 @@ export class Evaluator {
       const cached = this.entries.get(cacheKey);
       if (cached) {
         attempt.events.push({ nodeId, type: node.type, status: 'hit', ms: 0 });
-        return { outputs: cached.outputs, hash };
+        const result = { outputs: cached.outputs, hash };
+        attempt.nodeResults.set(nodeId, result);
+        return result;
       }
 
       // 4. miss: run the actual work (await covers async/model nodes too).
@@ -376,7 +383,9 @@ export class Evaluator {
         status: 'miss',
         ms: performance.now() - t0,
       });
-      return { outputs, hash };
+      const result = { outputs, hash };
+      attempt.nodeResults.set(nodeId, result);
+      return result;
     })();
 
     memo.set(nodeId, promise);

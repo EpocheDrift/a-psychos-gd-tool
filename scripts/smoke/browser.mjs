@@ -459,6 +459,7 @@ export async function pairAgent(
       'getRenderStatus',
       'awaitRender',
       'capturePreview',
+      'measureRenderedNodes',
       'revertTransaction',
       'putAsset',
       'listAssets',

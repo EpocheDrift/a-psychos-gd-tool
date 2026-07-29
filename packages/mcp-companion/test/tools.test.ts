@@ -121,6 +121,7 @@ describe('MCP tool adapter', () => {
         'gfx_validate_document',
         'gfx_await_render',
         'gfx_capture_preview',
+        'gfx_measure_rendered_nodes',
       ],
     },
     {
@@ -136,6 +137,7 @@ describe('MCP tool adapter', () => {
         'gfx_apply_transaction',
         'gfx_await_render',
         'gfx_capture_preview',
+        'gfx_measure_rendered_nodes',
         'gfx_revert_transaction',
       ],
     },
@@ -155,6 +157,7 @@ describe('MCP tool adapter', () => {
         'gfx_remove_asset',
         'gfx_await_render',
         'gfx_capture_preview',
+        'gfx_measure_rendered_nodes',
       ],
     },
     {
@@ -174,6 +177,7 @@ describe('MCP tool adapter', () => {
         'gfx_remove_asset',
         'gfx_await_render',
         'gfx_capture_preview',
+        'gfx_measure_rendered_nodes',
         'gfx_revert_transaction',
       ],
     },
@@ -191,6 +195,7 @@ describe('MCP tool adapter', () => {
         'gfx_prepare_model',
         'gfx_await_render',
         'gfx_capture_preview',
+        'gfx_measure_rendered_nodes',
       ],
     },
     {
@@ -212,6 +217,7 @@ describe('MCP tool adapter', () => {
         'gfx_remove_asset',
         'gfx_await_render',
         'gfx_capture_preview',
+        'gfx_measure_rendered_nodes',
         'gfx_revert_transaction',
       ],
     },
@@ -324,7 +330,11 @@ describe('MCP tool adapter', () => {
       idempotentHint: true,
       openWorldHint: false,
     });
-    for (const name of ['gfx_list_assets', 'gfx_get_asset_metadata']) {
+    for (const name of [
+      'gfx_list_assets',
+      'gfx_get_asset_metadata',
+      'gfx_measure_rendered_nodes',
+    ]) {
       expect(
         editTools.tools.find((tool) => tool.name === name)?.annotations,
       ).toMatchObject({
@@ -333,6 +343,91 @@ describe('MCP tool adapter', () => {
         openWorldHint: false,
       });
     }
+  });
+
+  it('forwards exact rendered-node measurements as a read-only JSON tool', async () => {
+    const measurement = {
+      contractVersion: 'rendered-node-measurement-v1',
+      measurementPolicy: 'current-exact-ticket-v1',
+      measurementStage: 'target-output-before-downstream-v1',
+      visibilityPolicy: 'frame-clip-only-no-occlusion-v1',
+      revision: 4,
+      attempt: 2,
+      frame: { width: 640, height: 480 },
+      coordinateSpace: {
+        kind: 'frame-pixels-top-left-v1',
+        units: 'px',
+        xAxis: 'right',
+        yAxis: 'down',
+      },
+      measurements: [{
+        target: {
+          layerId: 'layer_1',
+          nodeId: 'headline',
+          outputSocket: 'out',
+        },
+        nodeType: 'Text',
+        valueKind: 'text',
+        status: 'measured',
+        basis: 'conservative-painted-geometry-aabb-v1',
+        unclippedBounds: {
+          x: 12,
+          y: 16,
+          width: 200,
+          height: 48,
+        },
+        visibleBounds: {
+          x: 12,
+          y: 16,
+          width: 200,
+          height: 48,
+        },
+        clipping: {
+          state: 'inside',
+          sides: [],
+          overflowPx: { left: 0, top: 0, right: 0, bottom: 0 },
+        },
+      }],
+      trust: 'untrusted-document-render',
+      requestedRevision: 4,
+    };
+    const tools = await connectedTools(false, async () => measurement);
+    const listed = await tools.client.listTools();
+    expect(
+      listed.tools.find((tool) =>
+        tool.name === 'gfx_measure_rendered_nodes')?.annotations,
+    ).toMatchObject({
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    });
+
+    const result = await tools.client.callTool({
+      name: 'gfx_measure_rendered_nodes',
+      arguments: {
+        revision: 4,
+        attempt: 2,
+        targets: [{ layerId: 'layer_1', nodeId: 'headline' }],
+      },
+    });
+
+    expect(result).toMatchObject({
+      structuredContent: {
+        outcome: {
+          ok: true,
+          value: measurement,
+        },
+      },
+    });
+    expect(tools.bridge.call).toHaveBeenCalledWith(
+      'measureRenderedNodes',
+      {
+        revision: 4,
+        attempt: 2,
+        targets: [{ layerId: 'layer_1', nodeId: 'headline' }],
+      },
+      expect.any(AbortSignal),
+    );
   });
 
   it('preserves structured domain errors after client output validation', async () => {

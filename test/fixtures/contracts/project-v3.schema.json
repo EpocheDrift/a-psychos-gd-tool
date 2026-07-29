@@ -1580,6 +1580,24 @@
                   "maximum": 1000,
                   "x-step": 1
                 },
+                "anchorX": {
+                  "type": "string",
+                  "enum": [
+                    "legacy",
+                    "start",
+                    "center",
+                    "end"
+                  ]
+                },
+                "anchorY": {
+                  "type": "string",
+                  "enum": [
+                    "legacy",
+                    "top",
+                    "middle",
+                    "bottom"
+                  ]
+                },
                 "order": {
                   "type": "string",
                   "enum": [

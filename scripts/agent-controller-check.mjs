@@ -173,6 +173,9 @@ await withSmokePage(
           !capabilities.scopeAvailability.model.available
           || !capabilities.scopeAvailability.assets.available
           || capabilities.scopeAvailability.export.available
+          || capabilities.features?.renderedNodeMeasurements !== true
+          || capabilities.measurement?.contractVersion
+            !== 'rendered-node-measurement-v1'
         ) {
           throw new Error('PR7 scope rollout availability is incorrect');
         }
@@ -199,6 +202,16 @@ await withSmokePage(
           revision: first.revision,
           timeoutMs: 20_000,
         });
+        stage = 'measureRenderedNodes';
+        const measurement = agent.measureRenderedNodes({
+          revision: first.revision,
+          attempt: rendered.ticket.attempt,
+          targets: [{
+            layerId: 'semantic_layer',
+            nodeId: 'semantic_output',
+            outputSocket: 'out',
+          }],
+        });
         stage = 'capturePreview';
         const preview = await agent.capturePreview({
           revision: first.revision,
@@ -218,6 +231,14 @@ await withSmokePage(
           first,
           after,
           rendered,
+          measurement: {
+            contractVersion: measurement.contractVersion,
+            revision: measurement.revision,
+            attempt: measurement.attempt,
+            trust: measurement.trust,
+            status: measurement.measurements[0]?.status,
+            reason: measurement.measurements[0]?.reason,
+          },
           preview: {
             kind: preview.image.kind,
             trust: preview.trust,
@@ -247,6 +268,13 @@ await withSmokePage(
       || firstRun.after.frame.width !== 257
       || firstRun.rendered.state !== 'complete'
       || firstRun.rendered.renderRevision !== 1
+      || firstRun.measurement.contractVersion
+        !== 'rendered-node-measurement-v1'
+      || firstRun.measurement.revision !== 1
+      || firstRun.measurement.attempt !== firstRun.rendered.ticket.attempt
+      || firstRun.measurement.trust !== 'untrusted-document-render'
+      || firstRun.measurement.status !== 'unavailable'
+      || firstRun.measurement.reason !== 'raster-clipping-already-baked'
       || firstRun.preview.kind !== 'browser-object-url-v1'
       || firstRun.preview.trust !== 'untrusted-document-render'
       || firstRun.preview.bytes !== firstRun.preview.advertisedBytes

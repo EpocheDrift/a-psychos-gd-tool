@@ -8,6 +8,7 @@ import {
   configureAppRenderer,
   currentArtifactTicket,
   getDisplayedCanvasIndex,
+  measureRenderedNodesExact,
   readbackExact,
   readbackPreviewExact,
   setRenderCanvases,
@@ -186,6 +187,39 @@ describe('App render service integration', () => {
       (gpu.captureErrors as ReturnType<typeof vi.fn>),
     ).toHaveBeenCalledTimes(2);
     expect(currentArtifactTicket()).toEqual(ticket);
+    expect(measureRenderedNodesExact({
+      ...ticket,
+      targets: [{
+        layerId: 'layer',
+        nodeId: 'out',
+        outputSocket: 'out',
+      }],
+    })).toMatchObject({
+      revision: ticket.revision,
+      attempt: ticket.attempt,
+      measurements: [{
+        target: {
+          layerId: 'layer',
+          nodeId: 'out',
+          outputSocket: 'out',
+        },
+        status: 'unavailable',
+        reason: 'raster-clipping-already-baked',
+      }],
+    });
+    expect(() => measureRenderedNodesExact({
+      revision: ticket.revision,
+      attempt: ticket.attempt + 1,
+      targets: [{
+        layerId: 'layer',
+        nodeId: 'out',
+        outputSocket: 'out',
+      }],
+    })).toThrow(
+      `Rendered artifact for revision ${ticket.revision}, attempt ${
+        ticket.attempt + 1
+      } is no longer available.`,
+    );
     await expect(readbackExact(ticket)).resolves.toBe(image);
     expect(pool.retain).toHaveBeenCalledOnce();
 

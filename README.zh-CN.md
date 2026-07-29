@@ -83,7 +83,9 @@ text → vector → raster
 
 `elements` 表示一个或多个待放置的设计元素。`Grid`、`Math Function`、
 `Sample Path` 和 `Random` 产生位置槽位，`Place` 决定元素如何进入这些
-槽位。一个最小的散布图只需要：
+槽位。`Place` 还可以用 `start/center/end` 与 `top/middle/bottom`，把元素
+实际画出来的边缘或中心对准槽位；默认的 `legacy` 会完整保留旧工程原来的定位
+方式。一个最小的散布图只需要：
 
 ```text
 Shape → Place ← Grid
@@ -145,10 +147,17 @@ Agent-ready v1 已实现，并于 2026-07-27 获得项目所有者正式批准�
 [#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2) 已由所有者手动
 合并到 `main`。批准与合并均不等于生产发布或商业许可放行。普通生产构建不会
 暴露 Agent 全局接口；显式的本地 Agent 构建通过固定 loopback 服务、隔离
-Chrome、浏览器人工配对和 scope 授权，连接到本地 stdio MCP Companion。
+Chrome 和本地 stdio MCP Companion 连接。
 
-默认权限只有 `read` 和 `preview`。下面三类权限需要命令行允许，并在浏览器
-中再次由人确认：
+有两条使用路径：
+
+- **交互式最小权限**：默认只有 `read` 和 `preview`；下面三类权限需要命令行
+  允许，并在浏览器里一次确认；
+- **个人本地 Trusted Local（推荐）**：使用
+  `--profile=full-design-v1 --trusted-local`，启动这条明确的 MCP 进程本身就代表
+  授权，当前全部设计 scopes 会自动配对，不再反复弹批准窗口。
+
+三类额外 scope 是：
 
 - `edit`：原子修改节点图；
 - `assets`：上传受限大小、按内容寻址的 PNG/JPEG/WebP；
@@ -165,6 +174,8 @@ Chrome、浏览器人工配对和 scope 授权，连接到本地 stdio MCP Compa
 宿主撤销它们已经拥有的权限。
 
 构建与使用方式见 [MCP Companion 文档](packages/mcp-companion/README.md)；
+第一次上手建议直接看
+[Agent MCP 入门](docs/getting-started.zh-CN.md#大约-10-分钟接入-agent)；
 方案、风险和交付证据见
 [`docs/agent-adaptation/`](docs/agent-adaptation/README.md)。
 

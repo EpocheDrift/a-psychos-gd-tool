@@ -9,6 +9,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { Evaluator } from '../engine/evaluator';
 import { GeometryBudget } from '../engine/geometryBudget';
 import { CookResourceLimitError } from '../engine/cookControl';
+import { transformedElementBounds } from '../engine/spatialBounds';
 import type { Graph } from '../engine/graph';
 import type { CookContext } from '../engine/registry';
 import { buildRegistry } from './index';
@@ -16,6 +17,7 @@ import type {
   Element,
   ElementsValue,
   LayoutValue,
+  RasterValue,
   TextValue,
   VectorValue,
 } from '../engine/values';
@@ -49,7 +51,7 @@ async function shape(content: string): Promise<TextValue> {
 function placeParams(over: Record<string, number | string> = {}) {
   return {
     distribute: 'by-order', order: 'source', reverse: 'no', seed: 0,
-    binds: '[]',
+    anchorX: 'legacy', anchorY: 'legacy', binds: '[]',
     ...over,
   };
 }
@@ -622,6 +624,264 @@ describe('Place ordering & joins (Sort absorbed)', () => {
     placed.items.forEach((e, i) => {
       expect(e.transform.x).toBeCloseTo(layout.placements[i].x + 30, 10);
       expect(e.transform.y).toBeCloseTo(layout.placements[i].y - 12, 10);
+    });
+  });
+
+  it('places explicit painted-bounds anchors on the slot before offset', async () => {
+    const shape = (await ShapeNode.cook(
+      {},
+      { kind: 'rect', width: 100, height: 40, sides: 4 },
+      ctx,
+    )).out as VectorValue;
+    const layout: LayoutValue = {
+      kind: 'layout',
+      placements: [{
+        x: 120,
+        y: -30,
+        rotation: 0,
+        scale: 2,
+        progress: 0,
+        weight: 1,
+        index: 0,
+      }],
+    };
+    const placed = (await PlaceNode.cook(
+      { elements: shape, layout },
+      placeParams({
+        anchorX: 'start',
+        anchorY: 'top',
+        offsetX: 7,
+        offsetY: 11,
+      }),
+      ctx,
+    )).out as ElementsValue;
+    const bounds = transformedElementBounds(
+      placed.items[0],
+      ctx.fonts,
+      ctx,
+    );
+
+    expect(bounds).toMatchObject({
+      x: 127,
+      y: -19,
+      width: 200,
+      height: 80,
+    });
+  });
+
+  it('keeps omitted anchors exactly compatible with explicit legacy anchors', async () => {
+    const vector: VectorValue = {
+      kind: 'vector',
+      paths: [],
+      bounds: { x: 12, y: -7, width: 33, height: 19 },
+    };
+    const text = await shape('AG');
+    const raster: RasterValue = {
+      kind: 'raster',
+      texture: {} as RasterValue['texture'],
+      width: 80,
+      height: 40,
+    };
+    const layout: LayoutValue = {
+      kind: 'layout',
+      placements: [{
+        x: 73,
+        y: -41,
+        rotation: 0.37,
+        scale: 1.6,
+        progress: 0,
+        weight: 1,
+        index: 0,
+      }],
+    };
+    const historicalParams = {
+      distribute: 'by-order',
+      offsetX: 9,
+      offsetY: -11,
+      order: 'source',
+      reverse: 'no',
+      seed: 0,
+      binds: '[]',
+    };
+
+    for (const content of [vector, text, raster]) {
+      const omitted = (await PlaceNode.cook(
+        { elements: content, layout },
+        historicalParams,
+        ctx,
+      )).out as ElementsValue;
+      const explicit = (await PlaceNode.cook(
+        { elements: content, layout },
+        { ...historicalParams, anchorX: 'legacy', anchorY: 'legacy' },
+        ctx,
+      )).out as ElementsValue;
+
+      expect(omitted.items[0].transform).toEqual(explicit.items[0].transform);
+      expect(omitted.items[0].transform).toEqual({
+        x: 82,
+        y: -52,
+        rotation: 0.37,
+        scale: 1.6,
+      });
+    }
+  });
+
+  it('keeps a selected local anchor on the target after rotation and scale', async () => {
+    const vector: VectorValue = {
+      kind: 'vector',
+      paths: [],
+      bounds: { x: 10, y: 20, width: 40, height: 60 },
+    };
+    const layout: LayoutValue = {
+      kind: 'layout',
+      placements: [{
+        x: 100,
+        y: 200,
+        rotation: Math.PI / 2,
+        scale: 2,
+        progress: 0,
+        weight: 1,
+        index: 0,
+      }],
+    };
+    const placed = (await PlaceNode.cook(
+      { elements: vector, layout },
+      placeParams({
+        anchorX: 'end',
+        anchorY: 'bottom',
+        offsetX: 5,
+        offsetY: -7,
+      }),
+      ctx,
+    )).out as ElementsValue;
+    const transform = placed.items[0].transform;
+    const anchor = { x: 50, y: 80 };
+    const cosine = Math.cos(transform.rotation) * transform.scale;
+    const sine = Math.sin(transform.rotation) * transform.scale;
+
+    expect(transform.rotation).toBeCloseTo(Math.PI / 2, 12);
+    expect(transform.scale).toBe(2);
+    expect(transform.x + cosine * anchor.x - sine * anchor.y)
+      .toBeCloseTo(105, 10);
+    expect(transform.y + sine * anchor.x + cosine * anchor.y)
+      .toBeCloseTo(193, 10);
+  });
+
+  it('anchors with the final rotation and scale after channel binds', async () => {
+    const vector: VectorValue = {
+      kind: 'vector',
+      paths: [],
+      bounds: { x: 10, y: 20, width: 40, height: 60 },
+    };
+    const elements: ElementsValue = {
+      kind: 'elements',
+      items: [{
+        content: vector,
+        transform: { x: 999, y: 999, rotation: 0.1, scale: 1.5 },
+        index: 0,
+        progress: 0,
+        weight: 1,
+      }],
+    };
+    const layout: LayoutValue = {
+      kind: 'layout',
+      placements: [{
+        x: -30,
+        y: 45,
+        rotation: 0.2,
+        scale: 2,
+        progress: 0,
+        weight: 0.25,
+        index: 0,
+      }],
+    };
+    const placed = (await PlaceNode.cook(
+      { elements, layout },
+      placeParams({
+        anchorX: 'center',
+        anchorY: 'middle',
+        binds: binds(
+          { channel: 'weight', target: 'scale', amount: 0.5 },
+          { channel: 'weight', target: 'rotation' },
+        ),
+      }),
+      ctx,
+    )).out as ElementsValue;
+    const transform = placed.items[0].transform;
+    const anchor = { x: 30, y: 50 };
+    const cosine = Math.cos(transform.rotation) * transform.scale;
+    const sine = Math.sin(transform.rotation) * transform.scale;
+
+    expect(transform.scale).toBeCloseTo(1.875, 12);
+    expect(transform.rotation).toBeCloseTo(0.3 - Math.PI / 4, 12);
+    expect(transform.x + cosine * anchor.x - sine * anchor.y)
+      .toBeCloseTo(-30, 10);
+    expect(transform.y + sine * anchor.x + cosine * anchor.y)
+      .toBeCloseTo(45, 10);
+  });
+
+  it('uses resolved glyph ink and centered raster storage for explicit anchors', async () => {
+    const text = await shape('AG');
+    const textLayout: LayoutValue = {
+      kind: 'layout',
+      placements: [{
+        x: 27,
+        y: -13,
+        rotation: 0,
+        scale: 1,
+        progress: 0,
+        weight: 1,
+        index: 0,
+      }],
+    };
+    const placedText = (await PlaceNode.cook(
+      { elements: text, layout: textLayout },
+      placeParams({ anchorX: 'center', anchorY: 'middle' }),
+      ctx,
+    )).out as ElementsValue;
+    const textBounds = transformedElementBounds(
+      placedText.items[0],
+      ctx.fonts,
+      ctx,
+    )!;
+
+    expect(textBounds.x + textBounds.width / 2).toBeCloseTo(27, 10);
+    expect(textBounds.y + textBounds.height / 2).toBeCloseTo(-13, 10);
+
+    const raster: RasterValue = {
+      kind: 'raster',
+      texture: {} as RasterValue['texture'],
+      width: 80,
+      height: 40,
+    };
+    const rasterLayout: LayoutValue = {
+      kind: 'layout',
+      placements: [{
+        x: -15,
+        y: 22,
+        rotation: 0,
+        scale: 1.25,
+        progress: 0,
+        weight: 1,
+        index: 0,
+      }],
+    };
+    const placedRaster = (await PlaceNode.cook(
+      { elements: raster, layout: rasterLayout },
+      placeParams({ anchorX: 'start', anchorY: 'top' }),
+      ctx,
+    )).out as ElementsValue;
+    const rasterBounds = transformedElementBounds(
+      placedRaster.items[0],
+      ctx.fonts,
+      ctx,
+    );
+
+    expect(rasterBounds).toEqual({
+      x: -15,
+      y: 22,
+      width: 100,
+      height: 50,
     });
   });
 

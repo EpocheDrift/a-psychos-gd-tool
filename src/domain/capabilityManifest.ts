@@ -14,6 +14,16 @@ import {
   PREVIEW_METRICS_VERSION,
 } from './previewContract';
 import { auditRegistryContract, SOCKET_TYPES } from './registryContract';
+import {
+  MAX_RENDERED_NODE_MEASUREMENT_TARGETS,
+  RENDERED_NODE_COORDINATE_SPACE,
+  RENDERED_NODE_MEASUREMENT_LIMITS,
+  RENDERED_NODE_MEASUREMENT_POLICY,
+  RENDERED_NODE_MEASUREMENT_STAGE,
+  RENDERED_NODE_MEASUREMENT_VERSION,
+  RENDERED_NODE_MEASUREMENT_WORK_POLICY,
+  RENDERED_NODE_VISIBILITY_POLICY,
+} from './renderedNodeMeasurementContract';
 
 export interface PublicSocketDescriptor {
   name: string;
@@ -70,6 +80,7 @@ export interface CapabilityManifest {
     transactions: boolean;
     dryRun: boolean;
     previews: boolean;
+    renderedNodeMeasurements: boolean;
     assets: boolean;
     mcp: boolean;
   };
@@ -85,6 +96,18 @@ export interface CapabilityManifest {
     defaultFormat: typeof DEFAULT_PREVIEW_FORMAT;
     metricsVersion: typeof PREVIEW_METRICS_VERSION;
     capturePolicy: typeof PREVIEW_CAPTURE_POLICY;
+  };
+  measurement: {
+    contractVersion: typeof RENDERED_NODE_MEASUREMENT_VERSION;
+    measurementPolicy: typeof RENDERED_NODE_MEASUREMENT_POLICY;
+    measurementStage: typeof RENDERED_NODE_MEASUREMENT_STAGE;
+    visibilityPolicy: typeof RENDERED_NODE_VISIBILITY_POLICY;
+    coordinateSpace: typeof RENDERED_NODE_COORDINATE_SPACE;
+    workPolicy: typeof RENDERED_NODE_MEASUREMENT_WORK_POLICY;
+    limits: typeof RENDERED_NODE_MEASUREMENT_LIMITS;
+    maxTargets: number;
+    exactAttemptRequired: true;
+    supportedValueKinds: ['text', 'vector', 'elements'];
   };
 }
 
@@ -339,6 +362,7 @@ export function buildCapabilityManifest(
       transactions: true,
       dryRun: true,
       previews: true,
+      renderedNodeMeasurements: true,
       assets: true,
       mcp: false,
     },
@@ -354,6 +378,18 @@ export function buildCapabilityManifest(
       defaultFormat: DEFAULT_PREVIEW_FORMAT,
       metricsVersion: PREVIEW_METRICS_VERSION,
       capturePolicy: PREVIEW_CAPTURE_POLICY,
+    },
+    measurement: {
+      contractVersion: RENDERED_NODE_MEASUREMENT_VERSION,
+      measurementPolicy: RENDERED_NODE_MEASUREMENT_POLICY,
+      measurementStage: RENDERED_NODE_MEASUREMENT_STAGE,
+      visibilityPolicy: RENDERED_NODE_VISIBILITY_POLICY,
+      coordinateSpace: RENDERED_NODE_COORDINATE_SPACE,
+      workPolicy: RENDERED_NODE_MEASUREMENT_WORK_POLICY,
+      limits: { ...RENDERED_NODE_MEASUREMENT_LIMITS },
+      maxTargets: MAX_RENDERED_NODE_MEASUREMENT_TARGETS,
+      exactAttemptRequired: true,
+      supportedValueKinds: ['text', 'vector', 'elements'],
     },
   };
 }

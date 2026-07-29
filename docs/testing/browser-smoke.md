@@ -90,7 +90,8 @@ MCP E2E, the compiled companion stdio lifecycle check, and
 `check:agent-artifacts`. The MCP E2E exercises the enabled read, preview, edit,
 asset, and model handlers through the official stdio client transport,
 including in-app browser-trusted approval, exact preview bytes, pinned
-same-origin model routing, revert, revoke, and teardown. The local
+same-origin model routing, exact-ticket node clipping measurement, revert,
+revoke, and teardown. The local
 `check:agent-build` additionally uses real Chrome to verify the
 default/wrong-origin paths and prove that dynamically importing the Agent HTML
 entry exposes no raw store namespace. Full WebGPU visual smokes remain a

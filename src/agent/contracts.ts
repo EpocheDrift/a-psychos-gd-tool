@@ -12,7 +12,12 @@ import type {
 import type { JsonObject, JsonValue } from '../domain/json';
 import type { AgentLimits } from '../domain/limits';
 import type { AssetMetadata } from '../domain/documentSchema';
+import type { CapabilityManifest } from '../domain/capabilityManifest';
 import type { PreviewMetricsV1 } from '../render/previewMetrics';
+import type {
+  PublicRenderedNodeMeasurementRequest,
+  PublicRenderedNodeMeasurementResult,
+} from '../domain/renderedNodeMeasurementContract';
 
 export const AGENT_PROTOCOL_VERSION = '1.0' as const;
 
@@ -192,11 +197,13 @@ export interface CapabilitySnapshot {
     transactions: boolean;
     dryRun: boolean;
     previews: boolean;
+    renderedNodeMeasurements: boolean;
     assets: boolean;
     mcp: boolean;
   };
-  preview: JsonObject;
-  permissions: JsonObject;
+  preview: CapabilityManifest['preview'];
+  measurement: CapabilityManifest['measurement'];
+  permissions: CapabilityManifest['permissions'];
   transport?: JsonObject;
   scopeAvailability: Record<
     AgentScope,
@@ -447,6 +454,9 @@ export interface AgentController {
   getRenderStatus(request?: PublicRenderStatusRequest): PublicRenderStatus;
   awaitRender(request: PublicAwaitRenderRequest): Promise<PublicRenderStatus>;
   capturePreview(request: PublicPreviewRequest): Promise<PublicPreviewResult>;
+  measureRenderedNodes(
+    request: PublicRenderedNodeMeasurementRequest,
+  ): PublicRenderedNodeMeasurementResult;
   revertTransaction(
     request: RevertTransactionRequest,
   ): Promise<PublicTransactionResult>;

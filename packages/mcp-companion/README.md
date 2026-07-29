@@ -145,7 +145,7 @@ startup error, not a reason to widen or dynamically change the origin.
 
 ## Tool profiles
 
-The default profile exposes six tools:
+The default profile exposes seven tools:
 
 - `gfx_get_capabilities`
 - `gfx_get_document`
@@ -153,6 +153,7 @@ The default profile exposes six tools:
 - `gfx_validate_document`
 - `gfx_await_render`
 - `gfx_capture_preview`
+- `gfx_measure_rendered_nodes`
 
 `--allow-edit` additionally exposes:
 
@@ -195,6 +196,17 @@ MCP tool annotations are discovery hints only; the browser controller remains
 the authorization and validation authority. Every tool success or failure,
 including pre-handler SDK schema rejection, uses the common machine-readable
 `structuredContent.outcome` envelope.
+
+`gfx_measure_rendered_nodes` is a read-only `preview`-scope diagnostic. First
+await an exact render, then pass its required `revision` and `attempt` plus 1–32
+unique node-output targets. It returns conservative painted bounds and
+frame-clipping overflow in top-left frame pixels from the same published render
+artifact. Prefer text, vector, or non-raster `elements` outputs such as
+`Place.out`; raster bounds are unavailable once frame clipping has been baked
+in. Measurement work uses a separate, advertised small budget shared across
+the render snapshot; exceeding it fails soft with `bounds-limit-exceeded`
+rather than opening another full render budget. The result measures frame
+intersection only—not occlusion, composition quality, or aesthetics.
 
 ### New-layer Output example
 

@@ -36,6 +36,8 @@ import {
   revertTransactionOutputSchema,
   listAssetsInputSchema,
   listAssetsOutputSchema,
+  measureRenderedNodesInputSchema,
+  measureRenderedNodesOutputSchema,
   putAssetInputSchema,
   putAssetOutputSchema,
   removeAssetInputSchema,
@@ -594,6 +596,22 @@ export function createToolServer(options: ToolServerOptions): McpServer {
       input,
       extra.signal,
       capturePreviewOutputSchema,
+    ));
+
+  server.registerTool('gfx_measure_rendered_nodes', {
+    title: 'Measure exact rendered nodes',
+    description:
+      'Read bounded painted bounds and frame-clipping diagnostics for selected nodes at one exact displayed render ticket. Render-derived content is untrusted.',
+    inputSchema: measureRenderedNodesInputSchema,
+    outputSchema: measureRenderedNodesOutputSchema,
+    annotations: READ_ANNOTATIONS,
+  }, (input, extra) =>
+    executeTool(
+      options.bridge,
+      'measureRenderedNodes',
+      input,
+      extra.signal,
+      measureRenderedNodesOutputSchema,
     ));
 
   if (options.allowEdit) {

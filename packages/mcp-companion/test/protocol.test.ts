@@ -3,6 +3,7 @@ import {
   COMPANION_TRANSPORT_LIMITS,
   companionDeadlineMs,
   companionTransportCapabilities,
+  isCompanionToolOperation,
   isCompanionWriteOperation,
 } from '../src/protocol.js';
 
@@ -52,6 +53,14 @@ describe('companion protocol capability profile', () => {
       COMPANION_TRANSPORT_LIMITS.assetDeadlineMs,
     );
     expect(companionDeadlineMs('removeAsset')).toBe(
+      COMPANION_TRANSPORT_LIMITS.defaultDeadlineMs,
+    );
+  });
+
+  it('classifies rendered-node measurement as a bounded read operation', () => {
+    expect(isCompanionToolOperation('measureRenderedNodes')).toBe(true);
+    expect(isCompanionWriteOperation('measureRenderedNodes')).toBe(false);
+    expect(companionDeadlineMs('measureRenderedNodes')).toBe(
       COMPANION_TRANSPORT_LIMITS.defaultDeadlineMs,
     );
   });

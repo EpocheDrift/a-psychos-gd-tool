@@ -379,6 +379,11 @@ async function dispatchControllerRequest(
         kind: 'json',
         value: await controller.removeAsset(input as never),
       };
+    case 'measureRenderedNodes':
+      return {
+        kind: 'json',
+        value: controller.measureRenderedNodes(input as never),
+      };
     case 'capturePreview': {
       const companionController = bindings.getCompanionController();
       if (!signal || !companionController) {

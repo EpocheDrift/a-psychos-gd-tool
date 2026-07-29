@@ -136,6 +136,12 @@ The project controls above the artboard serve different jobs:
 The app also keeps versioned working data in browser storage. Treat the
 downloaded project file—not browser storage—as the portable backup.
 
+The project `schemaVersion` identifies the document/storage envelope, not
+forward compatibility with every older application build. Unknown newer node
+types or parameters fail closed. A project that uses the new Place anchor
+fields therefore requires a build whose capability manifest advertises those
+fields; older anchor-less projects continue to load with `legacy` behavior.
+
 ## Three things to try next
 
 ### Circular or wavy type
@@ -161,6 +167,14 @@ Place.out → Output.in
 
 Change the polygon, copy count, grid tracks, gaps, and Place bindings. Add
 Random after Grid for seeded offset, rotation, or scale variation.
+
+Place defaults to the historical `legacy` origin so existing projects do not
+move. For predictable alignment, set `anchorX` to `start`, `center`, or `end`
+and `anchorY` to `top`, `middle`, or `bottom`. The selected point on the
+element's painted bounds lands on the assigned slot; `offsetX/Y` then moves
+that target in frame pixels (positive X is right, positive Y is down). Raster
+elements use their full centered storage rectangle, including transparent
+pixels, rather than detecting the opaque subject.
 
 ### An image-effects poster
 
@@ -255,9 +269,9 @@ tool explanations still apply.
 
 ### 3. Start read-only
 
-With no flags, the companion requests only `read` and `preview`. Its six tools
+With no flags, the companion requests only `read` and `preview`. Its seven tools
 can inspect the capabilities/document/render state, validate the document,
-await a render, and capture a preview.
+await a render, capture a preview, and measure rendered-node clipping.
 
 When the isolated Chrome window opens:
 
@@ -315,6 +329,32 @@ a successful render are separate facts, so asking the Agent to await the exact
 render before previewing prevents stale visual evidence. Every `add_layer`
 command creates exactly one transparent Output node at node ID `out`; the
 command's `clientRef` refers to the layer, not to this automatic node.
+
+For layouts that may run off the artboard, the Agent can inspect objective
+geometry before judging the image:
+
+1. Call `gfx_await_render` and keep its exact `revision` and `attempt`.
+2. Call `gfx_measure_rendered_nodes` with that ticket and up to 32
+   `layerId`/`nodeId` targets. Measure a live `Place.out`, text, or vector
+   output before Rasterize whenever possible.
+3. Use `unclippedBounds`, `visibleBounds`, and `clipping.overflowPx` to correct
+   accidental frame clipping, then capture the preview for visual review.
+
+The measurement is a conservative painted-geometry axis-aligned box in
+top-left frame pixels. It checks only intersection with the frame: it does not
+calculate occlusion by other content and does not score composition or
+aesthetics. Raster outputs report `unavailable` because their outside-frame
+pixels may already have been discarded.
+
+The capability manifest advertises a separate bounded, fail-soft measurement
+work budget shared by one render snapshot. If that snapshot exhausts the
+budget, affected targets report `bounds-limit-exceeded` without granting the
+Agent more render authority.
+
+These bounds describe exactly the selected node output before downstream
+processing. A later Rasterize, Trace, centering step, or transform can change
+the final composite position, so measure the latest live pre-raster output that
+actually feeds the intended chain.
 
 ### 5. Grant other scopes only for a task that needs them
 

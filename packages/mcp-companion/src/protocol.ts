@@ -15,6 +15,7 @@ export const COMPANION_TOOL_OPERATIONS = [
   'applyTransaction',
   'awaitRender',
   'capturePreview',
+  'measureRenderedNodes',
   'revertTransaction',
   'putAsset',
   'listAssets',
@@ -204,6 +205,7 @@ export function companionDeadlineMs(
     case 'getRenderStatus':
     case 'validateDocument':
     case 'applyTransaction':
+    case 'measureRenderedNodes':
     case 'revertTransaction':
     case 'listAssets':
     case 'getAssetMetadata':

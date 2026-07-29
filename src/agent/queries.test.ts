@@ -54,6 +54,13 @@ describe('Agent queries', () => {
     expect(compact.nodes.length).toBeGreaterThan(20);
     expect(compact.nodes[0]).not.toHaveProperty('params');
     expect(compact.nodes[0]).not.toHaveProperty('execution');
+    expect(compact.features.renderedNodeMeasurements).toBe(true);
+    expect(compact.measurement).toMatchObject({
+      contractVersion: 'rendered-node-measurement-v1',
+      workPolicy: 'bounded-fail-soft-v1',
+      maxTargets: 32,
+      exactAttemptRequired: true,
+    });
     expect(compact.scopeAvailability).toMatchObject({
       read: { available: true },
       preview: { available: true },

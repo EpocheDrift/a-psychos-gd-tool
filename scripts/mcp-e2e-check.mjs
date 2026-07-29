@@ -114,6 +114,7 @@ try {
     'gfx_remove_asset',
     'gfx_await_render',
     'gfx_capture_preview',
+    'gfx_measure_rendered_nodes',
     'gfx_revert_transaction',
   ];
   if (JSON.stringify(toolNames) !== JSON.stringify(expectedTools)) {
@@ -129,6 +130,15 @@ try {
   }), 'capability discovery');
   if (
     capabilities.features?.mcp !== true
+    || capabilities.features?.renderedNodeMeasurements !== true
+    || capabilities.measurement?.contractVersion
+      !== 'rendered-node-measurement-v1'
+    || capabilities.measurement?.measurementPolicy
+      !== 'current-exact-ticket-v1'
+    || capabilities.measurement?.workPolicy !== 'bounded-fail-soft-v1'
+    || capabilities.measurement?.limits?.maxGeometryWorkUnits !== 250_000
+    || capabilities.measurement?.maxTargets !== 32
+    || capabilities.measurement?.exactAttemptRequired !== true
     || capabilities.transport?.protocol
       !== 'authenticated-same-origin-websocket-v1'
     || capabilities.transport?.jsonLimits?.depth !== 128
@@ -511,6 +521,82 @@ try {
         layerId: { clientRef: 'poster_layer' },
         direction: 'LR',
       },
+      {
+        op: 'add_layer',
+        clientRef: 'measurement_layer',
+        name: 'Rendered bounds probe',
+      },
+      {
+        op: 'add_node',
+        layerId: { clientRef: 'measurement_layer' },
+        clientRef: 'measurement_text',
+        nodeType: 'Text',
+        params: {
+          content: 'CLIP',
+          fontSize: 80,
+          fill: '#e63946',
+        },
+      },
+      {
+        op: 'add_node',
+        layerId: { clientRef: 'measurement_layer' },
+        clientRef: 'measurement_grid',
+        nodeType: 'Grid',
+        params: {
+          columns: 1,
+          rows: 1,
+          padX: 0,
+          padY: 0,
+        },
+      },
+      {
+        op: 'add_node',
+        layerId: { clientRef: 'measurement_layer' },
+        clientRef: 'measurement_place',
+        nodeType: 'Place',
+        params: {
+          offsetX: 110,
+          offsetY: 0,
+        },
+      },
+      {
+        op: 'connect',
+        layerId: { clientRef: 'measurement_layer' },
+        from: {
+          nodeId: { clientRef: 'measurement_text' },
+          socket: 'out',
+        },
+        to: {
+          nodeId: { clientRef: 'measurement_place' },
+          socket: 'elements',
+        },
+      },
+      {
+        op: 'connect',
+        layerId: { clientRef: 'measurement_layer' },
+        from: {
+          nodeId: { clientRef: 'measurement_grid' },
+          socket: 'out',
+        },
+        to: {
+          nodeId: { clientRef: 'measurement_place' },
+          socket: 'layout',
+        },
+      },
+      {
+        op: 'connect',
+        layerId: { clientRef: 'measurement_layer' },
+        from: {
+          nodeId: { clientRef: 'measurement_place' },
+          socket: 'out',
+        },
+        to: { nodeId: 'out', socket: 'in' },
+      },
+      {
+        op: 'auto_layout_graph',
+        layerId: { clientRef: 'measurement_layer' },
+        direction: 'LR',
+      },
     ],
   };
   const applied = successValue(await mcpClient.callTool({
@@ -599,7 +685,7 @@ try {
   // This gate intentionally exercises more calls than the published burst.
   // Refill through the real rate limiter instead of weakening production
   // limits or creating a test-only transport bypass.
-  await waitForGeneralRateTokens(4);
+  await waitForGeneralRateTokens(7);
 
   const rendered = successValue(await mcpClient.callTool({
     name: 'gfx_await_render',
@@ -629,6 +715,102 @@ try {
   ) {
     throw new Error(
       `Render status disagreed with await: ${JSON.stringify(renderStatus)}`,
+    );
+  }
+
+  const measurementTarget = {
+    layerId: applied.created.measurement_layer,
+    nodeId: applied.created.measurement_place,
+    outputSocket: 'out',
+  };
+  const measuredNodes = successValue(await mcpClient.callTool({
+    name: 'gfx_measure_rendered_nodes',
+    arguments: {
+      revision: applied.revision,
+      attempt: rendered.ticket.attempt,
+      targets: [measurementTarget],
+    },
+  }), 'partially clipped rendered node measurement');
+  const [placeMeasurement] = measuredNodes.measurements ?? [];
+  if (
+    measuredNodes.contractVersion !== 'rendered-node-measurement-v1'
+    || measuredNodes.measurementPolicy !== 'current-exact-ticket-v1'
+    || measuredNodes.measurementStage
+      !== 'target-output-before-downstream-v1'
+    || measuredNodes.visibilityPolicy
+      !== 'frame-clip-only-no-occlusion-v1'
+    || measuredNodes.requestedRevision !== applied.revision
+    || measuredNodes.revision !== applied.revision
+    || measuredNodes.attempt !== rendered.ticket.attempt
+    || measuredNodes.coordinateSpace?.kind
+      !== 'frame-pixels-top-left-v1'
+    || measuredNodes.trust !== 'untrusted-document-render'
+    || JSON.stringify(placeMeasurement?.target)
+      !== JSON.stringify(measurementTarget)
+    || placeMeasurement?.nodeType !== 'Place'
+    || placeMeasurement?.valueKind !== 'elements'
+    || placeMeasurement?.status !== 'measured'
+    || placeMeasurement?.clipping?.state !== 'partial'
+    || !placeMeasurement.clipping.sides.includes('right')
+    || !(placeMeasurement.clipping.overflowPx?.right > 0)
+    || !placeMeasurement.visibleBounds
+    || !(
+      placeMeasurement.unclippedBounds.x
+        + placeMeasurement.unclippedBounds.width
+      > measuredNodes.frame.width
+    )
+    || !(
+      placeMeasurement.visibleBounds.x
+        + placeMeasurement.visibleBounds.width
+      <= measuredNodes.frame.width
+    )
+  ) {
+    throw new Error(
+      `Partial clipping measurement was inaccurate: ${
+        JSON.stringify(measuredNodes)
+      }`,
+    );
+  }
+
+  const staleMeasurementResult = await mcpClient.callTool({
+    name: 'gfx_measure_rendered_nodes',
+    arguments: {
+      revision: baselineRevision,
+      attempt: rendered.ticket.attempt,
+      targets: [measurementTarget],
+    },
+  });
+  const staleMeasurement = outcome(staleMeasurementResult);
+  if (
+    !staleMeasurementResult.isError
+    || staleMeasurement.ok !== false
+    || staleMeasurement.error?.code !== 'RENDER_SUPERSEDED'
+  ) {
+    throw new Error(
+      `Stale measurement ticket was not rejected: ${
+        JSON.stringify(staleMeasurement)
+      }`,
+    );
+  }
+
+  const wrongAttemptMeasurementResult = await mcpClient.callTool({
+    name: 'gfx_measure_rendered_nodes',
+    arguments: {
+      revision: applied.revision,
+      attempt: rendered.ticket.attempt + 1,
+      targets: [measurementTarget],
+    },
+  });
+  const wrongAttemptMeasurement = outcome(wrongAttemptMeasurementResult);
+  if (
+    !wrongAttemptMeasurementResult.isError
+    || wrongAttemptMeasurement.ok !== false
+    || wrongAttemptMeasurement.error?.code !== 'RENDER_SUPERSEDED'
+  ) {
+    throw new Error(
+      `Wrong-attempt measurement ticket was not rejected: ${
+        JSON.stringify(wrongAttemptMeasurement)
+      }`,
     );
   }
 
@@ -733,7 +915,8 @@ try {
   process.stdout.write(
     `MCP stdio E2E passed: revision ${applied.revision}, `
     + `${assetBytes.byteLength} asset bytes, `
-    + `${previewBytes.byteLength} preview bytes, exact reverts and revoke.\n`,
+    + `${previewBytes.byteLength} preview bytes, partial clipping measurement, `
+    + 'stale-revision/attempt rejection, exact reverts and revoke.\n',
   );
 } finally {
   await mcpClient.close().catch(() => undefined);

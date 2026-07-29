@@ -9,6 +9,7 @@ import {
 import { appAssetService } from '../assets/assetService';
 import {
   appRenderCoordinator,
+  measureRenderedNodesExact,
   retryCurrentRender,
   setAgentModelExecutionAuthorization,
 } from '../render/appRenderService';
@@ -94,6 +95,8 @@ export function createBrowserControllerDependencies(): AgentControllerDependenci
       appRenderCoordinator.awaitRender(request),
     capturePreview: (request, control) =>
       capturePreview(request, control),
+    measureRenderedNodes: (request) =>
+      measureRenderedNodesExact(request),
     nowPerformance: () => performance.now(),
   };
 }
