@@ -31,6 +31,13 @@ import type { PooledTexture } from '../gpu/pool';
 import { registry } from '../nodes';
 import type { Font } from 'opentype.js';
 import type { AssetMetadata } from '../domain/documentSchema';
+import type {
+  RenderedNodeMeasurementSnapshot,
+} from '../domain/renderedNodeMeasurementContract';
+import {
+  buildRenderedNodeMeasurementSnapshot,
+  type RenderedLayerNodeResults,
+} from './renderedNodeMeasurements';
 
 export interface RenderDocumentInput {
   document: Doc;
@@ -56,6 +63,7 @@ export interface RenderedDocument {
   width: number;
   height: number;
   events: CookEventSummary[];
+  nodeMeasurements: RenderedNodeMeasurementSnapshot;
   commit(): void;
   rollback(): void;
 }
@@ -246,6 +254,10 @@ export async function renderDocument(
 
   const events: CookEventSummary[] = [];
   const preparedEvaluations: PreparedEvaluation[] = [];
+  const nodeResults = new Map<
+    string,
+    PreparedEvaluation['nodeResults']
+  >();
   let accumulator = gpu.pool.acquire(width, height);
   try {
     gpu.clear(
@@ -277,6 +289,7 @@ export async function renderDocument(
           context,
         );
         preparedEvaluations.push(prepared);
+        nodeResults.set(layer.id, prepared.nodeResults);
         result = prepared.result;
       } catch (error) {
         throw new LayerRenderError(
@@ -347,12 +360,22 @@ export async function renderDocument(
       accumulator = next;
     }
     throwIfCookInterrupted(runtime);
+    const nodeMeasurements = buildRenderedNodeMeasurementSnapshot({
+      document,
+      ticket,
+      nodeResults: nodeResults as RenderedLayerNodeResults,
+      fonts: input.fonts,
+      registry,
+      control: geometryControl,
+    });
+    throwIfCookInterrupted(runtime);
     let settled = false;
     return {
       texture: accumulator,
       width,
       height,
       events,
+      nodeMeasurements,
       commit: () => {
         if (settled) return;
         settled = true;

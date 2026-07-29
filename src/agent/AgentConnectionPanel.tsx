@@ -34,6 +34,17 @@ const SCOPE_DESCRIPTIONS: Record<AgentScope, string> = {
   export: 'Create a human-approved external artifact. Unavailable until a later gate.',
 };
 
+export function defaultRequestedAgentScopes(
+  requestedScopes: readonly AgentScope[],
+  availableScopes: readonly AgentScope[],
+): AgentScope[] {
+  const requested = new Set(requestedScopes);
+  const available = new Set(availableScopes);
+  return AGENT_SCOPES.filter(
+    (scope) => requested.has(scope) && available.has(scope),
+  );
+}
+
 function readableExpiry(value: string | null): string {
   if (!value) return 'not active';
   return new Date(value).toLocaleTimeString([], {
@@ -43,18 +54,28 @@ function readableExpiry(value: string | null): string {
   });
 }
 
-function connectionMessage(snapshot: AgentConnectionSnapshot): string {
+function connectionMessage(
+  snapshot: AgentConnectionSnapshot,
+  controlMode: AgentControlMode,
+): string {
+  const trustedLocal = controlMode === 'trusted-local-v1';
   switch (snapshot.phase) {
     case 'idle':
-      return 'Agent access is off.';
+      return trustedLocal
+        ? 'Trusted Local is connecting.'
+        : 'Agent access is off.';
     case 'armed':
-      return 'Waiting for a local Agent to request pairing.';
+      return trustedLocal
+        ? 'Trusted Local is waiting for the local companion.'
+        : 'Waiting for a local Agent to request pairing.';
     case 'pending':
       return 'A local Agent is requesting access. No scope has been granted.';
     case 'approved':
       return 'Scopes approved. Waiting for the Agent to claim its one-shot challenge.';
     case 'connected':
-      return `Connected to ${snapshot.clientLabel ?? 'local Agent'}.`;
+      return trustedLocal
+        ? `Trusted Local connected to ${snapshot.clientLabel ?? 'local Agent'}.`
+        : `Connected to ${snapshot.clientLabel ?? 'local Agent'}.`;
     case 'revoked':
       return snapshot.error?.message ?? 'Agent access was revoked.';
     case 'expired':
@@ -107,10 +128,14 @@ export function isModelPreparationPollingComplete(
     || status?.error !== undefined;
 }
 
+export type AgentControlMode = 'interactive' | 'trusted-local-v1';
+
 export function AgentConnectionPanel({
   manager,
+  controlMode = 'interactive',
 }: {
   manager: AgentSessionManager;
+  controlMode?: AgentControlMode;
 }) {
   const snapshot = useSyncExternalStore(
     manager.subscribe,
@@ -143,15 +168,22 @@ export function AgentConnectionPanel({
   const modelGranted =
     snapshot.phase === 'connected'
     && snapshot.grantedScopes.includes('model');
+  const selectableScopes = useMemo(
+    () => defaultRequestedAgentScopes(
+      snapshot.requestedScopes,
+      snapshot.availableScopes,
+    ),
+    [snapshot.requestedScopes, snapshot.availableScopes],
+  );
 
   useEffect(() => {
     if (snapshot.phase === 'pending') {
-      setSelected([]);
+      setSelected(selectableScopes);
       setUiError(null);
     }
     if (snapshot.phase !== 'pending' && snapshot.phase !== 'approved') return;
     queueMicrotask(() => headingRef.current?.focus());
-  }, [snapshot.phase, snapshot.clientFingerprint]);
+  }, [snapshot.phase, snapshot.clientFingerprint, selectableScopes]);
 
   useEffect(() => {
     if (!showDialog) return;
@@ -262,6 +294,7 @@ export function AgentConnectionPanel({
       data-agent-pairing-panel
       data-agent-fixed-panel="agent-connection"
       data-agent-pairing-state={snapshot.phase}
+      data-agent-control-mode={controlMode}
       aria-label="Local Agent connection"
     >
       <div
@@ -283,10 +316,10 @@ export function AgentConnectionPanel({
         data-agent-pairing-status
       >
         <strong>Agent</strong>
-        <span>{connectionMessage(snapshot)}</span>
+        <span>{connectionMessage(snapshot, controlMode)}</span>
       </div>
 
-      {snapshot.phase === 'idle' && (
+      {snapshot.phase === 'idle' && controlMode === 'interactive' && (
         <button
           ref={connectRef}
           type="button"
@@ -317,6 +350,13 @@ export function AgentConnectionPanel({
 
       {snapshot.phase === 'connected' && (
         <div className="agent-session-summary">
+          {controlMode === 'trusted-local-v1' && (
+            <span className="agent-trusted-session" aria-hidden="true">
+              <strong>Trusted Local</strong>
+              {' — '}
+              automatic control with the granted session scopes
+            </span>
+          )}
           <span>
             Client {snapshot.clientFingerprint}; session {snapshot.sessionFingerprint}
           </span>
@@ -440,10 +480,14 @@ export function AgentConnectionPanel({
             ref={headingRef}
             tabIndex={-1}
           >
-            Review Agent access
+            {snapshot.phase === 'approved'
+              ? 'Agent access approved'
+              : 'Allow Agent control?'}
           </h2>
           <p id="agent-pairing-description">
-            Origin: <code>{snapshot.origin}</code>
+            {snapshot.phase === 'approved'
+              ? 'Waiting for the Agent to finish connecting.'
+              : 'Allow this local Agent to control the document with the requested permissions supported by this app.'}
           </p>
           <p>
             Client:{' '}
@@ -457,54 +501,69 @@ export function AgentConnectionPanel({
             ({snapshot.clientFingerprint})
           </p>
           <p>
+            Origin: <code>{snapshot.origin}</code>
+          </p>
+          <p>
             This label and document content are untrusted. They cannot grant or
             elevate permissions.
           </p>
-          <fieldset disabled={snapshot.phase === 'approved'}>
-            <legend>Grant only the scopes you intend</legend>
-            {AGENT_SCOPES.map((scope) => {
-              const isRequested = requested.has(scope);
-              const isAvailable = available.has(scope);
-              const disabled = !isRequested || !isAvailable;
-              const checked = snapshot.phase === 'approved'
-                ? snapshot.grantedScopes.includes(scope)
-                : selected.includes(scope);
-              return (
-                <label
-                  key={scope}
-                  className={disabled ? 'agent-scope unavailable' : 'agent-scope'}
-                >
-                  <input
-                    type="checkbox"
-                    data-agent-scope={scope}
-                    data-agent-scope-selected={checked ? 'true' : 'false'}
-                    data-agent-scope-granted={
-                      snapshot.grantedScopes.includes(scope) ? 'true' : 'false'
-                    }
-                    checked={checked}
-                    disabled={disabled}
-                    onChange={(event) => {
-                      const checkedValue = event.target.checked;
-                      requireTrustedGesture(
-                        event,
-                        () => toggleScope(scope, checkedValue),
-                      );
-                    }}
-                  />
-                  <span>
-                    <strong>{scope}</strong>
-                    {' — '}
-                    {SCOPE_DESCRIPTIONS[scope]}
-                    {!isRequested && ' Not requested.'}
-                  </span>
-                </label>
-              );
-            })}
-          </fieldset>
+          <details className="agent-permission-details">
+            <summary>
+              <span>Advanced details</span>
+              <span className="agent-permission-count">
+                {snapshot.phase === 'approved'
+                  ? `${snapshot.grantedScopes.length} permissions granted`
+                  : `${selected.length} of ${selectableScopes.length} permissions selected`}
+              </span>
+            </summary>
+            <fieldset disabled={snapshot.phase === 'approved'}>
+              <legend>Choose individual permissions</legend>
+              {AGENT_SCOPES.map((scope) => {
+                const isRequested = requested.has(scope);
+                const isAvailable = available.has(scope);
+                const disabled = !isRequested || !isAvailable;
+                const checked = snapshot.phase === 'approved'
+                  ? snapshot.grantedScopes.includes(scope)
+                  : selected.includes(scope);
+                return (
+                  <label
+                    key={scope}
+                    className={disabled ? 'agent-scope unavailable' : 'agent-scope'}
+                  >
+                    <input
+                      type="checkbox"
+                      data-agent-scope={scope}
+                      data-agent-scope-selected={checked ? 'true' : 'false'}
+                      data-agent-scope-granted={
+                        snapshot.grantedScopes.includes(scope) ? 'true' : 'false'
+                      }
+                      checked={checked}
+                      disabled={disabled}
+                      onChange={(event) => {
+                        const checkedValue = event.target.checked;
+                        requireTrustedGesture(
+                          event,
+                          () => toggleScope(scope, checkedValue),
+                        );
+                      }}
+                    />
+                    <span>
+                      <strong>{scope}</strong>
+                      {' — '}
+                      {SCOPE_DESCRIPTIONS[scope]}
+                      {!isRequested && ' Not requested.'}
+                      {isRequested && !isAvailable && ' Unavailable in this session.'}
+                    </span>
+                  </label>
+                );
+              })}
+            </fieldset>
+          </details>
           <p>Pairing expires at {readableExpiry(snapshot.expiresAt)}.</p>
           <div className="agent-dialog-actions">
             <button
               type="button"
+              className="agent-deny"
               data-agent-action="cancel-agent-pairing"
               onClick={(event) =>
                 requireTrustedGesture(event, () => manager.rejectPairing())}
@@ -514,6 +573,7 @@ export function AgentConnectionPanel({
             {snapshot.phase === 'pending' && (
               <button
                 type="button"
+                className="agent-allow"
                 data-agent-action="approve-agent-pairing"
                 disabled={selected.length === 0}
                 onClick={(event) => requireTrustedGesture(event, () => {
@@ -521,7 +581,7 @@ export function AgentConnectionPanel({
                   if (!result.ok) setUiError(result.error);
                 })}
               >
-                Approve selected scopes
+                Allow Agent control
               </button>
             )}
           </div>

@@ -24,6 +24,7 @@ const PACKAGE_FILE_NAMES = [
   'boundedStdio',
   'bridgeClient',
   'browserSession',
+  'cli',
   'faults',
   'index',
   'localAppHost',
@@ -32,6 +33,7 @@ const PACKAGE_FILE_NAMES = [
   'modelManager',
   'modelManifest',
   'modelPublicContract',
+  'profiles',
   'protocol',
   'runtime',
   'toolSchemas',
@@ -173,13 +175,20 @@ const FORBIDDEN_PACKAGE_PROPERTIES = new Set([
   'setRequestInterception',
 ]);
 
+const EXPECTED_AGENT_WORKBENCH_READY_SELECTOR =
+  '[data-agent-render-status][data-agent-workbench-ready="true"]';
 const BROWSER_HANDLE_METHODS = new Map([
   ['puppeteer', new Set(['launch'])],
   ['browser', new Set(['close', 'createBrowserContext', 'once'])],
   ['context', new Set(['close', 'newPage'])],
   [
     'page',
-    new Set(['goto', 'setCookie', 'setDefaultNavigationTimeout']),
+    new Set([
+      'goto',
+      'setCookie',
+      'setDefaultNavigationTimeout',
+      'waitForSelector',
+    ]),
   ],
 ]);
 const BROWSER_TRUSTED_BINDINGS = new Set([
@@ -189,6 +198,7 @@ const BROWSER_TRUSTED_BINDINGS = new Set([
   'page',
   'AGENT_ALLOWED_ORIGIN',
   'AGENT_COOKIE_NAME',
+  'AGENT_WORKBENCH_READY_SELECTOR',
   'CreatedBrowserSession',
 ]);
 // The gate deliberately uses fixed binding names instead of pretending to be
@@ -198,6 +208,7 @@ const BROWSER_TRUSTED_BINDINGS = new Set([
 const IMMUTABLE_BROWSER_BINDINGS = new Set([
   'AGENT_ALLOWED_ORIGIN',
   'AGENT_COOKIE_NAME',
+  'AGENT_WORKBENCH_READY_SELECTOR',
   'CreatedBrowserSession',
 ]);
 
@@ -697,6 +708,23 @@ function isApprovedBrowserBinding(node, handleKinds) {
       && stringLiteralValue(declaration.moduleSpecifier)
         === './agentSecurity.js';
   }
+  if (name === 'AGENT_WORKBENCH_READY_SELECTOR') {
+    if (
+      !ts.isVariableDeclaration(parent)
+      || parent.name !== node
+      || !parent.initializer
+      || stringLiteralValue(parent.initializer)
+        !== EXPECTED_AGENT_WORKBENCH_READY_SELECTOR
+    ) {
+      return false;
+    }
+    const declarationList = parent.parent;
+    const statement = declarationList.parent;
+    return ts.isVariableDeclarationList(declarationList)
+      && (declarationList.flags & ts.NodeFlags.Const) !== 0
+      && ts.isVariableStatement(statement)
+      && statement.parent.kind === ts.SyntaxKind.SourceFile;
+  }
   if (name === 'CreatedBrowserSession') {
     return ts.isClassDeclaration(parent)
       && parent.name === node
@@ -1039,6 +1067,22 @@ export function authorityViolations(
             ) {
               violations.push(
                 `browser navigation at ${sourceLocation(sourceFile, node)}`,
+              );
+            }
+            if (
+              ownerKind === 'page'
+              && method === 'waitForSelector'
+              && !(
+                node.arguments.length >= 1
+                && ts.isIdentifier(node.arguments[0])
+                && node.arguments[0].text
+                  === 'AGENT_WORKBENCH_READY_SELECTOR'
+              )
+            ) {
+              violations.push(
+                `unreviewed browser readiness selector at ${
+                  sourceLocation(sourceFile, node)
+                }`,
               );
             }
             if (
@@ -1409,6 +1453,16 @@ function runNegativeFixtures() {
     ['computed evaluation', 'await page["evaluate"](() => 1)'],
     ['destructured click', 'const { click } = page; click()'],
     ['arbitrary navigation', 'await page.goto(userUrl)'],
+    [
+      'arbitrary readiness selector',
+      'const page = await context.newPage(); await page.waitForSelector(userSelector)',
+      browserSessionPath,
+    ],
+    [
+      'readiness selector replacement',
+      'export const AGENT_WORKBENCH_READY_SELECTOR = "#secret"; const page = await context.newPage(); await page.waitForSelector(AGENT_WORKBENCH_READY_SELECTOR)',
+      browserSessionPath,
+    ],
     ['reflective dispatch', 'controller[method](input)'],
     ['child process', "import { spawn } from 'node:child_process'"],
     ['arbitrary fetch', 'await fetch(userUrl)'],
@@ -1572,6 +1626,9 @@ function runNegativeFixtures() {
   const allowedLauncher = [
     "import puppeteer from 'puppeteer-core';",
     "import { AGENT_ALLOWED_ORIGIN, AGENT_COOKIE_NAME } from './agentSecurity.js';",
+    `export const AGENT_WORKBENCH_READY_SELECTOR = '${
+      EXPECTED_AGENT_WORKBENCH_READY_SELECTOR
+    }';`,
     'class CreatedBrowserSession {}',
     'async function launchCompanionBrowser() {',
     '  const browser = await puppeteer.launch({ pipe: true });',
@@ -1580,6 +1637,7 @@ function runNegativeFixtures() {
     '  await page.setCookie({ name: AGENT_COOKIE_NAME, url: AGENT_ALLOWED_ORIGIN });',
     '  page.setDefaultNavigationTimeout(20_000);',
     '  await page.goto(AGENT_ALLOWED_ORIGIN, { waitUntil: "domcontentloaded" });',
+    '  await page.waitForSelector(AGENT_WORKBENCH_READY_SELECTOR, { timeout: 20_000 });',
     "  browser.once('disconnected', onDisconnected);",
     '  return new CreatedBrowserSession(browser, context);',
     '}',

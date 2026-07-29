@@ -1,9 +1,13 @@
 import {
   AGENT_ALLOWED_ORIGIN,
+  AGENT_COMPANION_CONTROL_META_NAME,
+  AGENT_COMPANION_CONTROL_MODE_INTERACTIVE,
+  AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL,
   AGENT_COMPANION_META_NAME,
   AGENT_COMPANION_META_VALUE,
   AGENT_WEBSOCKET_PATH,
   AGENT_WEBSOCKET_PROTOCOL,
+  type AgentCompanionControlMode,
 } from '../../packages/mcp-companion/src/agentSecurity';
 import {
   COMPANION_PROTOCOL_VERSION,
@@ -212,6 +216,13 @@ async function completeHumanPairing(
   const deadline =
     Date.now() + COMPANION_TRANSPORT_LIMITS.pairingDeadlineMs;
   const remainingMs = () => Math.max(0, deadline - Date.now());
+  if (bindings.manager.getSnapshot().phase === 'idle') {
+    // The authenticated local Companion may present the approval request
+    // without first making the human click a no-authority "Connect" button.
+    // The session still receives no scope until the trusted Allow action.
+    const armed = bindings.manager.armPairing();
+    if (!armed.ok) throw faultFromBridgeError(armed.error);
+  }
   await waitForPairingPhase(
     bindings.manager,
     new Set(['armed']),
@@ -235,6 +246,38 @@ async function completeHumanPairing(
   return completed.value;
 }
 
+async function completeTrustedLocalPairing(
+  bindings: CompanionBridgeBindings,
+  input: unknown,
+): Promise<AgentSessionSummary> {
+  const phase = bindings.manager.getSnapshot().phase;
+  if (phase === 'idle') {
+    const armed = bindings.manager.armPairing();
+    if (!armed.ok) throw faultFromBridgeError(armed.error);
+  } else if (phase !== 'armed') {
+    throw phaseFailure(bindings.manager);
+  }
+
+  const challenge = bindings.manager.requestPairing(input as PairingRequest);
+  if (!challenge.ok) throw faultFromBridgeError(challenge.error);
+  const requestedScopes =
+    bindings.manager.getSnapshot().requestedScopes;
+  const approved = bindings.manager.approvePairing(requestedScopes);
+  if (!approved.ok) throw faultFromBridgeError(approved.error);
+
+  // Trusted Local is an explicit process startup policy. It removes browser
+  // click ceremony but keeps the same one-shot proof, immutable scopes,
+  // revision checks, transport revocation, and in-app kill switch.
+  const completed = bindings.completePairing({
+    pairingId: challenge.value.pairingId,
+    clientNonce: challenge.value.clientNonce,
+    serverNonce: challenge.value.serverNonce,
+    claimToken: challenge.value.claimToken,
+  });
+  if (!completed.ok) throw faultFromBridgeError(completed.error);
+  return completed.value;
+}
+
 async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
   return [...digest]
@@ -246,6 +289,7 @@ async function dispatchControllerRequest(
   operation: CompanionRequest['operation'],
   input: unknown,
   bindings: CompanionBridgeBindings,
+  controlMode: AgentCompanionControlMode,
   signal?: AbortSignal,
 ): Promise<
   | { kind: 'json'; value: unknown }
@@ -260,7 +304,9 @@ async function dispatchControllerRequest(
   if (operation === 'pairRequest') {
     return {
       kind: 'json',
-      value: await completeHumanPairing(bindings, input),
+      value: controlMode === AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL
+        ? await completeTrustedLocalPairing(bindings, input)
+        : await completeHumanPairing(bindings, input),
     };
   }
   const controller = bindings.getController();
@@ -332,6 +378,11 @@ async function dispatchControllerRequest(
       return {
         kind: 'json',
         value: await controller.removeAsset(input as never),
+      };
+    case 'measureRenderedNodes':
+      return {
+        kind: 'json',
+        value: controller.measureRenderedNodes(input as never),
       };
     case 'capturePreview': {
       const companionController = bindings.getCompanionController();
@@ -439,12 +490,25 @@ export function hasLocalCompanionMarker(document: Document): boolean {
     && marker.content === AGENT_COMPANION_META_VALUE;
 }
 
+export function localCompanionControlMode(
+  document: Document,
+): AgentCompanionControlMode {
+  const marker = document.querySelector(
+    `meta[name="${AGENT_COMPANION_CONTROL_META_NAME}"]`,
+  );
+  return marker instanceof HTMLMetaElement
+    && marker.content === AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL
+    ? AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL
+    : AGENT_COMPANION_CONTROL_MODE_INTERACTIVE;
+}
+
 export function installLocalCompanionBridge(
   target: Window,
   bindings: CompanionBridgeBindings,
 ): () => void {
   if (!hasLocalCompanionMarker(target.document)) return () => undefined;
   if (target.location.origin !== AGENT_ALLOWED_ORIGIN) return () => undefined;
+  const controlMode = localCompanionControlMode(target.document);
 
   const socketUrl =
     `${AGENT_ALLOWED_ORIGIN.replace(/^http:/, 'ws:')}${AGENT_WEBSOCKET_PATH}`;
@@ -574,6 +638,7 @@ export function installLocalCompanionBridge(
         request.operation,
         request.input,
         bindings,
+        controlMode,
         abortController?.signal,
       );
       if (result.kind === 'json') {

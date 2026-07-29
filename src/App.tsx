@@ -577,6 +577,9 @@ export default function App() {
         data-agent-document-revision={revision}
         data-agent-render-revision={renderStatus.ticket?.revision ?? ''}
         data-agent-render-attempt={renderStatus.ticket?.attempt ?? ''}
+        data-agent-workbench-ready={
+          renderStatus.ticket?.revision === revision ? 'true' : 'false'
+        }
         data-agent-displayed-revision={displayedTicket?.revision ?? ''}
         data-agent-displayed-attempt={displayedTicket?.attempt ?? ''}
       >

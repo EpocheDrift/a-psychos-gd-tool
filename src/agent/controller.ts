@@ -13,6 +13,14 @@ import type {
 } from '../domain/transactionSession';
 import { DEFAULT_AGENT_LIMITS } from '../domain/limits';
 import type { AssetMetadata } from '../domain/documentSchema';
+import { CAPABILITY_MANIFEST } from '../domain/capabilityManifest';
+import {
+  MAX_RENDERED_NODE_MEASUREMENT_TARGETS,
+  type PublicRenderedNodeMeasurementRequest,
+  type PublicRenderedNodeMeasurementResult,
+  type ResolvedRenderedNodeMeasurementRequest,
+} from '../domain/renderedNodeMeasurementContract';
+import { isSafeId } from '../domain/paramCodecs';
 import type { AssetMimeType } from '../domain/assetPolicy';
 import type {
   PublicModelStatus,
@@ -115,6 +123,9 @@ export interface AgentControllerDependencies {
     request: unknown,
     control: PreviewCaptureControl,
   ): Promise<PreviewResult>;
+  measureRenderedNodes(
+    request: ResolvedRenderedNodeMeasurementRequest,
+  ): PublicRenderedNodeMeasurementResult;
   nowPerformance(): number;
 }
 
@@ -194,6 +205,172 @@ function captureRevert(
     label: 'Revert request',
     maxBytes: DEFAULT_AGENT_LIMITS.maxTransactionJsonBytes,
   }) as Record<string, unknown>;
+}
+
+function captureRenderedNodeMeasurementRequest(
+  raw: unknown,
+  revision: number,
+  state: ControllerDocumentState,
+): ResolvedRenderedNodeMeasurementRequest {
+  const captured = captureJsonObject(raw, {
+    allowedKeys: ['revision', 'attempt', 'targets'],
+    revision,
+    label: 'Rendered node measurement request',
+    maxBytes: 16 * 1024,
+  });
+  const requestedRevision = optionalNonNegativeInteger(
+    captured,
+    'revision',
+    revision,
+  );
+  const attempt = optionalPositiveInteger(captured, 'attempt', revision);
+  if (requestedRevision === undefined) {
+    throw controllerFault(
+      revision,
+      'INVALID_ARGUMENT',
+      'revision is required.',
+      { path: '/revision' },
+    );
+  }
+  if (attempt === undefined) {
+    throw controllerFault(
+      revision,
+      'INVALID_ARGUMENT',
+      'attempt is required.',
+      { path: '/attempt' },
+    );
+  }
+  if (requestedRevision !== revision) {
+    throw controllerFault(
+      revision,
+      'RENDER_SUPERSEDED',
+      `Rendered node measurement is allowed only for current document revision ${revision}.`,
+      {
+        path: '/revision',
+        recoverable: true,
+        suggestedFix:
+          'Read the current render status, await its exact ticket, then measure that revision and attempt.',
+      },
+    );
+  }
+  const rawTargets = own(captured, 'targets');
+  if (
+    !Array.isArray(rawTargets)
+    || rawTargets.length < 1
+    || rawTargets.length > MAX_RENDERED_NODE_MEASUREMENT_TARGETS
+  ) {
+    throw controllerFault(
+      revision,
+      'INVALID_ARGUMENT',
+      `targets must contain 1 to ${
+        MAX_RENDERED_NODE_MEASUREMENT_TARGETS
+      } entries.`,
+      { path: '/targets' },
+    );
+  }
+  const seen = new Set<string>();
+  const targets = rawTargets.map((rawTarget, index) => {
+    const path = `/targets/${index}`;
+    if (
+      !rawTarget
+      || typeof rawTarget !== 'object'
+      || Array.isArray(rawTarget)
+    ) {
+      throw controllerFault(
+        revision,
+        'INVALID_ARGUMENT',
+        'Each measurement target must be an object.',
+        { path },
+      );
+    }
+    const target = rawTarget as Record<string, unknown>;
+    const allowed = new Set(['layerId', 'nodeId', 'outputSocket']);
+    const unknown = Object.keys(target).sort()
+      .find((key) => !allowed.has(key));
+    if (unknown) {
+      throw controllerFault(
+        revision,
+        'INVALID_ARGUMENT',
+        `Unknown measurement target field "${unknown}".`,
+        { path: `${path}/${unknown}` },
+      );
+    }
+    const layerId = target.layerId;
+    const nodeId = target.nodeId;
+    const outputSocket = target.outputSocket ?? 'out';
+    for (const [field, value] of Object.entries({
+      layerId,
+      nodeId,
+      outputSocket,
+    })) {
+      if (
+        typeof value !== 'string'
+        || !isSafeId(value, DEFAULT_AGENT_LIMITS.maxIdLength)
+      ) {
+        throw controllerFault(
+          revision,
+          'INVALID_ARGUMENT',
+          `${field} must be an ASCII-safe identifier.`,
+          { path: `${path}/${field}` },
+        );
+      }
+    }
+    const layer = state.document.layers.find(
+      (candidate) => candidate.id === layerId,
+    );
+    if (!layer) {
+      throw controllerFault(
+        revision,
+        'UNKNOWN_LAYER',
+        `Unknown layer "${String(layerId)}".`,
+        { path: `${path}/layerId` },
+      );
+    }
+    const node = layer.graph.nodes[String(nodeId)];
+    if (!node) {
+      throw controllerFault(
+        revision,
+        'UNKNOWN_NODE',
+        `Unknown node "${String(nodeId)}".`,
+        { path: `${path}/nodeId` },
+      );
+    }
+    const nodeCapability = CAPABILITY_MANIFEST.nodes.find(
+      (candidate) => candidate.type === node.type,
+    );
+    if (
+      !nodeCapability
+      || !nodeCapability.outputs.some((output) =>
+        output.name === outputSocket)
+    ) {
+      throw controllerFault(
+        revision,
+        'UNKNOWN_SOCKET',
+        `Unknown output socket "${String(outputSocket)}".`,
+        { path: `${path}/outputSocket` },
+      );
+    }
+    const key = `${layerId}\u0000${nodeId}\u0000${outputSocket}`;
+    if (seen.has(key)) {
+      throw controllerFault(
+        revision,
+        'INVALID_ARGUMENT',
+        'Measurement targets must be unique.',
+        { path },
+      );
+    }
+    seen.add(key);
+    return {
+      layerId: String(layerId),
+      nodeId: String(nodeId),
+      outputSocket: String(outputSocket),
+    };
+  });
+  return {
+    revision: requestedRevision,
+    attempt,
+    targets,
+  };
 }
 
 export interface AgentCompanionController {
@@ -551,6 +728,22 @@ export function createAgentController(
         ...(result.metrics ? { metrics: result.metrics } : {}),
       };
       return publicJsonClone(output);
+    });
+  const measureRenderedNodes = (
+    request: PublicRenderedNodeMeasurementRequest,
+  ): PublicRenderedNodeMeasurementResult =>
+    publicSync('preview', () => {
+      const currentRevision = guard('preview');
+      const state = dependencies.getDocumentState();
+      const captured = captureRenderedNodeMeasurementRequest(
+        request,
+        currentRevision,
+        state,
+      );
+      manager.assertActive(lease, revision(), 'preview');
+      const result = dependencies.measureRenderedNodes(captured);
+      manager.assertActive(lease, revision(), 'preview');
+      return publicJsonClone(result);
     });
 
   const assetMetadataResult = async (
@@ -1175,6 +1368,8 @@ export function createAgentController(
 
     capturePreview: (request) => capturePreview(request),
 
+    measureRenderedNodes: (request) => measureRenderedNodes(request),
+
     revertTransaction: (request) => publicAsync('edit', async () => {
         const beforeCapture = guard('edit');
         const captured = captureRevert(request, beforeCapture);
@@ -1238,6 +1433,7 @@ export function controllerMethodNames(): readonly string[] {
     'getRenderStatus',
     'awaitRender',
     'capturePreview',
+    'measureRenderedNodes',
     'revertTransaction',
     'putAsset',
     'listAssets',

@@ -58,6 +58,7 @@ const EXPECTED_TOOL_NAMES = [
   'gfx_remove_asset',
   'gfx_await_render',
   'gfx_capture_preview',
+  'gfx_measure_rendered_nodes',
   'gfx_revert_transaction',
 ];
 const EVALUATED_NODE_TYPES = [
@@ -874,6 +875,11 @@ try {
   );
   invariant(
     discovered.value.features?.mcp === true
+      && discovered.value.features?.renderedNodeMeasurements === true
+      && discovered.value.measurement?.contractVersion
+        === 'rendered-node-measurement-v1'
+      && discovered.value.measurement?.workPolicy === 'bounded-fail-soft-v1'
+      && discovered.value.measurement?.exactAttemptRequired === true
       && discovered.value.scopeAvailability?.read?.available === true
       && discovered.value.scopeAvailability?.preview?.available === true
       && discovered.value.scopeAvailability?.edit?.available === true

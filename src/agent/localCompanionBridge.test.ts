@@ -1,18 +1,25 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   AGENT_ALLOWED_ORIGIN,
+  AGENT_COMPANION_CONTROL_META_NAME,
+  AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL,
   AGENT_COMPANION_META_VALUE,
+  AGENT_COMPANION_META_NAME,
   AGENT_WEBSOCKET_PROTOCOL,
 } from '../../packages/mcp-companion/src/agentSecurity';
 import {
   COMPANION_PROTOCOL_VERSION,
+  TRUSTED_LOCAL_SESSION_TTL_MS,
 } from '../../packages/mcp-companion/src/protocol';
 import type {
   AgentController,
   PublicValidationReport,
 } from './contracts';
-import { installLocalCompanionBridge } from './localCompanionBridge';
-import type { AgentSessionManager } from './sessionManager';
+import {
+  installLocalCompanionBridge,
+  localCompanionControlMode,
+} from './localCompanionBridge';
+import { AgentSessionManager } from './sessionManager';
 
 type SocketEvent = { data?: unknown };
 type SocketListener = (event: SocketEvent) => void;
@@ -67,6 +74,112 @@ afterEach(() => {
 });
 
 describe('local companion bridge', () => {
+  it('auto-pairs only when the authenticated host marks trusted-local mode', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    vi.stubGlobal('HTMLMetaElement', FakeHtmlMetaElement);
+    const target = {
+      document: {
+        querySelector: vi.fn((selector: string) => {
+          if (selector.includes(AGENT_COMPANION_META_NAME)) {
+            return new FakeHtmlMetaElement(AGENT_COMPANION_META_VALUE);
+          }
+          if (selector.includes(AGENT_COMPANION_CONTROL_META_NAME)) {
+            return new FakeHtmlMetaElement(
+              AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL,
+            );
+          }
+          return null;
+        }),
+      },
+      location: {
+        origin: AGENT_ALLOWED_ORIGIN,
+      },
+    } as unknown as Window;
+    const now = 1_700_000_000_000;
+    const manager = new AgentSessionManager({
+      allowedOrigin: AGENT_ALLOWED_ORIGIN,
+      context: () => ({
+        origin: AGENT_ALLOWED_ORIGIN,
+        host: '127.0.0.1:5199',
+        hostname: '127.0.0.1',
+        protocol: 'http:',
+        topLevel: true,
+        secureContext: true,
+      }),
+      now: () => now,
+      sessionTtlMs: TRUSTED_LOCAL_SESSION_TTL_MS,
+      setTimer: (() => 1) as unknown as typeof setTimeout,
+      clearTimer: vi.fn(),
+    });
+
+    const dispose = installLocalCompanionBridge(target, {
+      manager,
+      completePairing: (request) => {
+        const result = manager.completePairing(request);
+        return result.ok
+          ? { ok: true, value: result.value.summary }
+          : result;
+      },
+      getController: () => undefined,
+      getCompanionController: () => undefined,
+      getPreviewVault: () => null,
+    });
+    expect(localCompanionControlMode(target.document)).toBe(
+      AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL,
+    );
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emit('message', {
+      data: JSON.stringify({
+        kind: 'welcome',
+        protocolVersion: COMPANION_PROTOCOL_VERSION,
+        connectionId: 'C'.repeat(22),
+        serverNonce: 'N'.repeat(43),
+      }),
+    });
+    const hello = JSON.parse(socket.sent[0] as string) as {
+      channelToken: string;
+    };
+    socket.emit('message', {
+      data: JSON.stringify({
+        kind: 'request',
+        protocolVersion: COMPANION_PROTOCOL_VERSION,
+        connectionId: 'C'.repeat(22),
+        channelToken: hello.channelToken,
+        sequence: 1,
+        requestId: 'P'.repeat(22),
+        operation: 'pairRequest',
+        input: {
+          protocolVersion: '1.0',
+          clientNonce: 'A'.repeat(43),
+          clientLabel: 'Trusted local test companion',
+          requestedScopes: ['read', 'preview', 'edit'],
+        },
+      }),
+    });
+    await vi.waitFor(() => {
+      expect(socket.sent).toHaveLength(2);
+    });
+    const response = JSON.parse(socket.sent[1] as string) as {
+      ok: boolean;
+      value: {
+        scopes: string[];
+        connectedAt: string;
+        expiresAt: string;
+      };
+    };
+    expect(response.ok).toBe(true);
+    expect(response.value.scopes).toEqual(['read', 'preview', 'edit']);
+    expect(
+      Date.parse(response.value.expiresAt)
+      - Date.parse(response.value.connectedAt),
+    ).toBe(TRUSTED_LOCAL_SESSION_TTL_MS);
+    expect(manager.getSnapshot()).toMatchObject({
+      phase: 'connected',
+      grantedScopes: ['read', 'preview', 'edit'],
+    });
+    dispose();
+  });
+
   it('awaits async document validation before serializing its response', async () => {
     vi.stubGlobal('WebSocket', FakeWebSocket);
     vi.stubGlobal('HTMLMetaElement', FakeHtmlMetaElement);

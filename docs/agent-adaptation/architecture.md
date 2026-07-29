@@ -196,6 +196,13 @@ Schema-generation rules:
 - duplicate registry type IDs and defaults that fail their own schema are build
   errors, not silent overwrites.
 
+Project `schemaVersion` identifies the envelope/storage generation (for
+example, the version 4 asset manifest); it is not a promise that an older app
+build understands node types or optional parameters introduced later within
+that generation. Readers reject unknown fields. Features such as explicit
+Place anchors therefore require a build whose capability manifest advertises
+them, while omitted fields retain their registry defaults.
+
 The manifest must not contain `cook`, Font objects, GPU handles, shader source,
 or arbitrary functions.
 
@@ -685,7 +692,8 @@ declare global {
 Enable it only when all configured conditions hold, for example:
 
 - an explicit static Agent artifact hosted on the fixed loopback origin;
-- an explicit in-app “Connect Agent” pairing action;
+- an explicit interactive approval or an explicit versioned Trusted Local
+  startup policy;
 - a short-lived, in-memory session credential;
 - an exact top-level, secure owning-page realm/origin and loopback check.
 
@@ -744,13 +752,16 @@ Recommended initial MCP tools:
 | `gfx_get_render_status` | read | Inspect exact revision state/errors |
 | `gfx_await_render` | read/wait | Wait for a revision terminal state |
 | `gfx_capture_preview` | read/compute | Return bounded visual evidence |
+| `gfx_measure_rendered_nodes` | read/compute | Return exact-ticket painted bounds and frame-clipping diagnostics |
 | `gfx_revert_transaction` | write | Conflict-safe revert of a named Agent transaction |
 
 Do not create one MCP tool per node type. Node types are data described by the
 capability manifest; `add_node` remains a command inside a transaction.
 
-Asset, model, document-replacement, and filesystem-export tools remain disabled
-until their later rollout gates pass.
+Bounded content-addressed asset tools and pinned local model status/preparation
+tools subsequently shipped behind their independent scopes. Document
+replacement, arbitrary fetch, and filesystem export remain human-only or
+absent from MCP.
 
 ## Session scopes
 
@@ -759,21 +770,28 @@ Grant capabilities per paired session:
 | Scope | Allows |
 | --- | --- |
 | `read` | capability/document summaries, graph inspection, render status |
-| `preview` | bounded rendered previews and metrics |
+| `preview` | bounded rendered previews/metrics and exact-ticket node clipping measurements |
 | `edit` | validated, reversible document transactions |
 | `assets` | bounded binary asset ingestion |
 | `model` | execution of an already approved/pinned model |
 | `export` | creation of a user-approved external artifact |
 
-Scope elevation occurs only through an in-app control and a browser-trusted
-event. This rejects page-script synthetic events; `Event.isTrusted` is not
-cryptographic proof of a physical human because CDP can synthesize trusted
-input. The MCP threat boundary therefore must not expose CDP input, navigation,
-or page evaluation to the Agent. A product that must resist an Agent already
-controlling the browser needs an out-of-band native/WebAuthn/OS confirmation.
-Agents may not request Local Font Access, enumerate unapproved local font
-families, navigate the browser, evaluate JavaScript, issue arbitrary network
-requests, or access generic files/shell commands.
+In interactive mode, scope elevation occurs only through an in-app control and
+a browser-trusted event. Trusted Local is a separate operator-selected startup
+policy: it grants only the scopes pinned by its versioned profile, never future
+scopes implicitly, and remains bounded by process, transport, and session
+lifetime. Browser approval and Trusted Local startup are therefore both human
+authorization decisions; neither is an Agent-callable scope-elevation tool.
+
+The interactive check rejects page-script synthetic events; `Event.isTrusted`
+is not cryptographic proof of a physical human because CDP can synthesize
+trusted input. The MCP threat boundary therefore must not expose CDP input,
+navigation, or page evaluation to the Agent. A product that must resist an
+Agent already controlling the browser needs an out-of-band
+native/WebAuthn/OS confirmation. Agents may not request Local Font Access,
+enumerate unapproved local font families, navigate the browser, evaluate
+JavaScript, issue arbitrary network requests, or access generic files/shell
+commands.
 
 Document strings, asset metadata, and preview contents are labeled as untrusted
 content in tool results. Instructions rendered inside a poster must never
@@ -893,9 +911,11 @@ An agent creating a simple typographic poster:
    nodes in one batch.
 4. Tool returns revision 8 and created ID mappings.
 5. `gfx_await_render({ revision: 8 })`.
-6. `gfx_capture_preview({ revision: 8, maxWidth: 768 })`.
-7. Agent evaluates preview and sends a second transaction changing color/warp.
-8. On a poor result,
+6. `gfx_measure_rendered_nodes` for any text/vector/Place outputs that need
+   clipping checks, using the exact revision and attempt returned above.
+7. `gfx_capture_preview({ revision: 8, maxWidth: 768 })`.
+8. Agent evaluates preview and sends a second transaction changing color/warp.
+9. On a poor result,
    `gfx_revert_transaction({ requestId: "revert-1", transactionId, expectedRevision: 9 })`.
 
 No pointer coordinates or raw store access are involved.

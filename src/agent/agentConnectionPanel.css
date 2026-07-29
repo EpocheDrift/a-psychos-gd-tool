@@ -74,6 +74,12 @@ html[data-agent-mode='enabled'] .app {
   align-items: center;
 }
 
+.agent-trusted-session {
+  padding: 3px 6px;
+  border: 1px solid var(--accent-2);
+  color: var(--accent-2);
+}
+
 .agent-model-summary {
   flex: 1 1 100%;
   display: flex;
@@ -130,12 +136,48 @@ html[data-agent-mode='enabled'] .app {
   line-height: 1.35;
 }
 
+.agent-permission-details {
+  margin: 12px 0;
+  border: 1px solid var(--border);
+}
+
+.agent-permission-details > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  list-style: none;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.agent-permission-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-permission-details > summary::before {
+  content: '▸';
+  flex: 0 0 auto;
+}
+
+.agent-permission-details[open] > summary::before {
+  content: '▾';
+}
+
+.agent-permission-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-weight: 400;
+  text-align: right;
+}
+
 .agent-pairing-dialog fieldset {
   display: grid;
   gap: 7px;
-  margin: 12px 0;
+  margin: 0;
   padding: 10px;
-  border: 1px solid var(--border);
+  border: 0;
+  border-top: 1px solid var(--border);
 }
 
 .agent-pairing-dialog legend {
@@ -160,4 +202,26 @@ html[data-agent-mode='enabled'] .app {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 12px;
+}
+
+.agent-dialog-actions .agent-deny {
+  border-color: transparent;
+  background: transparent;
+}
+
+.agent-dialog-actions .agent-allow {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--panel-solid);
+  font-weight: 700;
+}
+
+.agent-dialog-actions .agent-allow:hover {
+  filter: brightness(0.96);
+}
+
+.agent-dialog-actions .agent-allow:disabled {
+  border-color: var(--border-strong);
+  background: var(--panel-2);
+  filter: none;
 }

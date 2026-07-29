@@ -9,6 +9,8 @@ import { BridgeClient } from '../src/bridgeClient.js';
 import { LocalAppHost } from '../src/localAppHost.js';
 import {
   AGENT_ALLOWED_ORIGIN,
+  AGENT_COMPANION_CONTROL_META_NAME,
+  AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL,
   AGENT_COOKIE_NAME,
   AGENT_SECURITY_HEADERS,
   AGENT_WEBSOCKET_PROTOCOL,
@@ -208,6 +210,10 @@ describe('authenticated loopback app host', () => {
     expect(authorized.body).toContain(
       '<meta name="gfx-agent-companion" content="local-v1">',
     );
+    expect(authorized.body).toContain(
+      `<meta name="${AGENT_COMPANION_CONTROL_META_NAME}" `
+      + 'content="interactive-v1">',
+    );
     expect(authorized.body).not.toContain(host!.bootstrapToken);
 
     const missing = await httpCall({
@@ -216,6 +222,50 @@ describe('authenticated loopback app host', () => {
     });
     expect(missing.status).toBe(404);
     expect(missing.headers['x-frame-options']).toBe('DENY');
+  });
+
+  it('injects trusted-local mode only into the cookie-protected app', async () => {
+    await host!.close();
+    bridge = new BridgeClient({
+      requestedScopes: ['read', 'preview', 'edit', 'assets', 'model'],
+    });
+    host = new LocalAppHost({
+      bridge,
+      appDirectory: fixtureDirectory,
+      controlMode: AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL,
+    });
+    await host.start();
+
+    expect((await httpCall({ path: '/' })).status).toBe(401);
+    const authorized = await httpCall({
+      path: '/',
+      cookie: `${AGENT_COOKIE_NAME}=${host.bootstrapToken}`,
+    });
+    expect(authorized.status).toBe(200);
+    expect(authorized.body).toContain(
+      `<meta name="${AGENT_COMPANION_CONTROL_META_NAME}" `
+      + 'content="trusted-local-v1">',
+    );
+    expect(authorized.body).not.toContain(host.bootstrapToken);
+  });
+
+  it('rejects packaged indexes that predeclare companion metadata', async () => {
+    await host!.close();
+    await writeFile(
+      join(fixtureDirectory, 'index.html'),
+      '<!doctype html><html><head>'
+      + '<meta name="gfx-agent-companion" content="attacker-controlled">'
+      + '</head><body>fixture</body></html>',
+    );
+    bridge = new BridgeClient({ requestedScopes: ['read', 'preview'] });
+    host = new LocalAppHost({
+      bridge,
+      appDirectory: fixtureDirectory,
+    });
+
+    await expect(host.start()).rejects.toThrow(
+      'cannot predeclare companion metadata',
+    );
   });
 
   it('serves packaged JPEG assets with a nosniff-compatible MIME type', async () => {

@@ -6,7 +6,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CompanionRuntime,
   companionRequestedScopes,
+  companionSessionTtlMs,
 } from '../src/runtime.js';
+import {
+  AGENT_COMPANION_CONTROL_MODE_INTERACTIVE,
+  AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL,
+} from '../src/agentSecurity.js';
+import {
+  INTERACTIVE_SESSION_TTL_MS,
+  TRUSTED_LOCAL_SESSION_TTL_MS,
+} from '../src/protocol.js';
 
 const directories: string[] = [];
 const runtimes: CompanionRuntime[] = [];
@@ -59,6 +68,25 @@ describe('companion runtime lifecycle', () => {
       })).toEqual(expected);
     },
   );
+
+  it('uses a bounded mode-specific session lifetime', () => {
+    expect(companionSessionTtlMs(
+      AGENT_COMPANION_CONTROL_MODE_INTERACTIVE,
+    )).toBe(INTERACTIVE_SESSION_TTL_MS);
+    expect(companionSessionTtlMs(
+      AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL,
+    )).toBe(TRUSTED_LOCAL_SESSION_TTL_MS);
+    expect(TRUSTED_LOCAL_SESSION_TTL_MS).toBe(12 * 60 * 60_000);
+  });
+
+  it('fails closed when runtime flags drift from a versioned profile', () => {
+    expect(() => new CompanionRuntime({
+      allowEdit: false,
+      allowAssets: true,
+      allowModel: true,
+      profile: 'full-design-v1',
+    })).toThrow('do not match its versioned profile');
+  });
 
   it('closes its browser and host when the bridge becomes terminal', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'gfx-runtime-'));

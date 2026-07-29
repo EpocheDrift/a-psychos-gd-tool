@@ -30,6 +30,11 @@ npm run dev
 用支持 WebGPU 的浏览器打开 Vite 在终端里打印的网址。`setup.sh` 会检查 Node、
 安装依赖并下载项目自带的免费字体；重复执行也是安全的。
 
+这套源码开发 UI 通常位于 `http://localhost:5173`（实际端口以 Vite 打印的为准）。
+它用于人类开发调试，而且有意不包含 Agent bridge。之后启动 MCP Companion 时，
+Companion 会在固定的 `http://127.0.0.1:5199` 提供另一份完整 UI；5199 的窗口才是
+人类和 Agent 编辑同一份文档的共享工作台。使用 Agent 时不需要继续运行 5173。
+
 应用启动后会打开一个已经在渲染的空白工程：里面只有一个图层和一个
 **Output** 节点。左边是节点图，右边是画板，浮动的 **layers** 面板决定你当前
 正在编辑哪一个图层的节点图。如果想先拆解成品，可以在画板上方的
@@ -119,6 +124,11 @@ Recolor 能接它的输出，却不能直接接还没变成像素的 Text 或 Wa
 应用也会把带版本的工作数据保存在浏览器存储里。不过真正适合备份和换机器使用的，
 仍然是下载出来的工程文件。
 
+工程里的 `schemaVersion` 表示文档/存储外壳的代际，并不承诺任意旧版应用都能读取
+未来新增的节点类型或参数；遇到未知字段时旧版会安全拒绝。使用新 Place 锚点保存的
+工程，需要由能力清单中已经包含这些字段的版本打开；不含锚点的旧工程仍按
+`legacy` 行为加载。
+
 ## 接下来可以玩的三个例子
 
 ### 环形或波浪文字
@@ -145,6 +155,12 @@ Place.out → Output.in
 可以修改多边形、复制数量、网格行列和间距。再把 Random 接在 Grid 后面，就能加入
 固定随机种子的位移、旋转或大小变化。
 
+`Place` 默认使用历史上的 `legacy` 原点，所以旧工程不会因为升级而移动。如果希望
+定位更可预测，可以把 `anchorX` 设为 `start`、`center` 或 `end`，把 `anchorY`
+设为 `top`、`middle` 或 `bottom`。选中的“实际绘制边界”位置会对准槽位；
+`offsetX/Y` 再按画板像素移动这个目标点（X 正方向向右，Y 正方向向下）。Raster
+元素不会识别透明图里的主体，而是使用以原点为中心、包含透明像素的完整存储矩形。
+
 ### 图片效果海报
 
 ```text
@@ -160,7 +176,12 @@ RMBG-1.4，第一次使用时可能需要下载模型。
 MCP Companion 给 Agent 的是一套刻意收窄的设计 API。它不会提供 shell、任意文件
 系统、任意网络、浏览器导航、页面代码执行或鼠标控制工具。你的 MCP 宿主本身可能
 另外拥有这些权限，但 Companion 仍然只接受明确命名的 `gfx_*` 操作，以及你在
-浏览器中批准的权限。
+交互模式下通过浏览器批准、或通过显式 Trusted Local 启动 profile 授予的权限。
+
+Companion 通过 stdio 与 MCP 宿主通信，并独占固定的本地 HTTP/WebSocket 地址
+`127.0.0.1:5199`。它打开的 Chrome 窗口里是完整 Web UI，并不是一份只给 Agent
+使用的隐藏副本；Agent 工作时，你可以一直看着同一个窗口，也可以在其中手动修改
+同一份文档。
 
 ### 1. 构建 Agent 产物
 
@@ -192,6 +213,24 @@ npm run build:mcp
 修改配置后重新加载或重启 MCP 客户端。客户端会在需要时自己启动并管理这个 stdio
 进程，所以不要再去另一个终端同时运行 `npm run mcp:start`。
 
+如果这是你自己的本地工作区，并且你希望“启动 MCP 就代表允许 Agent 控制”，可以
+直接配置完整且版本固定的设计权限：
+
+```json
+{
+  "command": "node",
+  "args": [
+    "/absolute/path/to/a-psychos-gd-tool/packages/mcp-companion/dist/index.js",
+    "--profile=full-design-v1",
+    "--trusted-local"
+  ]
+}
+```
+
+它会打开同一个可见的 5199 工作台，并自动配对
+`read + preview + edit + assets + model`。会话在你撤销、关闭页面或 Companion
+时结束，最长为 12 小时；以后新增的 scope 不会偷偷进入 `full-design-v1`。
+
 #### 方式 B——手动启动
 
 需要直接观察或调试时，可以运行：
@@ -203,17 +242,21 @@ npm run mcp:start
 这条命令会构建并启动同一套 stdio Companion。此时不要再让另一个 MCP 客户端启动
 第二份进程，因为固定的 `127.0.0.1:5199` 端口只能被一个进程占用。
 
+下面第 3–5 节讲的是交互式最小权限路径。Trusted Local 用户可以跳过其中的配对和
+重启步骤；里面的 prompt 和工具说明仍然适用。
+
 ### 3. 先从只读开始
 
-不加任何 flag 时，Companion 只请求 `read` 和 `preview`。默认六个工具可以读取
-能力、文档和渲染状态，验证文档，等待渲染，以及取得预览。
+不加任何 flag 时，Companion 只请求 `read` 和 `preview`。默认七个工具可以读取
+能力、文档和渲染状态，验证文档，等待渲染，取得预览，以及检查渲染节点是否越界。
 
 隔离的 Chrome 窗口打开后：
 
-1. 点击 **Connect Agent**。
-2. 检查它请求的权限。
-3. 只勾选这次确实需要的 scope。
-4. 批准连接。
+1. 等待授权窗口在 5199 浏览器工作台中自动出现。
+2. 检查默认已经选中的权限。
+3. 只点击一次 **Allow Agent control**。
+
+只有想去掉某一项权限时，才需要展开 **Advanced details**。
 
 进程重启、页面刷新、30 分钟过期、连接中断或点击 **Revoke now** 后，都需要重新
 配对。
@@ -243,29 +286,57 @@ npm run mcp:start
 npm run mcp:start -- --allow-edit
 ```
 
-重新连接，在 Chrome 里勾选 `edit` scope 并批准。命令行允许和浏览器授权两层都要
-满足，缺一不可。
+重新连接，在 Chrome 里点击 **Allow Agent control**。`edit` 会按请求默认选中；
+交互模式下，命令行允许和浏览器授权两层仍然都要满足。
 
 第一次写入可以把这句话发给 Agent：
 
 > 先读取当前文档和能力。新建一个图层，不要修改已有图层；用一次原子事务创建
-> Text → Outline Text → Warp → Rasterize → Recolor → Output。使用稳定的
-> request ID 和当前 expected revision。等待这次提交对应的准确 render revision
-> 完成，再取得预览，并告诉我新建的图层/节点 ID、采用的参数和最终 revision。
+> Text → Outline Text → Warp → Rasterize → Recolor，然后把 Recolor 连接到新图层
+> 自动附带、节点 ID 为 `out` 的 Output。复用这个 Output，不要再添加一个。使用
+> 稳定的 request ID 和当前 expected revision。等待这次提交对应的准确 render
+> revision 完成，再取得预览，并告诉我新建的图层/节点 ID、采用的参数和最终
+> revision。
 
 每次写入都会检查 revision，并且保持原子性和幂等性。“事务提交成功”和“画面渲染
 成功”是两件独立的事，所以让 Agent 等待准确 revision 再拿预览，可以避免把旧画面
-当成新结果。
+当成新结果。每条 `add_layer` 命令都会自动创建且只创建一个透明 Output，节点 ID
+固定为 `out`；命令中的 `clientRef` 指向新图层，不是这个自动节点。
+
+如果排版可能跑出画板，Agent 可以在看图之前先检查客观几何：
+
+1. 调用 `gfx_await_render`，记住返回的准确 `revision` 和 `attempt`。
+2. 用这张票据调用 `gfx_measure_rendered_nodes`，一次最多检查 32 个
+   `layerId`/`nodeId`。尽量检查栅格化之前的 `Place.out`、文字或矢量输出。
+3. 根据 `unclippedBounds`、`visibleBounds` 和 `clipping.overflowPx` 修正意外
+   越界，再取得预览做视觉判断。
+
+这里返回的是画板左上角坐标系里的保守“实际绘制几何”外接框。它只检查与 Frame
+相交的情况，不计算被其他内容遮住了多少，也不会给构图或审美打分。Raster 输出会
+返回 `unavailable`，因为栅格化时画板外像素可能已经丢失。
+
+能力清单会公开一份独立、较小且由同一渲染快照共享的 fail-soft 测量预算；快照耗尽
+预算时，受影响的目标会返回 `bounds-limit-exceeded`，不会因此给 Agent 再开放
+一整份渲染计算额度。
+
+这些 bounds 严格描述“指定节点的输出、进入下游之前”的位置。后面的 Rasterize、
+Trace、重居中或其他 transform 仍可能改变最终合成位置，所以应该测量真正进入目标
+链路、且尽可能靠后的 live 栅格化前输出。
 
 ### 5. 只有任务需要时才增加其他权限
 
-- `--allow-assets` 加浏览器里的 `assets` 授权，会开放有大小边界、按内容寻址的
+- 交互模式下，`--allow-assets` 加浏览器里的 `assets` 授权，会开放有大小边界、
+  按内容寻址的
   图片上传/列表/元数据/删除工具。宿主 Agent 可以用它自己获批的权限读取本地文件，
   再通过 `gfx_put_asset` 传入图片；Companion 本身并不会因此获得通用文件系统权限。
-- `--allow-model` 加浏览器里的 `model` 授权，会开放固定本地 RMBG-1.4 模型的状态
-  和准备工具。第一次下载仍然需要人在 Chrome 里另行查看许可证并点击确认。
+- 交互模式下，`--allow-model` 加浏览器里的 `model` 授权，会开放固定本地
+  RMBG-1.4 模型的状态和准备工具。第一次下载仍然需要人在 Chrome 里另行查看
+  许可证并点击确认。
 
-这些 flag 可以组合，但一开始就全部开放，会失去渐进审批的意义。
+交互模式可以组合这些 flag 来保持最小权限。如果这是你个人的本地工作流，并且你
+明确希望 Agent 获得当前全部 MCP 设计 scopes，可使用
+`--profile=full-design-v1 --trusted-local`。这个 profile 是固定的 v1 权限快照；
+RMBG 第一次下载和许可证确认仍然需要人类单独操作。
 
 ## 常见问题
 
@@ -301,13 +372,17 @@ revision 的准确渲染结果。
 
 ### Agent 返回 `PAIRING_NOT_APPROVED`
 
-切回隔离的 Chrome 窗口，点击 **Connect Agent**，勾选请求的权限并批准。刷新页面
-或重启进程以后，旧批准会失效。
+切回隔离的 Chrome 窗口，用 **Allow Agent control** 批准正在等待的请求。如果当前
+没有等待中的请求，再点击 **Connect Agent** 重新打开配对。刷新页面或重启进程后，
+旧批准会失效。Trusted Local 模式出现这个错误，说明配置的进程/profile 没有成功
+自动配对；请确认 MCP 启动参数同时包含 `--profile=full-design-v1` 和
+`--trusted-local`，重启后检查页面是否显示 **Trusted Local**。
 
 ### 找不到预期的 MCP 工具
 
-进程 flag 决定这个工具是否存在，浏览器审批决定它能不能真正执行。用匹配的
-`--allow-*` flag 重启进程，并在 Chrome 里批准同名 scope。
+交互模式下，进程 flag 决定工具是否存在，浏览器审批决定它能不能真正执行；用匹配
+的 `--allow-*` flag 重启，并批准同名 scope。Trusted Local 模式请检查版本化
+profile 是否真的包含这个工具；以后新增 scope 时，`full-design-v1` 不会自动扩大。
 
 ### Agent 返回 revision 冲突
 
@@ -317,7 +392,8 @@ revision 的准确渲染结果。
 ### 5199 端口已被占用
 
 停止另一份 Companion 进程。固定的本机回环地址是安全设计的一部分，因此不会自动
-换到其他端口。
+换到其他端口。这与 Vite 通常使用的 5173 开发端口无关：5173 是独立的人类源码
+开发版本，Companion 独占的 5199 窗口才是人类和 Agent 的共享工作台。
 
 ### Chrome 没有自动启动
 

@@ -274,6 +274,30 @@ function dependencies() {
       height: 240,
     }),
     capturePreview: async () => rawPreview(),
+    measureRenderedNodes: (request) => ({
+      trust: 'untrusted-document-render',
+      requestedRevision: request.revision,
+      contractVersion: 'rendered-node-measurement-v1',
+      measurementPolicy: 'current-exact-ticket-v1',
+      measurementStage: 'target-output-before-downstream-v1',
+      visibilityPolicy: 'frame-clip-only-no-occlusion-v1',
+      revision: request.revision,
+      attempt: request.attempt,
+      frame: { width: 320, height: 240 },
+      coordinateSpace: {
+        kind: 'frame-pixels-top-left-v1',
+        units: 'px',
+        xAxis: 'right',
+        yAxis: 'down',
+      },
+      measurements: request.targets.map((target) => ({
+        target,
+        nodeType: 'Output',
+        valueKind: 'raster',
+        status: 'unavailable',
+        reason: 'raster-clipping-already-baked',
+      })),
+    }),
     nowPerformance: () => 100,
   };
   return {
@@ -332,6 +356,13 @@ describe('AgentController', () => {
     await expect(controller.capturePreview({ revision: 0 })).rejects.toMatchObject({
       error: { code: 'PERMISSION_REQUIRED' },
     });
+    expect(() => controller.measureRenderedNodes({
+      revision: 0,
+      attempt: 1,
+      targets: [{ layerId: 'layer_1', nodeId: 'node_1', outputSocket: 'out' }],
+    })).toThrow(expect.objectContaining({
+      error: expect.objectContaining({ code: 'PERMISSION_REQUIRED' }),
+    }));
     await expect(controller.applyTransaction({
       requestId: 'denied',
       expectedRevision: 0,
@@ -982,6 +1013,72 @@ describe('AgentController', () => {
     expect(structuredClone(result)).toEqual(result);
   });
 
+  it('measures only unique known targets for the current exact render ticket', () => {
+    const session = paired(['preview']);
+    const fake = dependencies();
+    const measure = vi.fn(fake.deps.measureRenderedNodes);
+    fake.deps.measureRenderedNodes = measure;
+    const { controller } = createAgentController(
+      session.manager,
+      session.lease,
+      fake.deps,
+      vault(),
+    );
+    const request = {
+      revision: 0,
+      attempt: 1,
+      targets: [{ layerId: 'layer_1', nodeId: 'node_1' }],
+    };
+    const result = controller.measureRenderedNodes(request);
+    expect(measure).toHaveBeenCalledWith({
+      revision: 0,
+      attempt: 1,
+      targets: [{
+        layerId: 'layer_1',
+        nodeId: 'node_1',
+        outputSocket: 'out',
+      }],
+    });
+    expect(result).toMatchObject({
+      trust: 'untrusted-document-render',
+      revision: 0,
+      attempt: 1,
+      measurements: [{
+        target: {
+          layerId: 'layer_1',
+          nodeId: 'node_1',
+          outputSocket: 'out',
+        },
+        status: 'unavailable',
+      }],
+    });
+    expect(JSON.parse(JSON.stringify(result))).toEqual(result);
+
+    expect(() => controller.measureRenderedNodes({
+      ...request,
+      revision: 1,
+    })).toThrow(expect.objectContaining({
+      error: expect.objectContaining({ code: 'RENDER_SUPERSEDED' }),
+    }));
+    expect(() => controller.measureRenderedNodes({
+      revision: 0,
+      attempt: 1,
+      targets: [
+        { layerId: 'layer_1', nodeId: 'node_1' },
+        { layerId: 'layer_1', nodeId: 'node_1', outputSocket: 'out' },
+      ],
+    })).toThrow(expect.objectContaining({
+      error: expect.objectContaining({ code: 'INVALID_ARGUMENT' }),
+    }));
+    expect(() => controller.measureRenderedNodes({
+      revision: 0,
+      attempt: 1,
+      targets: [{ layerId: 'missing', nodeId: 'node_1' }],
+    })).toThrow(expect.objectContaining({
+      error: expect.objectContaining({ code: 'UNKNOWN_LAYER' }),
+    }));
+  });
+
   it('keeps transport cancellation on a private companion controller', async () => {
     const session = paired(['read']);
     const fake = dependencies();
@@ -1121,6 +1218,7 @@ describe('AgentController', () => {
       () => controller.applyTransaction(hostile as never),
       () => controller.awaitRender(hostile as never),
       () => controller.capturePreview(hostile as never),
+      () => controller.measureRenderedNodes(hostile as never),
       () => controller.revertTransaction(hostile as never),
     ];
     for (const call of calls) {

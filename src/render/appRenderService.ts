@@ -1,4 +1,9 @@
 import { DEFAULT_AGENT_LIMITS } from '../domain/limits';
+import type {
+  PublicRenderedNodeMeasurementResult,
+  RenderedNodeMeasurementSnapshot,
+  ResolvedRenderedNodeMeasurementRequest,
+} from '../domain/renderedNodeMeasurementContract';
 import { appAssetService } from '../assets/assetService';
 import { modelNodeTypesInDocument } from '../domain/modelExecutionPolicy';
 import {
@@ -41,6 +46,7 @@ interface RenderArtifact {
   texture: PooledTexture;
   width: number;
   height: number;
+  nodeMeasurements: RenderedNodeMeasurementSnapshot;
 }
 
 export class ExactRenderUnavailableError extends Error {
@@ -351,6 +357,7 @@ export function configureAppRenderer(
             texture: rendered.texture,
             width: rendered.width,
             height: rendered.height,
+            nodeMeasurements: rendered.nodeMeasurements,
           };
           if (target) displayedCanvasIndex = stagedCanvasIndex;
           if (previous) configuredGpu.pool.release(previous.texture);
@@ -619,6 +626,54 @@ export async function readbackPreviewExact(
 
 export function currentArtifactTicket(): RenderTicket | null {
   return artifact ? { ...artifact.ticket } : null;
+}
+
+export function measureRenderedNodesExact(
+  request: ResolvedRenderedNodeMeasurementRequest,
+): PublicRenderedNodeMeasurementResult {
+  const exact = artifact;
+  if (
+    !exact
+    || exact.ticket.revision !== request.revision
+    || exact.ticket.attempt !== request.attempt
+    || exact.nodeMeasurements.revision !== request.revision
+    || exact.nodeMeasurements.attempt !== request.attempt
+  ) {
+    throw new ExactRenderUnavailableError({
+      revision: request.revision,
+      attempt: request.attempt,
+    });
+  }
+  const byTarget = new Map(
+    exact.nodeMeasurements.measurements.map((measurement) => [
+      `${
+        measurement.target.layerId
+      }\u0000${
+        measurement.target.nodeId
+      }\u0000${
+        measurement.target.outputSocket
+      }`,
+      measurement,
+    ]),
+  );
+  const measurements = request.targets.map((target) => {
+    const measurement = byTarget.get(
+      `${target.layerId}\u0000${target.nodeId}\u0000${target.outputSocket}`,
+    );
+    if (!measurement) {
+      throw new ExactRenderUnavailableError({
+        revision: request.revision,
+        attempt: request.attempt,
+      });
+    }
+    return measurement;
+  });
+  return {
+    trust: 'untrusted-document-render',
+    requestedRevision: request.revision,
+    ...exact.nodeMeasurements,
+    measurements,
+  };
 }
 
 export function getAppRenderStatus(): RenderStatus {

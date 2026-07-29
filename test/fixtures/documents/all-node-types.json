@@ -317,6 +317,8 @@
               "distribute": "by-order",
               "offsetX": 0,
               "offsetY": 0,
+              "anchorX": "legacy",
+              "anchorY": "legacy",
               "order": "source",
               "reverse": "no",
               "seed": 0,

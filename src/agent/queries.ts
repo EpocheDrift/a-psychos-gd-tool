@@ -244,8 +244,9 @@ export function getCapabilitiesQuery(
       ...CAPABILITY_MANIFEST.features,
       mcp: profile.mcp,
     },
-    preview: asJson(CAPABILITY_MANIFEST.preview) as JsonObject,
-    permissions: asJson(CAPABILITY_MANIFEST.permissions) as JsonObject,
+    preview: publicJsonClone(CAPABILITY_MANIFEST.preview),
+    measurement: publicJsonClone(CAPABILITY_MANIFEST.measurement),
+    permissions: publicJsonClone(CAPABILITY_MANIFEST.permissions),
     ...(profile.transport
       ? { transport: publicJsonClone(profile.transport) }
       : {}),

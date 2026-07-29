@@ -2646,7 +2646,7 @@
         {
           "name": "offsetX",
           "kind": "number",
-          "description": "Configures offset x for the Place node.",
+          "description": "Horizontal frame-space delta from each assigned layout slot to the target anchor; positive values move right.",
           "default": 0,
           "schema": {
             "type": "number",
@@ -2660,7 +2660,7 @@
         {
           "name": "offsetY",
           "kind": "number",
-          "description": "Configures offset y for the Place node.",
+          "description": "Vertical frame-space delta from each assigned layout slot to the target anchor; positive values move down.",
           "default": 0,
           "schema": {
             "type": "number",
@@ -2668,6 +2668,38 @@
             "minimum": -1000,
             "maximum": 1000,
             "x-step": 1
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "anchorX",
+          "kind": "select",
+          "description": "Horizontal anchor from conservative pre-blur local painted bounds: legacy preserves the historical content origin; start, center, and end mean the left edge, center, and right edge. Raster content uses its full centered storage rectangle, including transparent pixels.",
+          "default": "legacy",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "legacy",
+              "start",
+              "center",
+              "end"
+            ]
+          },
+          "agentWritable": true
+        },
+        {
+          "name": "anchorY",
+          "kind": "select",
+          "description": "Vertical anchor from conservative pre-blur local painted bounds: legacy preserves the historical content origin; top, middle, and bottom use the corresponding painted edge or center. Raster content uses its full centered storage rectangle, including transparent pixels.",
+          "default": "legacy",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "legacy",
+              "top",
+              "middle",
+              "bottom"
+            ]
           },
           "agentWritable": true
         },
@@ -3575,6 +3607,7 @@
     "transactions": true,
     "dryRun": true,
     "previews": true,
+    "renderedNodeMeasurements": true,
     "assets": true,
     "mcp": false
   },
@@ -3593,5 +3626,31 @@
     "defaultFormat": "png",
     "metricsVersion": "preview-metrics-v1",
     "capturePolicy": "current-exact-ticket-v1"
+  },
+  "measurement": {
+    "contractVersion": "rendered-node-measurement-v1",
+    "measurementPolicy": "current-exact-ticket-v1",
+    "measurementStage": "target-output-before-downstream-v1",
+    "visibilityPolicy": "frame-clip-only-no-occlusion-v1",
+    "coordinateSpace": "frame-pixels-top-left-v1",
+    "workPolicy": "bounded-fail-soft-v1",
+    "limits": {
+      "maxVectorPaths": 25000,
+      "maxVectorCommands": 50000,
+      "maxCanvasPaintPaths": 5000,
+      "maxCanvasPaintCommands": 25000,
+      "maxFlattenedPoints": 250000,
+      "maxBooleanPoints": 2500,
+      "maxGeometryWorkUnits": 250000,
+      "maxRenderableGlyphs": 4096,
+      "maxGeneratedItems": 25000
+    },
+    "maxTargets": 32,
+    "exactAttemptRequired": true,
+    "supportedValueKinds": [
+      "text",
+      "vector",
+      "elements"
+    ]
   }
 }

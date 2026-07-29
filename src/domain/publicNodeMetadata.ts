@@ -259,6 +259,10 @@ const PARAM_DESCRIPTION_OVERRIDES: Readonly<Record<string, string>> = Object.fre
   'Weight.expr': 'A safe arithmetic expression used to author the selected layout channel.',
   'Filter.channel': 'The built-in or Weight-authored layout channel to test.',
   'Place.binds': 'Structured channel bindings encoded as JSON in persisted version 3 documents.',
+  'Place.offsetX': 'Horizontal frame-space delta from each assigned layout slot to the target anchor; positive values move right.',
+  'Place.offsetY': 'Vertical frame-space delta from each assigned layout slot to the target anchor; positive values move down.',
+  'Place.anchorX': 'Horizontal anchor from conservative pre-blur local painted bounds: legacy preserves the historical content origin; start, center, and end mean the left edge, center, and right edge. Raster content uses its full centered storage rectangle, including transparent pixels.',
+  'Place.anchorY': 'Vertical anchor from conservative pre-blur local painted bounds: legacy preserves the historical content origin; top, middle, and bottom use the corresponding painted edge or center. Raster content uses its full centered storage rectangle, including transparent pixels.',
 });
 
 function humanize(name: string): string {

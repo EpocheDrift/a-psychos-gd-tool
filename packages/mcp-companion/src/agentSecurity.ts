@@ -4,6 +4,12 @@ export const AGENT_ALLOWED_ORIGIN = `http://${AGENT_HOST}:${AGENT_PORT}`;
 export const AGENT_EXPECTED_HOST = `${AGENT_HOST}:${AGENT_PORT}`;
 export const AGENT_COMPANION_META_NAME = 'gfx-agent-companion';
 export const AGENT_COMPANION_META_VALUE = 'local-v1';
+export const AGENT_COMPANION_CONTROL_META_NAME = 'gfx-agent-control-mode';
+export const AGENT_COMPANION_CONTROL_MODE_INTERACTIVE = 'interactive-v1';
+export const AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL = 'trusted-local-v1';
+export type AgentCompanionControlMode =
+  | typeof AGENT_COMPANION_CONTROL_MODE_INTERACTIVE
+  | typeof AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL;
 export const AGENT_HEALTH_PATH = '/healthz';
 export const AGENT_WEBSOCKET_PATH = '/__gfx_agent_bridge_v1';
 // The fixed companion origin is plain loopback HTTP. Do not use a __Host- or

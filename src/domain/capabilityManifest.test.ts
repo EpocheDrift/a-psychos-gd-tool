@@ -47,6 +47,7 @@ describe('capability manifest contract', () => {
       transactions: true,
       dryRun: true,
       previews: true,
+      renderedNodeMeasurements: true,
       assets: true,
       mcp: false,
     });
@@ -55,6 +56,28 @@ describe('capability manifest contract', () => {
       defaultFormat: 'png',
       metricsVersion: 'preview-metrics-v1',
       capturePolicy: 'current-exact-ticket-v1',
+    });
+    expect(CAPABILITY_MANIFEST.measurement).toEqual({
+      contractVersion: 'rendered-node-measurement-v1',
+      measurementPolicy: 'current-exact-ticket-v1',
+      measurementStage: 'target-output-before-downstream-v1',
+      visibilityPolicy: 'frame-clip-only-no-occlusion-v1',
+      coordinateSpace: 'frame-pixels-top-left-v1',
+      workPolicy: 'bounded-fail-soft-v1',
+      limits: {
+        maxVectorPaths: 25_000,
+        maxVectorCommands: 50_000,
+        maxCanvasPaintPaths: 5_000,
+        maxCanvasPaintCommands: 25_000,
+        maxFlattenedPoints: 250_000,
+        maxBooleanPoints: 2_500,
+        maxGeometryWorkUnits: 250_000,
+        maxRenderableGlyphs: 4_096,
+        maxGeneratedItems: 25_000,
+      },
+      maxTargets: 32,
+      exactAttemptRequired: true,
+      supportedValueKinds: ['text', 'vector', 'elements'],
     });
     expect(CAPABILITY_MANIFEST.limits).toMatchObject({
       maxPendingWorkerRequests: 4,

@@ -5,9 +5,12 @@ import {
   commandSchema,
   getModelStatusInputSchema,
   listAssetsInputSchema,
+  measureRenderedNodesInputSchema,
+  measureRenderedNodesOutputSchema,
   prepareModelInputSchema,
   putAssetInputSchema,
   putAssetOutputSchema,
+  renderedNodeMeasurementResultSchema,
   toolOutcomeSchema,
   transactionSuccessSchema,
 } from '../src/toolSchemas.js';
@@ -79,8 +82,15 @@ describe('MCP tool schemas', () => {
       clientRef: 'unicode_layer',
       name: '😀'.repeat(129),
     }).success).toBe(false);
-    expect(JSON.stringify(z.toJSONSchema(commandSchema))).toContain(
+    const jsonSchema = JSON.stringify(z.toJSONSchema(commandSchema));
+    expect(jsonSchema).toContain(
       '"name":{"type":"string","minLength":1,"maxLength":128',
+    );
+    expect(jsonSchema).toContain(
+      'automatic transparent Output node whose node ID is \\"out\\"',
+    );
+    expect(jsonSchema).toContain(
+      'Reuse node ID \\"out\\" as the final connection target',
     );
   });
 
@@ -422,6 +432,231 @@ describe('MCP tool schemas', () => {
         requestId: 'model-status-check',
         ...forbidden,
       }).success).toBe(false);
+    }
+  });
+
+  it('strictly bounds exact rendered-node measurement requests', () => {
+    expect(measureRenderedNodesInputSchema.safeParse({
+      revision: 7,
+      attempt: 2,
+      targets: [
+        { layerId: 'layer_1', nodeId: 'headline' },
+        {
+          layerId: 'layer_1',
+          nodeId: 'shape',
+          outputSocket: 'geometry',
+        },
+      ],
+    }).success).toBe(true);
+
+    for (const input of [
+      {
+        revision: 7,
+        attempt: 2,
+        targets: [],
+      },
+      {
+        revision: 7,
+        targets: [{ layerId: 'layer_1', nodeId: 'headline' }],
+      },
+      {
+        revision: 7,
+        attempt: 2,
+        targets: [
+          { layerId: 'layer_1', nodeId: 'headline' },
+          {
+            layerId: 'layer_1',
+            nodeId: 'headline',
+            outputSocket: 'out',
+          },
+        ],
+      },
+      {
+        revision: 7,
+        attempt: 2,
+        targets: [{
+          layerId: 'layer_1',
+          nodeId: 'headline',
+          path: '/tmp/output.png',
+        }],
+      },
+      {
+        revision: 7,
+        attempt: 2,
+        targets: [{
+          layerId: '__proto__',
+          nodeId: 'headline',
+        }],
+      },
+      {
+        revision: 7,
+        attempt: 2,
+        targets: Array.from({ length: 33 }, (_, index) => ({
+          layerId: 'layer_1',
+          nodeId: `node_${index}`,
+        })),
+      },
+    ]) {
+      expect(
+        measureRenderedNodesInputSchema.safeParse(input).success,
+      ).toBe(false);
+    }
+  });
+
+  it('accepts every strict rendered-node measurement outcome', () => {
+    const result = {
+      contractVersion: 'rendered-node-measurement-v1',
+      measurementPolicy: 'current-exact-ticket-v1',
+      measurementStage: 'target-output-before-downstream-v1',
+      visibilityPolicy: 'frame-clip-only-no-occlusion-v1',
+      revision: 7,
+      attempt: 2,
+      frame: { width: 640, height: 480 },
+      coordinateSpace: {
+        kind: 'frame-pixels-top-left-v1',
+        units: 'px',
+        xAxis: 'right',
+        yAxis: 'down',
+      },
+      measurements: [
+        {
+          target: {
+            layerId: 'layer_1',
+            nodeId: 'headline',
+            outputSocket: 'out',
+          },
+          nodeType: 'Text',
+          valueKind: 'text',
+          status: 'measured',
+          basis: 'conservative-painted-geometry-aabb-v1',
+          unclippedBounds: {
+            x: -10,
+            y: 20,
+            width: 80,
+            height: 40,
+          },
+          visibleBounds: {
+            x: 0,
+            y: 20,
+            width: 70,
+            height: 40,
+          },
+          clipping: {
+            state: 'partial',
+            sides: ['left'],
+            overflowPx: {
+              left: 10,
+              top: 0,
+              right: 0,
+              bottom: 0,
+            },
+          },
+        },
+        {
+          target: {
+            layerId: 'layer_1',
+            nodeId: 'empty_shape',
+            outputSocket: 'out',
+          },
+          nodeType: 'Path',
+          valueKind: 'vector',
+          status: 'empty',
+          reason: 'no-painted-geometry',
+        },
+        {
+          target: {
+            layerId: 'hidden_layer',
+            nodeId: 'copy',
+            outputSocket: 'out',
+          },
+          nodeType: 'Text',
+          valueKind: 'text',
+          status: 'not-rendered',
+          reason: 'hidden-layer',
+        },
+        {
+          target: {
+            layerId: 'layer_1',
+            nodeId: 'grid',
+            outputSocket: 'out',
+          },
+          nodeType: 'GridLayout',
+          valueKind: 'layout',
+          status: 'not-visual',
+          reason: 'layout-output',
+        },
+        {
+          target: {
+            layerId: 'layer_1',
+            nodeId: 'photo',
+            outputSocket: 'out',
+          },
+          nodeType: 'Image',
+          valueKind: 'raster',
+          status: 'unavailable',
+          reason: 'raster-clipping-already-baked',
+        },
+      ],
+      trust: 'untrusted-document-render',
+      requestedRevision: 7,
+    };
+
+    expect(
+      renderedNodeMeasurementResultSchema.safeParse(result).success,
+    ).toBe(true);
+    expect(measureRenderedNodesOutputSchema.safeParse({
+      outcome: { ok: true, value: result },
+    }).success).toBe(true);
+
+    for (const malformed of [
+      { ...result, requestedRevision: 6 },
+      { ...result, unknown: true },
+      {
+        ...result,
+        measurements: [
+          { ...result.measurements[0], unknown: true },
+          ...result.measurements.slice(1),
+        ],
+      },
+      {
+        ...result,
+        measurements: [{
+          ...result.measurements[0],
+          clipping: {
+            state: 'inside',
+            sides: ['left'],
+            overflowPx: {
+              left: 10,
+              top: 0,
+              right: 0,
+              bottom: 0,
+            },
+          },
+        }],
+      },
+      {
+        ...result,
+        measurements: [{
+          ...result.measurements[0],
+          unclippedBounds: {
+            x: Number.POSITIVE_INFINITY,
+            y: 0,
+            width: 1,
+            height: 1,
+          },
+        }],
+      },
+      {
+        ...result,
+        measurements: [
+          result.measurements[0],
+          result.measurements[0],
+        ],
+      },
+    ]) {
+      expect(
+        renderedNodeMeasurementResultSchema.safeParse(malformed).success,
+      ).toBe(false);
     }
   });
 

@@ -18,6 +18,10 @@ export interface BrowserSessionOptions {
   onDisconnected?: () => void;
 }
 
+const WORKBENCH_READY_TIMEOUT_MS = 20_000;
+export const AGENT_WORKBENCH_READY_SELECTOR =
+  '[data-agent-render-status][data-agent-workbench-ready="true"]';
+
 function pathCandidates(names: readonly string[]): string[] {
   return (process.env.PATH ?? '')
     .split(delimiter)
@@ -140,6 +144,17 @@ export async function launchCompanionBrowser(
     await page.goto(AGENT_ALLOWED_ORIGIN, {
       waitUntil: 'domcontentloaded',
     });
+    try {
+      await page.waitForSelector(
+        AGENT_WORKBENCH_READY_SELECTOR,
+        { timeout: WORKBENCH_READY_TIMEOUT_MS },
+      );
+    } catch (error) {
+      throw new Error(
+        'The shared 5199 workbench did not schedule its initial exact render before startup completed.',
+        { cause: error },
+      );
+    }
     if (options.onDisconnected) {
       browser.once('disconnected', options.onDisconnected);
     }

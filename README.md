@@ -105,7 +105,7 @@ Evaluation is pull-based from Output with hash-keyed memoization: a node's key i
 | Filter | `layout → layout` | Prunes slots: every nth, channel threshold, or random keep. Survivors keep their identity for by-index Place. |
 | **Placement** | | The element lane: decide how many things exist and marry them to layout slots. |
 | Duplicator | `any → elements` | Makes N copies of its input as elements — content shared, transforms independent until Place. |
-| Place | `elements, layout → elements` | Assigns elements to layout slots — in order, keyed by index, or spread evenly along the layout — and binds slot signals to scale / rotation / blur. |
+| Place | `elements, layout → elements` | Assigns elements to layout slots — in order, keyed by index, or spread evenly along the layout — with explicit painted-bounds anchors and slot-signal bindings for scale / rotation / blur. The `legacy` anchors preserve old documents exactly. |
 | **Conversion** | | The explicit type-changing steps — every rung of the `text => vector => raster` ladder, up and down. |
 | Outline Text | `text → vector` | Glyphs become paths — the explicit step down the ladder from live type to geometry. |
 | Rasterize | `vector → raster` | Draws paths at frame resolution — the CPU→GPU boundary; ink on a transparent ground. |
@@ -135,11 +135,15 @@ Evaluation is pull-based from Output with hash-keyed memoization: a node's key i
 
 The default production artifact exposes no Agent global. An explicit
 loopback-only static Agent artifact provides a paired, scope-gated browser
-controller and authenticated local stdio MCP companion. The default profile is
-read/preview; edit, bounded content-addressed assets, and the pinned local
-RMBG-1.4 model are independent command-line plus in-app scope grants. A first
-model download also requires a separate human license confirmation, and every
-artifact is byte-length/SHA-256 verified before same-origin worker use.
+controller and authenticated local stdio MCP companion. Interactive mode keeps
+the least-authority path: the default profile is read/preview, while edit,
+bounded content-addressed assets, and the pinned local RMBG-1.4 model require
+command-line allowance plus one in-app grant. For a personal local workspace,
+the recommended `--profile=full-design-v1 --trusted-local` path treats starting
+that explicit MCP process as authorization and auto-pairs all current design
+scopes without repeated dialogs. A first model download still requires a
+separate human license confirmation, and every artifact is
+byte-length/SHA-256 verified before same-origin worker use.
 The final seven-scenario official-client evaluation covers three creative
 workflows and four recovery paths through the real MCP/WebSocket/browser
 rendering chain, with reviewed PNGs and redacted metrics.
@@ -151,7 +155,8 @@ Claude Code may separately have permissions granted by its own runtime; this
 project neither grants nor revokes those host-level permissions.
 Browser-trusted approval rejects page-script synthetic events but is not
 physical-user proof. Build/run details are in the
-[companion guide](packages/mcp-companion/README.md); the readiness audit,
+[Agent walkthrough](docs/getting-started.md#connect-an-agent-in-about-10-minutes)
+and [companion guide](packages/mcp-companion/README.md); the readiness audit,
 target architecture, security model, and staged implementation/evidence live
 in [`docs/agent-adaptation/`](docs/agent-adaptation/README.md).
 The project owner approved this v1 scope on 2026-07-27, and PR

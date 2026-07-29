@@ -2,7 +2,11 @@ import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket, { WebSocketServer, type RawData } from 'ws';
 import { BridgeClient } from '../src/bridgeClient.js';
-import { COMPANION_TRANSPORT_LIMITS } from '../src/protocol.js';
+import {
+  COMPANION_TRANSPORT_LIMITS,
+  INTERACTIVE_SESSION_TTL_MS,
+  TRUSTED_LOCAL_SESSION_TTL_MS,
+} from '../src/protocol.js';
 
 interface Harness {
   bridge: BridgeClient;
@@ -16,6 +20,8 @@ interface Harness {
 async function createHarness(options: {
   helloDeadlineMs?: number;
   now?: () => number;
+  maxSessionTtlMs?: number;
+  requireExactScopes?: boolean;
   requestedScopes?: readonly (
     'read' | 'preview' | 'edit' | 'assets' | 'model'
   )[];
@@ -27,6 +33,12 @@ async function createHarness(options: {
       ? {}
       : { helloDeadlineMs: options.helloDeadlineMs }),
     ...(options.now ? { now: options.now } : {}),
+    ...(options.maxSessionTtlMs === undefined
+      ? {}
+      : { maxSessionTtlMs: options.maxSessionTtlMs }),
+    ...(options.requireExactScopes === undefined
+      ? {}
+      : { requireExactScopes: options.requireExactScopes }),
   });
   const server = new WebSocketServer({
     port: 0,
@@ -79,6 +91,7 @@ afterEach(async () => {
 async function pair(
   harness: Harness,
   expectedScopes?: readonly string[],
+  sessionTtlMs = INTERACTIVE_SESSION_TTL_MS,
 ) {
   harnesses.push(harness);
   const welcome = await harness.nextJson();
@@ -105,7 +118,7 @@ async function pair(
     .slice(0, 12);
   const connectedAt = new Date().toISOString();
   const expiresAt = new Date(
-    Date.parse(connectedAt) + 30 * 60_000,
+    Date.parse(connectedAt) + sessionTtlMs,
   ).toISOString();
   harness.sendJson({
     kind: 'response',
@@ -227,6 +240,117 @@ describe('authenticated bridge client protocol', () => {
     });
     await pair(harness, ['read', 'preview', 'assets']);
     expect(harness.bridge.healthState()).toBe('ready');
+  });
+
+  it('accepts a bounded 12-hour trusted-local session summary', async () => {
+    const harness = await createHarness({
+      maxSessionTtlMs: TRUSTED_LOCAL_SESSION_TTL_MS,
+      requireExactScopes: true,
+    });
+    await pair(harness, undefined, TRUSTED_LOCAL_SESSION_TTL_MS);
+    expect(harness.bridge.healthState()).toBe('ready');
+  });
+
+  it('rejects a trusted-local session that silently drops a requested scope', async () => {
+    const harness = await createHarness({
+      maxSessionTtlMs: TRUSTED_LOCAL_SESSION_TTL_MS,
+      requireExactScopes: true,
+      requestedScopes: ['read', 'preview', 'edit'],
+    });
+    harnesses.push(harness);
+    const welcome = await harness.nextJson();
+    const connectionId = String(welcome.connectionId);
+    const serverNonce = String(welcome.serverNonce);
+    const channelToken = 'c'.repeat(43);
+    harness.sendJson({
+      kind: 'hello',
+      protocolVersion: '1.0',
+      connectionId,
+      serverNonce,
+      channelToken,
+      sequence: 1,
+    });
+    const pairRequest = await harness.nextJson();
+    const input = pairRequest.input as Record<string, unknown>;
+    const clientNonce = String(input.clientNonce);
+    const fingerprint = createHash('sha256')
+      .update(`gfx.agent.client.v1\u0000${clientNonce}`)
+      .digest('hex')
+      .slice(0, 12);
+    const connectedAt = new Date().toISOString();
+    harness.sendJson({
+      kind: 'response',
+      protocolVersion: '1.0',
+      connectionId,
+      channelToken,
+      sequence: 2,
+      requestId: pairRequest.requestId,
+      ok: true,
+      value: {
+        protocolVersion: '1.0',
+        clientLabel: input.clientLabel,
+        clientFingerprint: fingerprint,
+        sessionFingerprint: 'd'.repeat(12),
+        origin: 'http://127.0.0.1:5199',
+        scopes: ['read', 'preview'],
+        connectedAt,
+        expiresAt: new Date(
+          Date.parse(connectedAt) + TRUSTED_LOCAL_SESSION_TTL_MS,
+        ).toISOString(),
+      },
+    });
+
+    await expect.poll(() => harness.bridge.healthState()).toBe('failed');
+  });
+
+  it('rejects a session summary beyond its configured TTL ceiling', async () => {
+    const harness = await createHarness({
+      maxSessionTtlMs: INTERACTIVE_SESSION_TTL_MS,
+    });
+    harnesses.push(harness);
+    const welcome = await harness.nextJson();
+    const connectionId = String(welcome.connectionId);
+    const serverNonce = String(welcome.serverNonce);
+    const channelToken = 'c'.repeat(43);
+    harness.sendJson({
+      kind: 'hello',
+      protocolVersion: '1.0',
+      connectionId,
+      serverNonce,
+      channelToken,
+      sequence: 1,
+    });
+    const pairRequest = await harness.nextJson();
+    const input = pairRequest.input as Record<string, unknown>;
+    const clientNonce = String(input.clientNonce);
+    const fingerprint = createHash('sha256')
+      .update(`gfx.agent.client.v1\u0000${clientNonce}`)
+      .digest('hex')
+      .slice(0, 12);
+    const connectedAt = new Date().toISOString();
+    harness.sendJson({
+      kind: 'response',
+      protocolVersion: '1.0',
+      connectionId,
+      channelToken,
+      sequence: 2,
+      requestId: pairRequest.requestId,
+      ok: true,
+      value: {
+        protocolVersion: '1.0',
+        clientLabel: input.clientLabel,
+        clientFingerprint: fingerprint,
+        sessionFingerprint: 'd'.repeat(12),
+        origin: 'http://127.0.0.1:5199',
+        scopes: input.requestedScopes,
+        connectedAt,
+        expiresAt: new Date(
+          Date.parse(connectedAt) + INTERACTIVE_SESSION_TTL_MS + 1_001,
+        ).toISOString(),
+      },
+    });
+
+    await expect.poll(() => harness.bridge.healthState()).toBe('failed');
   });
 
   it('closes and revokes transport authority when pairing validation fails', async () => {

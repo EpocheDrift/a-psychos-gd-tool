@@ -33,6 +33,13 @@ Open the URL printed by Vite in a WebGPU browser. `setup.sh` checks Node,
 installs dependencies, and downloads the bundled free font. It is safe to run
 again.
 
+This source-development UI normally appears at `http://localhost:5173` (Vite
+prints the actual port). It is for human development and intentionally has no
+Agent bridge. When you later start the MCP companion, it serves another full UI
+at the fixed `http://127.0.0.1:5199`; that 5199 window is the shared workbench
+where the human and Agent edit the same document. You do not need to keep 5173
+running for an Agent session.
+
 The app opens with a blank project already rendering: one layer with one
 **Output** node. The left side is the node graph, the right side is the
 artboard, and the floating **layers** panel selects which layer graph you are
@@ -129,6 +136,12 @@ The project controls above the artboard serve different jobs:
 The app also keeps versioned working data in browser storage. Treat the
 downloaded project file—not browser storage—as the portable backup.
 
+The project `schemaVersion` identifies the document/storage envelope, not
+forward compatibility with every older application build. Unknown newer node
+types or parameters fail closed. A project that uses the new Place anchor
+fields therefore requires a build whose capability manifest advertises those
+fields; older anchor-less projects continue to load with `legacy` behavior.
+
 ## Three things to try next
 
 ### Circular or wavy type
@@ -155,6 +168,14 @@ Place.out → Output.in
 Change the polygon, copy count, grid tracks, gaps, and Place bindings. Add
 Random after Grid for seeded offset, rotation, or scale variation.
 
+Place defaults to the historical `legacy` origin so existing projects do not
+move. For predictable alignment, set `anchorX` to `start`, `center`, or `end`
+and `anchorY` to `top`, `middle`, or `bottom`. The selected point on the
+element's painted bounds lands on the assigned slot; `offsetX/Y` then moves
+that target in frame pixels (positive X is right, positive Y is down). Raster
+elements use their full centered storage rectangle, including transparent
+pixels, rather than detecting the opaque subject.
+
 ### An image-effects poster
 
 ```text
@@ -172,7 +193,13 @@ The MCP companion provides a deliberately narrow design API. It does not expose
 shell, arbitrary filesystem, arbitrary network, browser navigation, page
 evaluation, or pointer-control tools. Your MCP host may have its own separate
 permissions; the companion still accepts only its named `gfx_*` operations and
-the scopes you approve in the browser.
+the scopes granted either by the interactive browser approval or by an
+explicit Trusted Local startup profile.
+
+The companion communicates with the MCP host over stdio and owns a fixed local
+HTTP/WebSocket origin at `127.0.0.1:5199`. The Chrome window it opens contains
+the complete Web UI, not an Agent-only copy: keep that window visible to review
+or make human edits while the Agent works on the same document.
 
 ### 1. Build the Agent artifacts
 
@@ -205,6 +232,25 @@ Reload or restart the MCP client after changing its configuration. The client
 owns the stdio process and launches it when needed. Do **not** also run
 `npm run mcp:start` in another terminal.
 
+For your own local workspace, you can make MCP startup itself the approval and
+give the Agent the complete versioned design profile:
+
+```json
+{
+  "command": "node",
+  "args": [
+    "/absolute/path/to/a-psychos-gd-tool/packages/mcp-companion/dist/index.js",
+    "--profile=full-design-v1",
+    "--trusted-local"
+  ]
+}
+```
+
+This opens the same visible 5199 workbench and pairs automatically with
+`read`, `preview`, `edit`, `assets`, and `model`. The session lasts until it is
+revoked, the page/Companion closes, or the fixed 12-hour limit is reached.
+Future scopes are not silently added to `full-design-v1`.
+
 #### Method B — start it manually
 
 For direct inspection or debugging:
@@ -217,18 +263,23 @@ This builds and starts the same stdio companion. Do not simultaneously
 configure another client to launch a second copy: only one process can own the
 fixed `127.0.0.1:5199` port.
 
+The following sections 3–5 describe the interactive least-authority path.
+Trusted Local users can skip its pairing and restart steps; the prompts and
+tool explanations still apply.
+
 ### 3. Start read-only
 
-With no flags, the companion requests only `read` and `preview`. Its six tools
+With no flags, the companion requests only `read` and `preview`. Its seven tools
 can inspect the capabilities/document/render state, validate the document,
-await a render, and capture a preview.
+await a render, capture a preview, and measure rendered-node clipping.
 
 When the isolated Chrome window opens:
 
-1. Click **Connect Agent**.
-2. Review the requested scopes.
-3. Select only the scopes you intend to grant.
-4. Approve the connection.
+1. Wait for the approval dialog to appear in the 5199 browser workbench.
+2. Review the requested scopes, which are selected by default.
+3. Click **Allow Agent control** once.
+
+Open **Advanced details** only when you want to remove an individual scope.
 
 Pairing is required again after a process restart, page reload, 30-minute
 expiry, transport loss, or **Revoke now**.
@@ -259,35 +310,68 @@ For manual launch, use:
 npm run mcp:start -- --allow-edit
 ```
 
-Reconnect, select the `edit` scope in Chrome, and approve it. Both the
-command-line allowance and the browser grant are required.
+Reconnect and choose **Allow Agent control** in Chrome. The requested `edit`
+scope is selected by default; command-line allowance and the browser grant are
+both still required in interactive mode.
 
 Use this as the first write prompt:
 
 > Read the current document and capabilities first. Create a new layer without
 > changing existing layers. In one atomic transaction, build
-> Text → Outline Text → Warp → Rasterize → Recolor → Output. Use a stable
-> request ID and the current expected revision. Wait for the exact committed
-> render revision, capture a preview, and report the created layer/node IDs,
-> chosen parameters, and final revision.
+> Text → Outline Text → Warp → Rasterize → Recolor, then connect Recolor to the
+> new layer's automatic Output node with node ID `out`. Reuse that Output; do
+> not add another one. Use a stable request ID and the current expected
+> revision. Wait for the exact committed render revision, capture a preview,
+> and report the created layer/node IDs, chosen parameters, and final revision.
 
 Every write is revision-checked, atomic, and idempotent. A successful commit and
 a successful render are separate facts, so asking the Agent to await the exact
-render before previewing prevents stale visual evidence.
+render before previewing prevents stale visual evidence. Every `add_layer`
+command creates exactly one transparent Output node at node ID `out`; the
+command's `clientRef` refers to the layer, not to this automatic node.
+
+For layouts that may run off the artboard, the Agent can inspect objective
+geometry before judging the image:
+
+1. Call `gfx_await_render` and keep its exact `revision` and `attempt`.
+2. Call `gfx_measure_rendered_nodes` with that ticket and up to 32
+   `layerId`/`nodeId` targets. Measure a live `Place.out`, text, or vector
+   output before Rasterize whenever possible.
+3. Use `unclippedBounds`, `visibleBounds`, and `clipping.overflowPx` to correct
+   accidental frame clipping, then capture the preview for visual review.
+
+The measurement is a conservative painted-geometry axis-aligned box in
+top-left frame pixels. It checks only intersection with the frame: it does not
+calculate occlusion by other content and does not score composition or
+aesthetics. Raster outputs report `unavailable` because their outside-frame
+pixels may already have been discarded.
+
+The capability manifest advertises a separate bounded, fail-soft measurement
+work budget shared by one render snapshot. If that snapshot exhausts the
+budget, affected targets report `bounds-limit-exceeded` without granting the
+Agent more render authority.
+
+These bounds describe exactly the selected node output before downstream
+processing. A later Rasterize, Trace, centering step, or transform can change
+the final composite position, so measure the latest live pre-raster output that
+actually feeds the intended chain.
 
 ### 5. Grant other scopes only for a task that needs them
 
-- `--allow-assets` plus browser `assets` approval enables bounded,
+- In interactive mode, `--allow-assets` plus browser `assets` approval enables bounded,
   content-addressed image upload/list/metadata/remove tools. A host Agent can
   read a user-approved local file with its own permissions, then pass the bytes
   through `gfx_put_asset`; the companion itself does not gain general
   filesystem access.
-- `--allow-model` plus browser `model` approval enables the pinned local
+- In interactive mode, `--allow-model` plus browser `model` approval enables the pinned local
   RMBG-1.4 status/preparation tools. The first download still requires a
   separate human license review and click in Chrome.
 
-Flags can be combined, but granting all scopes by default defeats the gradual
-approval workflow.
+Flags can be combined for interactive least-authority sessions. For a personal
+workflow that intentionally grants all current MCP design scopes, use
+`--profile=full-design-v1 --trusted-local`. The profile is an immutable v1
+scope snapshot, and the first RMBG download/license confirmation remains a
+separate human action.
 
 ## Common problems
 
@@ -324,15 +408,21 @@ that error first; export requires an exact render of the current revision.
 
 ### The Agent reports `PAIRING_NOT_APPROVED`
 
-Bring the isolated Chrome window forward, click **Connect Agent**, select the
-requested scopes, and approve. Page reloads and process restarts invalidate the
-old approval.
+Bring the isolated Chrome window forward and approve the pending request with
+**Allow Agent control**. If no request is pending, click **Connect Agent** to
+reopen pairing. Page reloads and process restarts invalidate the old approval.
+In Trusted Local mode, this error means the configured process/profile did not
+auto-pair; restart the MCP-managed Companion with both
+`--profile=full-design-v1` and `--trusted-local`, then check that the page shows
+the **Trusted Local** status.
 
 ### An expected MCP tool is missing
 
-The process flag controls which tool can exist, while the browser approval
-controls whether it may act. Restart with the matching `--allow-*` flag and
-grant the same scope in Chrome.
+In interactive mode, the process flag controls which tool can exist while the
+browser approval controls whether it may act. Restart with the matching
+`--allow-*` flag and grant the same scope. In Trusted Local mode, verify that
+the versioned profile actually contains the tool; `full-design-v1` never grows
+implicitly when future scopes are added.
 
 ### The Agent reports a revision conflict
 
@@ -342,7 +432,9 @@ Ask it to call `gfx_get_document` again and retry with the new
 ### Port 5199 is already in use
 
 Stop the other companion process. The fixed loopback origin is intentional and
-does not fall back to another port.
+does not fall back to another port. This is unrelated to Vite's development
+port (normally 5173): 5173 is a separate human source-development build, while
+the companion-owned 5199 window is the shared human-and-Agent workbench.
 
 ### Chrome does not launch
 

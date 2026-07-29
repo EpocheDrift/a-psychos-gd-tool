@@ -11,6 +11,12 @@
 
 import { boundsOfPaths, transformPaths } from '../engine/path';
 import { geometryBudgetFor } from '../engine/geometryBudget';
+import {
+  anchoredTransformPosition,
+  contentPaintBounds,
+  type HorizontalElementAnchor,
+  type VerticalElementAnchor,
+} from '../engine/spatialBounds';
 import type { NodeDef } from '../engine/registry';
 import {
   readChannel,
@@ -293,6 +299,10 @@ export const PlaceNode: NodeDef = {
     // nudge the whole arrangement — every placed element shifts by this much
     { name: 'offsetX', kind: 'number', default: 0, min: -1000, max: 1000, step: 1 },
     { name: 'offsetY', kind: 'number', default: 0, min: -1000, max: 1000, step: 1 },
+    // `legacy` preserves the historical content origin. Explicit anchors place
+    // the selected painted edge/center on each slot before offset is applied.
+    { name: 'anchorX', kind: 'select', options: ['legacy', 'start', 'center', 'end'], default: 'legacy' },
+    { name: 'anchorY', kind: 'select', options: ['legacy', 'top', 'middle', 'bottom'], default: 'legacy' },
     // slot consumption order — Sort, absorbed. `source` = the generator's fill
     // order; `random` is a seeded permutation (every slot used once).
     { name: 'order', kind: 'select', options: ['source', 'x', 'y', 'progress', 'weight', 'random'], default: 'source', showIf: { param: 'distribute', in: ['by-order', 'spread'] } },
@@ -357,6 +367,19 @@ export const PlaceNode: NodeDef = {
 
     const offsetX = Number(params.offsetX ?? 0);
     const offsetY = Number(params.offsetY ?? 0);
+    const anchorX = (
+      ['start', 'center', 'end'].includes(String(params.anchorX))
+        ? String(params.anchorX)
+        : 'legacy'
+    ) as HorizontalElementAnchor;
+    const anchorY = (
+      ['top', 'middle', 'bottom'].includes(String(params.anchorY))
+        ? String(params.anchorY)
+        : 'legacy'
+    ) as VerticalElementAnchor;
+    const contentBounds = new Map<Element['content'], ReturnType<
+      typeof contentPaintBounds
+    >>();
     const items: Element[] = [];
     for (let i = 0; i < elements.length; i++) {
       budget.chargeWork();
@@ -375,10 +398,30 @@ export const PlaceNode: NodeDef = {
         else if (b.target === 'rotation') rotation += b.amount * (s - 0.5) * Math.PI;
         else if (b.target === 'blur') blur += s * b.amount; // amount = px at signal 1
       }
+      const target = {
+        x: p.x + offsetX,
+        y: p.y + offsetY,
+      };
+      let position = target;
+      if (anchorX !== 'legacy' || anchorY !== 'legacy') {
+        let bounds = contentBounds.get(e.content);
+        if (bounds === undefined) {
+          bounds = contentPaintBounds(e.content, ctx.fonts, ctx);
+          contentBounds.set(e.content, bounds);
+        }
+        position = anchoredTransformPosition(
+          target,
+          bounds,
+          rotation,
+          scale,
+          anchorX,
+          anchorY,
+        );
+      }
       items.push({
         content: e.content,
         // the placement replaces the element's position; rotation/scale compose
-        transform: { x: p.x + offsetX, y: p.y + offsetY, rotation, scale },
+        transform: { ...position, rotation, scale },
         index: e.index,
         progress: p.progress, // position is a property of where you landed
         weight: e.weight * p.weight, // density composes; 1 is the identity

@@ -86,6 +86,20 @@ function evaluatorReturning(texture: PooledTexture): Evaluator & {
           },
         },
       },
+      nodeResults: new Map([[
+        'out',
+        {
+          hash: 'hash',
+          outputs: {
+            out: {
+              kind: 'raster',
+              texture,
+              width: 16,
+              height: 16,
+            },
+          },
+        },
+      ]]),
       events: [],
       commit: preparedCommit,
       rollback: preparedRollback,

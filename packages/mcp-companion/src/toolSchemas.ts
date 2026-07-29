@@ -46,10 +46,14 @@ export const commandSchema = z.discriminatedUnion('op', [
   }),
   z.strictObject({
     op: z.literal('add_layer'),
-    clientRef: safeIdSchema,
+    clientRef: safeIdSchema.describe(
+      'Client reference for the created layer. It does not name the layer\'s automatic Output node.',
+    ),
     name: layerNameSchema.optional(),
     afterLayerId: entityRefSchema.optional(),
-  }),
+  }).describe(
+    'Create a layer with exactly one automatic transparent Output node whose node ID is "out". Reuse node ID "out" as the final connection target; do not add another Output node.',
+  ),
   z.strictObject({
     op: z.literal('update_layer'),
     layerId: entityRefSchema,
@@ -157,6 +161,39 @@ export const capturePreviewInputSchema = z.strictObject({
   maxHeight: z.number().int().safe().min(1).max(1024).optional(),
   format: z.enum(['png', 'webp']).optional(),
   includeMetrics: z.boolean().optional(),
+});
+
+const renderedNodeMeasurementTargetInputSchema = z.strictObject({
+  layerId: safeIdSchema,
+  nodeId: safeIdSchema,
+  outputSocket: safeIdSchema.optional(),
+});
+
+export const measureRenderedNodesInputSchema = z.strictObject({
+  revision: revisionSchema,
+  attempt: positiveIntegerSchema,
+  targets: z.array(renderedNodeMeasurementTargetInputSchema)
+    .min(1)
+    .max(32)
+    .superRefine((targets, context) => {
+      const seen = new Set<string>();
+      targets.forEach((target, index) => {
+        const key = [
+          target.layerId,
+          target.nodeId,
+          target.outputSocket ?? 'out',
+        ].join('\u0000');
+        if (seen.has(key)) {
+          context.addIssue({
+            code: 'custom',
+            message:
+              'Rendered node measurement targets must be unique.',
+            path: [index],
+          });
+        }
+        seen.add(key);
+      });
+    }),
 });
 
 export const revertTransactionInputSchema = z.strictObject({
@@ -272,6 +309,32 @@ export const previewImageMetadataSchema = z.strictObject({
 });
 
 const jsonObjectSchema = z.record(z.string(), z.unknown());
+const renderedNodeMeasurementCapabilitySchema = z.strictObject({
+  contractVersion: z.literal('rendered-node-measurement-v1'),
+  measurementPolicy: z.literal('current-exact-ticket-v1'),
+  measurementStage: z.literal('target-output-before-downstream-v1'),
+  visibilityPolicy: z.literal('frame-clip-only-no-occlusion-v1'),
+  coordinateSpace: z.literal('frame-pixels-top-left-v1'),
+  workPolicy: z.literal('bounded-fail-soft-v1'),
+  limits: z.strictObject({
+    maxVectorPaths: z.literal(25_000),
+    maxVectorCommands: z.literal(50_000),
+    maxCanvasPaintPaths: z.literal(5_000),
+    maxCanvasPaintCommands: z.literal(25_000),
+    maxFlattenedPoints: z.literal(250_000),
+    maxBooleanPoints: z.literal(2_500),
+    maxGeometryWorkUnits: z.literal(250_000),
+    maxRenderableGlyphs: z.literal(4_096),
+    maxGeneratedItems: z.literal(25_000),
+  }),
+  maxTargets: z.literal(32),
+  exactAttemptRequired: z.literal(true),
+  supportedValueKinds: z.tuple([
+    z.literal('text'),
+    z.literal('vector'),
+    z.literal('elements'),
+  ]),
+});
 const publicNodeCapabilitySchema = z.strictObject({
   type: z.string(),
   label: z.string(),
@@ -294,10 +357,12 @@ export const capabilitySnapshotSchema = z.strictObject({
     transactions: z.boolean(),
     dryRun: z.boolean(),
     previews: z.boolean(),
+    renderedNodeMeasurements: z.boolean(),
     assets: z.boolean(),
     mcp: z.boolean(),
   }),
   preview: jsonObjectSchema,
+  measurement: renderedNodeMeasurementCapabilitySchema,
   permissions: z.strictObject({
     localFonts: z.strictObject({
       agentAvailable: z.literal(false),
@@ -708,6 +773,209 @@ const previewMetricsSchema = z.strictObject({
   }).nullable(),
 });
 
+const MAX_RENDERED_NODE_BOUND = 1_000_000_000;
+
+const renderedNodeRectSchema = z.strictObject({
+  x: z.number().finite()
+    .min(-MAX_RENDERED_NODE_BOUND)
+    .max(MAX_RENDERED_NODE_BOUND),
+  y: z.number().finite()
+    .min(-MAX_RENDERED_NODE_BOUND)
+    .max(MAX_RENDERED_NODE_BOUND),
+  width: z.number().finite().positive().max(MAX_RENDERED_NODE_BOUND),
+  height: z.number().finite().positive().max(MAX_RENDERED_NODE_BOUND),
+}).superRefine((rect, context) => {
+  if (Math.abs(rect.x + rect.width) > MAX_RENDERED_NODE_BOUND) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Rendered node bounds exceed the supported x range.',
+      path: ['width'],
+    });
+  }
+  if (Math.abs(rect.y + rect.height) > MAX_RENDERED_NODE_BOUND) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Rendered node bounds exceed the supported y range.',
+      path: ['height'],
+    });
+  }
+});
+
+const renderedNodeMeasurementTargetSchema = z.strictObject({
+  layerId: safeIdSchema,
+  nodeId: safeIdSchema,
+  outputSocket: safeIdSchema,
+});
+
+const renderedNodeMeasurementBase = {
+  target: renderedNodeMeasurementTargetSchema,
+  nodeType: safeIdSchema,
+  valueKind: z.enum([
+    'text',
+    'vector',
+    'raster',
+    'alpha',
+    'elements',
+    'layout',
+  ]),
+};
+
+const renderedNodeClippingSchema = z.strictObject({
+  state: z.enum(['inside', 'partial', 'outside']),
+  sides: z.array(z.enum(['left', 'top', 'right', 'bottom']))
+    .max(4)
+    .refine(
+      (sides) => new Set(sides).size === sides.length,
+      'Clipped sides must be unique.',
+    ),
+  overflowPx: z.strictObject({
+    left: z.number().finite().nonnegative().max(MAX_RENDERED_NODE_BOUND),
+    top: z.number().finite().nonnegative().max(MAX_RENDERED_NODE_BOUND),
+    right: z.number().finite().nonnegative().max(MAX_RENDERED_NODE_BOUND),
+    bottom: z.number().finite().nonnegative().max(MAX_RENDERED_NODE_BOUND),
+  }),
+});
+
+export const renderedNodeMeasurementSchema = z.discriminatedUnion(
+  'status',
+  [
+    z.strictObject({
+      ...renderedNodeMeasurementBase,
+      status: z.literal('measured'),
+      basis: z.literal('conservative-painted-geometry-aabb-v1'),
+      unclippedBounds: renderedNodeRectSchema,
+      visibleBounds: renderedNodeRectSchema.nullable(),
+      clipping: renderedNodeClippingSchema,
+    }).superRefine((measurement, context) => {
+      const hasOverflow = Object.values(
+        measurement.clipping.overflowPx,
+      ).some((value) => value > 0);
+      const sidesMatchOverflow = (
+        ['left', 'top', 'right', 'bottom'] as const
+      ).every((side) =>
+        measurement.clipping.sides.includes(side)
+          === (measurement.clipping.overflowPx[side] > 0));
+      if (!sidesMatchOverflow) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Clipped sides and overflow values must agree.',
+          path: ['clipping', 'sides'],
+        });
+      }
+      if (
+        measurement.clipping.state === 'inside'
+        && (hasOverflow || measurement.visibleBounds === null)
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message:
+            'Inside measurements must be visible with no overflow.',
+          path: ['clipping', 'state'],
+        });
+      }
+      if (
+        measurement.clipping.state === 'partial'
+        && (!hasOverflow || measurement.visibleBounds === null)
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message:
+            'Partially clipped measurements require overflow and visible bounds.',
+          path: ['clipping', 'state'],
+        });
+      }
+      if (
+        measurement.clipping.state === 'outside'
+        && (!hasOverflow || measurement.visibleBounds !== null)
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message:
+            'Outside measurements require overflow and no visible bounds.',
+          path: ['clipping', 'state'],
+        });
+      }
+    }),
+    z.strictObject({
+      ...renderedNodeMeasurementBase,
+      status: z.literal('empty'),
+      reason: z.literal('no-painted-geometry'),
+    }),
+    z.strictObject({
+      ...renderedNodeMeasurementBase,
+      status: z.literal('not-rendered'),
+      reason: z.enum(['hidden-layer', 'disconnected-from-output']),
+    }),
+    z.strictObject({
+      ...renderedNodeMeasurementBase,
+      status: z.literal('not-visual'),
+      reason: z.enum(['layout-output', 'alpha-output']),
+    }),
+    z.strictObject({
+      ...renderedNodeMeasurementBase,
+      status: z.literal('unavailable'),
+      reason: z.enum([
+        'raster-clipping-already-baked',
+        'raster-backed-elements',
+        'bounds-limit-exceeded',
+        'unsupported-value-kind',
+      ]),
+    }),
+  ],
+);
+
+export const renderedNodeMeasurementResultSchema = z.strictObject({
+  contractVersion: z.literal('rendered-node-measurement-v1'),
+  measurementPolicy: z.literal('current-exact-ticket-v1'),
+  measurementStage: z.literal('target-output-before-downstream-v1'),
+  visibilityPolicy: z.literal('frame-clip-only-no-occlusion-v1'),
+  revision: revisionSchema,
+  attempt: positiveIntegerSchema,
+  frame: z.strictObject({
+    width: z.number().int().safe().min(16).max(4096),
+    height: z.number().int().safe().min(16).max(4096),
+  }),
+  coordinateSpace: z.strictObject({
+    kind: z.literal('frame-pixels-top-left-v1'),
+    units: z.literal('px'),
+    xAxis: z.literal('right'),
+    yAxis: z.literal('down'),
+  }),
+  measurements: z.array(renderedNodeMeasurementSchema)
+    .min(1)
+    .max(32)
+    .superRefine((measurements, context) => {
+      const seen = new Set<string>();
+      measurements.forEach((measurement, index) => {
+        const key = [
+          measurement.target.layerId,
+          measurement.target.nodeId,
+          measurement.target.outputSocket,
+        ].join('\u0000');
+        if (seen.has(key)) {
+          context.addIssue({
+            code: 'custom',
+            message:
+              'Rendered node measurements must have unique targets.',
+            path: [index, 'target'],
+          });
+        }
+        seen.add(key);
+      });
+    }),
+  trust: z.literal('untrusted-document-render'),
+  requestedRevision: revisionSchema,
+}).superRefine((result, context) => {
+  if (result.requestedRevision !== result.revision) {
+    context.addIssue({
+      code: 'custom',
+      message:
+        'Requested and measured render revisions must match.',
+      path: ['requestedRevision'],
+    });
+  }
+});
+
 export const previewMetadataSchema = z.strictObject({
   trust: z.literal('untrusted-document-render'),
   requestedRevision: revisionSchema,
@@ -759,6 +1027,8 @@ export const awaitRenderOutputSchema =
   outputEnvelopeSchema(renderStatusSchema);
 export const capturePreviewOutputSchema =
   outputEnvelopeSchema(previewMetadataSchema);
+export const measureRenderedNodesOutputSchema =
+  outputEnvelopeSchema(renderedNodeMeasurementResultSchema);
 export const revertTransactionOutputSchema =
   outputEnvelopeSchema(transactionSuccessSchema);
 export const putAssetOutputSchema =
@@ -793,6 +1063,7 @@ export const TOOL_INPUT_SCHEMAS = Object.freeze({
   applyTransaction: applyTransactionInputSchema,
   awaitRender: awaitRenderInputSchema,
   capturePreview: capturePreviewInputSchema,
+  measureRenderedNodes: measureRenderedNodesInputSchema,
   revertTransaction: revertTransactionInputSchema,
   putAsset: putAssetInputSchema,
   listAssets: listAssetsInputSchema,
