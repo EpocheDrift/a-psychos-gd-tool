@@ -10,6 +10,7 @@ import {
   AGENT_COOKIE_NAME,
 } from '../packages/mcp-companion/dist/agentSecurity.js';
 import {
+  AGENT_WORKBENCH_READY_SELECTOR,
   resolveChromeExecutable,
 } from '../packages/mcp-companion/dist/browserSession.js';
 import {
@@ -204,6 +205,7 @@ const runtime = new CompanionRuntime({
       await page.waitForFunction(() =>
         document.querySelector('[data-agent-pairing-panel]')
           ?.getAttribute('data-agent-pairing-state') === 'connected');
+      await page.waitForSelector(AGENT_WORKBENCH_READY_SELECTOR);
 
       return {
         close: async () => {
