@@ -3,10 +3,23 @@ import { launchCompanionBrowser } from './browserSession.js';
 import { BridgeClient } from './bridgeClient.js';
 import { LocalAppHost } from './localAppHost.js';
 import {
+  AGENT_COMPANION_CONTROL_MODE_INTERACTIVE,
+  AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL,
+  type AgentCompanionControlMode,
+} from './agentSecurity.js';
+import {
   ModelManager,
   OneShotModelApprovalGate,
   createManagedRmbgModelManager,
 } from './modelManager.js';
+import {
+  INTERACTIVE_SESSION_TTL_MS,
+  TRUSTED_LOCAL_SESSION_TTL_MS,
+} from './protocol.js';
+import {
+  companionProfileScopes,
+  type CompanionProfileId,
+} from './profiles.js';
 
 export interface BrowserSessionLike {
   close(): Promise<void>;
@@ -16,6 +29,8 @@ export interface CompanionRuntimeOptions {
   allowEdit: boolean;
   allowAssets: boolean;
   allowModel: boolean;
+  controlMode?: AgentCompanionControlMode;
+  profile?: CompanionProfileId;
   executablePath?: string;
   headless?: boolean;
   appDirectory?: string;
@@ -50,6 +65,26 @@ export function companionRequestedScopes(
   ]);
 }
 
+export function companionSessionTtlMs(
+  controlMode: AgentCompanionControlMode =
+    AGENT_COMPANION_CONTROL_MODE_INTERACTIVE,
+): number {
+  switch (controlMode) {
+    case AGENT_COMPANION_CONTROL_MODE_INTERACTIVE:
+      return INTERACTIVE_SESSION_TTL_MS;
+    case AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL:
+      return TRUSTED_LOCAL_SESSION_TTL_MS;
+  }
+}
+
+function sameScopes(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return left.length === right.length
+    && left.every((scope, index) => scope === right[index]);
+}
+
 export class CompanionRuntime {
   readonly bridge: BridgeClient;
   readonly modelManager?: ModelManager;
@@ -61,6 +96,20 @@ export class CompanionRuntime {
   private closePromise: Promise<void> | null = null;
 
   constructor(private readonly options: CompanionRuntimeOptions) {
+    const controlMode =
+      options.controlMode ?? AGENT_COMPANION_CONTROL_MODE_INTERACTIVE;
+    const requestedScopes = companionRequestedScopes(options);
+    if (
+      options.profile
+      && !sameScopes(
+        requestedScopes,
+        companionProfileScopes(options.profile),
+      )
+    ) {
+      throw new Error(
+        'The Companion runtime flags do not match its versioned profile.',
+      );
+    }
     if (options.modelRuntime && !options.allowModel) {
       throw new Error(
         'A model runtime cannot be injected while model access is disabled.',
@@ -78,7 +127,10 @@ export class CompanionRuntime {
     }
     this.modelManager = modelRuntime?.manager;
     this.bridge = new BridgeClient({
-      requestedScopes: companionRequestedScopes(options),
+      requestedScopes,
+      maxSessionTtlMs: companionSessionTtlMs(controlMode),
+      requireExactScopes:
+        controlMode === AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL,
       onTerminal: (reason) => {
         void this.close();
         try {
@@ -90,6 +142,7 @@ export class CompanionRuntime {
     });
     this.host = new LocalAppHost({
       bridge: this.bridge,
+      controlMode,
       ...(options.appDirectory
         ? { appDirectory: options.appDirectory }
         : {}),

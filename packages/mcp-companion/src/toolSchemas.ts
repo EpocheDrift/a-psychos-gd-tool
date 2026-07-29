@@ -46,10 +46,14 @@ export const commandSchema = z.discriminatedUnion('op', [
   }),
   z.strictObject({
     op: z.literal('add_layer'),
-    clientRef: safeIdSchema,
+    clientRef: safeIdSchema.describe(
+      'Client reference for the created layer. It does not name the layer\'s automatic Output node.',
+    ),
     name: layerNameSchema.optional(),
     afterLayerId: entityRefSchema.optional(),
-  }),
+  }).describe(
+    'Create a layer with exactly one automatic transparent Output node whose node ID is "out". Reuse node ID "out" as the final connection target; do not add another Output node.',
+  ),
   z.strictObject({
     op: z.literal('update_layer'),
     layerId: entityRefSchema,

@@ -11,8 +11,20 @@ same-origin WebSocket:
 ```text
 MCP client ↔ bounded stdio ↔ local companion
                               ↕ authenticated WebSocket
-                         Chrome + AgentController
+                    Chrome + full Web UI + AgentController
 ```
+
+The Chrome window is the shared human-and-Agent workbench. The companion serves
+that full UI at the fixed `http://127.0.0.1:5199`; edits made through MCP and
+edits made by a person in that window affect the same in-memory document.
+
+This is separate from `npm run dev`, which starts Vite's source-development UI
+at the URL it prints (normally `http://localhost:5173`). The development build
+intentionally excludes the Agent bridge, uses a different browser origin and
+storage, and is not a page to which the companion can attach. Use the 5173 UI
+for source development; use the companion-owned 5199 UI for human-and-Agent
+collaboration. Two different processes also cannot listen on the same
+address-and-port pair.
 
 It does not expose Puppeteer, CDP, page evaluation, navigation, pointer input,
 shell commands, arbitrary URLs, or general filesystem access as tools.
@@ -69,6 +81,28 @@ uses:
 }
 ```
 
+For a personal local workflow where starting the configured MCP server is the
+consent boundary, use the immutable full-design v1 profile together with
+Trusted Local:
+
+```json
+{
+  "command": "node",
+  "args": [
+    "/absolute/path/to/a-psychos-gd-tool/packages/mcp-companion/dist/index.js",
+    "--profile=full-design-v1",
+    "--trusted-local"
+  ]
+}
+```
+
+`full-design-v1` is pinned to `read`, `preview`, `edit`, `assets`, and `model`;
+future scopes never enter that profile implicitly. Trusted Local auto-pairs
+only the cookie-protected Companion page, lasts for at most 12 hours or until
+the page/Companion closes, and keeps the visible connected state plus
+**Revoke now**. The first RMBG-1.4 download and license disclosure remain a
+separate human action.
+
 ## Launch mode B: run it manually for debugging
 
 Manual foreground runs are useful for inspecting startup diagnostics or
@@ -80,19 +114,26 @@ npm run mcp:start -- --allow-edit
 npm run mcp:start -- --allow-assets
 npm run mcp:start -- --allow-model
 npm run mcp:start -- --allow-edit --allow-assets --allow-model
+npm run mcp:start -- --profile=full-design-v1 --trusted-local
 ```
 
 The default profile requests only `read` and `preview`. Editing, project
 assets, and local model execution are independent opt-ins.
 
-The companion opens a headed Chrome window. Click **Connect Agent**, review the
-requested scopes, select the scopes you intend to grant, and approve them. The
-MCP tools fail with a structured `PAIRING_NOT_APPROVED` outcome until this
-happens. Approval is required again after process restart, page reload,
-30-minute session expiry, transport loss, or **Revoke now**.
+In interactive mode, the companion opens a headed Chrome window and presents
+the in-app approval dialog in the 5199 browser workbench when the MCP client
+requests access. Review the scopes
+that are preselected and choose **Allow Agent control**. Use
+**Advanced details** only when you want to remove individual scopes. The MCP
+tools fail with a structured
+`PAIRING_NOT_APPROVED` outcome until this happens. Approval is required again
+after process restart, page reload, 30-minute session expiry, transport loss,
+or **Revoke now**. Trusted Local performs this pairing automatically for its
+explicit startup profile.
 
-`--headless` exists for the automated E2E gate and is not useful for ordinary
-operation because the approval UI is then invisible.
+`--headless` exists for automated E2E. Keep ordinary and Trusted Local
+sessions headed so the active scopes, shared canvas, model disclosure, and
+**Revoke now** control remain visible.
 
 An explicit Chrome can be selected with `--chrome /absolute/path/to/chrome` or
 the `CHROME` environment variable. The first release launches a new isolated
@@ -141,8 +182,9 @@ filesystem path.
 Project replacement, arbitrary fetch, filesystem export, and per-node tools
 remain absent.
 
-Graph writes require a human-approved `edit` scope; asset ingestion/removal
-requires the independent `assets` scope. Every write carries an
+Graph writes require an `edit` scope granted by interactive human approval or
+an explicit Trusted Local startup profile; asset ingestion/removal requires
+the independent `assets` scope. Every write carries an
 `expectedRevision` and stable `requestId`, commits atomically, and is
 conflict-safe and idempotent. A committed result reports project persistence
 and the exact render ticket separately; no-op/dry-run results mark those side
@@ -153,6 +195,79 @@ MCP tool annotations are discovery hints only; the browser controller remains
 the authorization and validation authority. Every tool success or failure,
 including pre-handler SDK schema rejection, uses the common machine-readable
 `structuredContent.outcome` envelope.
+
+### New-layer Output example
+
+`add_layer` creates the new layer with one transparent `Output` node whose node
+ID is always `out`. Reuse it as the final connection target. Do not add a
+second `Output`, because a renderable layer must contain exactly one.
+
+For example, after reading revision `12`, this transaction creates and wires a
+complete text layer without creating an Output node:
+
+```json
+{
+  "requestId": "create_poster_layer_v1",
+  "expectedRevision": 12,
+  "commands": [
+    {
+      "op": "add_layer",
+      "clientRef": "poster_layer",
+      "name": "Poster"
+    },
+    {
+      "op": "add_node",
+      "layerId": { "clientRef": "poster_layer" },
+      "clientRef": "headline",
+      "nodeType": "Text",
+      "params": {
+        "content": "AGENT",
+        "fontSize": 96,
+        "fill": "#111111"
+      }
+    },
+    {
+      "op": "add_node",
+      "layerId": { "clientRef": "poster_layer" },
+      "clientRef": "outline",
+      "nodeType": "Outline"
+    },
+    {
+      "op": "add_node",
+      "layerId": { "clientRef": "poster_layer" },
+      "clientRef": "raster",
+      "nodeType": "Rasterize"
+    },
+    {
+      "op": "connect",
+      "layerId": { "clientRef": "poster_layer" },
+      "from": { "nodeId": { "clientRef": "headline" }, "socket": "out" },
+      "to": { "nodeId": { "clientRef": "outline" }, "socket": "text" }
+    },
+    {
+      "op": "connect",
+      "layerId": { "clientRef": "poster_layer" },
+      "from": { "nodeId": { "clientRef": "outline" }, "socket": "out" },
+      "to": { "nodeId": { "clientRef": "raster" }, "socket": "vector" }
+    },
+    {
+      "op": "connect",
+      "layerId": { "clientRef": "poster_layer" },
+      "from": { "nodeId": { "clientRef": "raster" }, "socket": "out" },
+      "to": { "nodeId": "out", "socket": "in" }
+    },
+    {
+      "op": "auto_layout_graph",
+      "layerId": { "clientRef": "poster_layer" },
+      "direction": "LR"
+    }
+  ]
+}
+```
+
+Replace `12` with the revision returned by `gfx_get_document`. The layer's
+`clientRef` resolves the new layer for later commands in the same transaction;
+the automatic Output is addressed directly as node ID `out` within that layer.
 
 ## Startup and health
 

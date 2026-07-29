@@ -1,5 +1,6 @@
 import { connect } from 'node:net';
 import { spawn } from 'node:child_process';
+import { request } from 'node:http';
 import { resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -91,6 +92,30 @@ function portIsListening() {
     socket.once('connect', () => finish(true));
     socket.once('error', () => finish(false));
     socket.setTimeout(500, () => finish(false));
+  });
+}
+
+function bridgeHealthState() {
+  return new Promise((resolveState) => {
+    const outgoing = request({
+      hostname: '127.0.0.1',
+      port: 5199,
+      path: '/healthz',
+      headers: { Host: '127.0.0.1:5199' },
+    }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      response.once('end', () => {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          resolveState(body.bridge ?? null);
+        } catch {
+          resolveState(null);
+        }
+      });
+    });
+    outgoing.once('error', () => resolveState(null));
+    outgoing.end();
   });
 }
 
@@ -250,6 +275,7 @@ async function runProfile({
   arguments_,
   expectedTools,
   expectedScopes,
+  trusted = false,
 }) {
   if (await portIsListening()) {
     throw new Error(`Port 5199 must be free before the ${label} stdio gate.`);
@@ -290,23 +316,46 @@ async function runProfile({
         }`,
       );
     }
-    const unpaired = await client.callTool({
-      name: 'gfx_get_document',
-      arguments: {},
-    });
-    const outcome = toolOutcome(unpaired);
-    if (
-      !unpaired.isError
-      || outcome.ok !== false
-      || outcome.error?.code !== 'PAIRING_NOT_APPROVED'
-    ) {
-      throw new Error(
-        `Unpaired stdio call did not fail structurally: ${
-          JSON.stringify(outcome)
-        }`,
+    if (trusted) {
+      await waitFor(
+        async () => await bridgeHealthState() === 'ready',
+        `${label} trusted-local browser pairing`,
       );
+      const paired = await client.callTool({
+        name: 'gfx_get_document',
+        arguments: { include: ['frame', 'layers'] },
+      });
+      const pairedOutcome = toolOutcome(paired);
+      if (
+        paired.isError
+        || pairedOutcome.ok !== true
+        || !Number.isSafeInteger(pairedOutcome.value?.revision)
+      ) {
+        throw new Error(
+          `Trusted-local stdio did not auto-pair: ${
+            JSON.stringify(pairedOutcome)
+          }`,
+        );
+      }
+    } else {
+      const unpaired = await client.callTool({
+        name: 'gfx_get_document',
+        arguments: {},
+      });
+      const outcome = toolOutcome(unpaired);
+      if (
+        !unpaired.isError
+        || outcome.ok !== false
+        || outcome.error?.code !== 'PAIRING_NOT_APPROVED'
+      ) {
+        throw new Error(
+          `Unpaired stdio call did not fail structurally: ${
+            JSON.stringify(outcome)
+          }`,
+        );
+      }
     }
-    if (expectedTools.includes('gfx_put_asset')) {
+    if (!trusted && expectedTools.includes('gfx_put_asset')) {
       const unpairedAsset = await client.callTool({
         name: 'gfx_put_asset',
         arguments: {
@@ -392,9 +441,13 @@ async function runProfile({
     !diagnosticLines.some((line) =>
       line.includes('local app host is listening on http://127.0.0.1:5199'))
     || !diagnosticLines.some((line) =>
-      line.includes(
-        `waiting for human approval of ${expectedScopes.join(', ')} scopes`,
-      ))
+      line.includes(trusted
+        ? `trusted-local mode; granting the explicit ${
+            expectedScopes.join(', ')
+          } scope request`
+        : `waiting for human approval of ${
+            expectedScopes.join(', ')
+          } scopes`))
     || !diagnosticLines.some((line) =>
       line.includes('shutting down (stdio EOF)'))
   ) {
@@ -462,11 +515,18 @@ await runProfile({
   expectedTools: EDIT_ASSET_MODEL_TOOLS,
   expectedScopes: ['read', 'preview', 'edit', 'assets', 'model'],
 });
+await runProfile({
+  label: 'trusted-full-design-v1',
+  arguments_: ['--profile=full-design-v1', '--trusted-local'],
+  expectedTools: EDIT_ASSET_MODEL_TOOLS,
+  expectedScopes: ['read', 'preview', 'edit', 'assets', 'model'],
+  trusted: true,
+});
 
 process.stdout.write(
   `MCP stdio lifecycle passed: ${READ_TOOLS.length}/`
   + `${EDIT_TOOLS.length}/${ASSET_TOOLS.length}/`
   + `${EDIT_ASSET_TOOLS.length} base profile tools and +2 with model, `
-  + 'structured unpaired failures, '
+  + 'structured unpaired failures, trusted-local auto-pair, '
   + 'redacted CLI/stdio rejections, clean EOF teardown.\n',
 );

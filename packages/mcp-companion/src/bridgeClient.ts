@@ -3,6 +3,8 @@ import type { WebSocket, RawData } from 'ws';
 import {
   COMPANION_PROTOCOL_VERSION,
   COMPANION_TRANSPORT_LIMITS,
+  INTERACTIVE_SESSION_TTL_MS,
+  TRUSTED_LOCAL_SESSION_TTL_MS,
   companionDeadlineMs,
   isCompanionWriteOperation,
   type CompanionBinaryHeader,
@@ -56,6 +58,8 @@ export interface BridgeClientOptions {
     'read' | 'preview' | 'edit' | 'assets' | 'model'
   )[];
   clientLabel?: string;
+  maxSessionTtlMs?: number;
+  requireExactScopes?: boolean;
   now?: () => number;
   onTerminal?: (reason: string) => void;
   /**
@@ -315,6 +319,8 @@ function validatePairingSummary(
   clientNonce: string,
   clientLabel: string,
   requestedScopes: readonly string[],
+  maxSessionTtlMs: number,
+  requireExactScopes: boolean,
 ): void {
   if (
     !plainRecord(value)
@@ -340,6 +346,15 @@ function validatePairingSummary(
     || new Set(value.scopes).size !== value.scopes.length
     || value.scopes.some((scope) =>
       typeof scope !== 'string' || !requestedScopes.includes(scope))
+    || (
+      requireExactScopes
+      && (
+        value.scopes.length !== requestedScopes.length
+        || requestedScopes.some(
+          (scope) => !(value.scopes as unknown[]).includes(scope),
+        )
+      )
+    )
     || typeof value.connectedAt !== 'string'
     || typeof value.expiresAt !== 'string'
   ) {
@@ -362,7 +377,7 @@ function validatePairingSummary(
     || new Date(connectedAt).toISOString() !== value.connectedAt
     || new Date(expiresAt).toISOString() !== value.expiresAt
     || expiresAt <= connectedAt
-    || expiresAt - connectedAt > 30 * 60_000 + 1_000
+    || expiresAt - connectedAt > maxSessionTtlMs + 1_000
   ) {
     throw new CompanionFault(
       'UNAUTHENTICATED',
@@ -375,6 +390,8 @@ function validatePairingSummary(
 export class BridgeClient {
   private readonly requestedScopes;
   private readonly clientLabel: string;
+  private readonly maxSessionTtlMs: number;
+  private readonly requireExactScopes: boolean;
   private readonly now: () => number;
   private readonly onTerminal?: (reason: string) => void;
   private socket: WebSocket | null = null;
@@ -401,6 +418,17 @@ export class BridgeClient {
   constructor(options: BridgeClientOptions) {
     this.requestedScopes = Object.freeze([...options.requestedScopes]);
     this.clientLabel = options.clientLabel ?? 'Graphic Design MCP companion';
+    const maxSessionTtlMs =
+      options.maxSessionTtlMs ?? INTERACTIVE_SESSION_TTL_MS;
+    if (
+      !Number.isSafeInteger(maxSessionTtlMs)
+      || maxSessionTtlMs < 1
+      || maxSessionTtlMs > TRUSTED_LOCAL_SESSION_TTL_MS
+    ) {
+      throw new Error('The maximum Agent session lifetime is invalid.');
+    }
+    this.maxSessionTtlMs = maxSessionTtlMs;
+    this.requireExactScopes = options.requireExactScopes ?? false;
     this.now = options.now ?? Date.now;
     this.onTerminal = options.onTerminal;
     const requestedHelloDeadline = options.helloDeadlineMs;
@@ -594,6 +622,8 @@ export class BridgeClient {
           clientNonce,
           this.clientLabel,
           this.requestedScopes,
+          this.maxSessionTtlMs,
+          this.requireExactScopes,
         );
         if (this.socket) this.state = 'ready';
       }).catch(() => {

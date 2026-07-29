@@ -79,8 +79,15 @@ describe('MCP tool schemas', () => {
       clientRef: 'unicode_layer',
       name: '😀'.repeat(129),
     }).success).toBe(false);
-    expect(JSON.stringify(z.toJSONSchema(commandSchema))).toContain(
+    const jsonSchema = JSON.stringify(z.toJSONSchema(commandSchema));
+    expect(jsonSchema).toContain(
       '"name":{"type":"string","minLength":1,"maxLength":128',
+    );
+    expect(jsonSchema).toContain(
+      'automatic transparent Output node whose node ID is \\"out\\"',
+    );
+    expect(jsonSchema).toContain(
+      'Reuse node ID \\"out\\" as the final connection target',
     );
   });
 

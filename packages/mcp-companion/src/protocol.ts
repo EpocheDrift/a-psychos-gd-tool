@@ -4,6 +4,8 @@
  */
 import { AGENT_HOST, AGENT_PORT } from './agentSecurity.js';
 export const COMPANION_PROTOCOL_VERSION = '1.0' as const;
+export const INTERACTIVE_SESSION_TTL_MS = 30 * 60_000;
+export const TRUSTED_LOCAL_SESSION_TTL_MS = 12 * 60 * 60_000;
 
 export const COMPANION_TOOL_OPERATIONS = [
   'getCapabilities',

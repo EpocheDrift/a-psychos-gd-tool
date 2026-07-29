@@ -197,16 +197,9 @@ const runtime = new CompanionRuntime({
         );
       }
 
-      await page.waitForSelector(
-        '[data-agent-action="open-agent-pairing"]',
-      );
-      await page.click('[data-agent-action="open-agent-pairing"]');
       await page.waitForFunction(() =>
         document.querySelector('[data-agent-pairing-panel]')
           ?.getAttribute('data-agent-pairing-state') === 'pending');
-      for (const scope of ['read', 'preview', 'edit', 'assets', 'model']) {
-        await page.click(`[data-agent-scope="${scope}"]`);
-      }
       await page.click('[data-agent-action="approve-agent-pairing"]');
       await page.waitForFunction(() =>
         document.querySelector('[data-agent-pairing-panel]')

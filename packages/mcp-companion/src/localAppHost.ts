@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import {
   AGENT_ALLOWED_ORIGIN,
+  AGENT_COMPANION_CONTROL_META_NAME,
+  AGENT_COMPANION_CONTROL_MODE_INTERACTIVE,
+  AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL,
   AGENT_COMPANION_META_NAME,
   AGENT_COMPANION_META_VALUE,
   AGENT_COOKIE_NAME,
@@ -17,6 +20,7 @@ import {
   AGENT_SECURITY_HEADERS,
   AGENT_WEBSOCKET_PATH,
   AGENT_WEBSOCKET_PROTOCOL,
+  type AgentCompanionControlMode,
 } from './agentSecurity.js';
 import type { BridgeClient } from './bridgeClient.js';
 import {
@@ -58,6 +62,7 @@ export interface LocalAppHostOptions {
   bridge: BridgeClient;
   appDirectory?: string;
   bootstrapToken?: string;
+  controlMode?: AgentCompanionControlMode;
   modelManager?: ModelManager;
   modelApprovalGate?: OneShotModelApprovalGate;
 }
@@ -366,6 +371,7 @@ function parseSingleByteRange(
 
 async function loadStaticAssets(
   directory: string,
+  controlMode: AgentCompanionControlMode,
 ): Promise<Map<string, StaticAsset>> {
   const root = resolve(directory);
   const assets = new Map<string, StaticAsset>();
@@ -395,13 +401,26 @@ async function loadStaticAssets(
       let body = await readFile(absolute);
       if (route === '/index.html') {
         const html = body.toString('utf8');
+        if (
+          html.includes(AGENT_COMPANION_META_NAME)
+          || html.includes(AGENT_COMPANION_CONTROL_META_NAME)
+        ) {
+          throw new Error(
+            'The packaged Agent index cannot predeclare companion metadata.',
+          );
+        }
         const marker =
           `<meta name="${AGENT_COMPANION_META_NAME}" `
           + `content="${AGENT_COMPANION_META_VALUE}">`;
+        const controlMarker =
+          `<meta name="${AGENT_COMPANION_CONTROL_META_NAME}" `
+          + `content="${controlMode}">`;
         if (!html.includes('</head>')) {
           throw new Error('The packaged Agent index is missing </head>.');
         }
-        body = Buffer.from(html.replace('</head>', `${marker}</head>`));
+        body = Buffer.from(
+          html.replace('</head>', `${marker}${controlMarker}</head>`),
+        );
       }
       assets.set(route, {
         body,
@@ -422,6 +441,7 @@ export class LocalAppHost {
   readonly bootstrapToken: string;
   private readonly bridge: BridgeClient;
   private readonly appDirectory: string;
+  private readonly controlMode: AgentCompanionControlMode;
   private readonly modelManager?: ModelManager;
   private readonly modelApprovalGate?: OneShotModelApprovalGate;
   private readonly modelPreparationAbort = new AbortController();
@@ -435,6 +455,14 @@ export class LocalAppHost {
   constructor(options: LocalAppHostOptions) {
     this.bridge = options.bridge;
     this.appDirectory = options.appDirectory ?? defaultAppDirectory();
+    this.controlMode =
+      options.controlMode ?? AGENT_COMPANION_CONTROL_MODE_INTERACTIVE;
+    if (
+      this.controlMode !== AGENT_COMPANION_CONTROL_MODE_INTERACTIVE
+      && this.controlMode !== AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL
+    ) {
+      throw new Error('The companion control mode is invalid.');
+    }
     if (
       Boolean(options.modelManager)
       !== Boolean(options.modelApprovalGate)
@@ -473,7 +501,10 @@ export class LocalAppHost {
 
   async start(): Promise<void> {
     if (this.started) throw new Error('The local app host is already started.');
-    this.assets = await loadStaticAssets(this.appDirectory);
+    this.assets = await loadStaticAssets(
+      this.appDirectory,
+      this.controlMode,
+    );
     await new Promise<void>((resolveStart, rejectStart) => {
       const onError = (error: Error) => {
         this.httpServer.off('listening', onListening);

@@ -685,7 +685,8 @@ declare global {
 Enable it only when all configured conditions hold, for example:
 
 - an explicit static Agent artifact hosted on the fixed loopback origin;
-- an explicit in-app “Connect Agent” pairing action;
+- an explicit interactive approval or an explicit versioned Trusted Local
+  startup policy;
 - a short-lived, in-memory session credential;
 - an exact top-level, secure owning-page realm/origin and loopback check.
 
@@ -765,15 +766,22 @@ Grant capabilities per paired session:
 | `model` | execution of an already approved/pinned model |
 | `export` | creation of a user-approved external artifact |
 
-Scope elevation occurs only through an in-app control and a browser-trusted
-event. This rejects page-script synthetic events; `Event.isTrusted` is not
-cryptographic proof of a physical human because CDP can synthesize trusted
-input. The MCP threat boundary therefore must not expose CDP input, navigation,
-or page evaluation to the Agent. A product that must resist an Agent already
-controlling the browser needs an out-of-band native/WebAuthn/OS confirmation.
-Agents may not request Local Font Access, enumerate unapproved local font
-families, navigate the browser, evaluate JavaScript, issue arbitrary network
-requests, or access generic files/shell commands.
+In interactive mode, scope elevation occurs only through an in-app control and
+a browser-trusted event. Trusted Local is a separate operator-selected startup
+policy: it grants only the scopes pinned by its versioned profile, never future
+scopes implicitly, and remains bounded by process, transport, and session
+lifetime. Browser approval and Trusted Local startup are therefore both human
+authorization decisions; neither is an Agent-callable scope-elevation tool.
+
+The interactive check rejects page-script synthetic events; `Event.isTrusted`
+is not cryptographic proof of a physical human because CDP can synthesize
+trusted input. The MCP threat boundary therefore must not expose CDP input,
+navigation, or page evaluation to the Agent. A product that must resist an
+Agent already controlling the browser needs an out-of-band
+native/WebAuthn/OS confirmation. Agents may not request Local Font Access,
+enumerate unapproved local font families, navigate the browser, evaluate
+JavaScript, issue arbitrary network requests, or access generic files/shell
+commands.
 
 Document strings, asset metadata, and preview contents are labeled as untrusted
 content in tool results. Instructions rendered inside a poster must never

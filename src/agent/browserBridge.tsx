@@ -1,6 +1,9 @@
 import { StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { AgentConnectionPanel } from './AgentConnectionPanel';
+import {
+  AgentConnectionPanel,
+  type AgentControlMode,
+} from './AgentConnectionPanel';
 import { createBrowserControllerDependencies } from './browserDependencies';
 import {
   createAgentController,
@@ -25,8 +28,15 @@ import type { PreviewHandleVault } from './previewVault';
 import {
   hasLocalCompanionMarker,
   installLocalCompanionBridge,
+  localCompanionControlMode,
 } from './localCompanionBridge';
-import { companionTransportCapabilities } from '../../packages/mcp-companion/src/protocol';
+import {
+  TRUSTED_LOCAL_SESSION_TTL_MS,
+  companionTransportCapabilities,
+} from '../../packages/mcp-companion/src/protocol';
+import {
+  AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL,
+} from '../../packages/mcp-companion/src/agentSecurity';
 import type { JsonObject } from '../domain/json';
 import { subscribePinnedModelStatus } from './modelPreparation';
 
@@ -73,17 +83,27 @@ export function installBrowserAgentBridge(
     return;
   }
 
+  const companionMode = hasLocalCompanionMarker(target.document);
+  const companionControlMode = localCompanionControlMode(target.document);
+  const panelControlMode: AgentControlMode =
+    companionMode
+    && companionControlMode === AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL
+      ? 'trusted-local-v1'
+      : 'interactive';
   const manager = new AgentSessionManager({
     allowedOrigin: initialGate.allowedOrigin,
     context: () => browserRuntimeContext(target),
+    ...(companionMode
+      && companionControlMode
+        === AGENT_COMPANION_CONTROL_MODE_TRUSTED_LOCAL
+      ? { sessionTtlMs: TRUSTED_LOCAL_SESSION_TTL_MS }
+      : {}),
   });
   const dependencies = createBrowserControllerDependencies();
   let activeController: AgentController | undefined;
   let activeCompanionController: AgentCompanionController | undefined;
   let activePreviewVault: PreviewHandleVault | null = null;
   let activeLease: AgentSessionLease | null = null;
-  const companionMode = hasLocalCompanionMarker(target.document);
-
   const completePairing = (
     request: CompletePairingRequest,
   ): PairingResult<AgentSessionSummary> => {
@@ -186,7 +206,10 @@ export function installBrowserAgentBridge(
   const panelRoot = createRoot(panelHost);
   panelRoot.render(
     <StrictMode>
-      <AgentConnectionPanel manager={manager} />
+      <AgentConnectionPanel
+        manager={manager}
+        controlMode={panelControlMode}
+      />
     </StrictMode>,
   );
   installation = {

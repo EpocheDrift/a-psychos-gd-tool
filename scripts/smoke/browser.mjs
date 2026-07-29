@@ -335,8 +335,8 @@ export async function pairAgent(
     await page.waitForFunction((scope) => {
       const input = document.querySelector(`[data-agent-scope="${scope}"]`);
       return input instanceof HTMLInputElement
-        && !input.checked
-        && input.getAttribute('data-agent-scope-selected') === 'false';
+        && input.checked
+        && input.getAttribute('data-agent-scope-selected') === 'true';
     }, {}, firstScope);
     const syntheticScope = await page.evaluate((scope) => {
       const input = document.querySelector(`[data-agent-scope="${scope}"]`);
@@ -349,8 +349,8 @@ export async function pairAgent(
       };
     }, firstScope);
     if (
-      syntheticScope.checked
-      || syntheticScope.selected !== 'false'
+      !syntheticScope.checked
+      || syntheticScope.selected !== 'true'
       || syntheticScope.granted !== 'false'
       || syntheticScope.phase !== 'pending'
     ) {
@@ -358,10 +358,14 @@ export async function pairAgent(
     }
     for (const scope of scopes) {
       const selector = `[data-agent-scope="${scope}"]`;
-      const disabled = await page.$eval(selector, (element) =>
-        !(element instanceof HTMLInputElement) || element.disabled);
-      if (disabled) throw new Error(`Requested smoke scope is unavailable: ${scope}`);
-      await page.click(selector);
+      const ready = await page.$eval(selector, (element) =>
+        element instanceof HTMLInputElement
+        && !element.disabled
+        && element.checked
+        && element.getAttribute('data-agent-scope-selected') === 'true');
+      if (!ready) {
+        throw new Error(`Requested smoke scope was not selected by default: ${scope}`);
+      }
     }
     const pendingGrantAudit = await page.evaluate(() => ({
       phase: document.querySelector('[data-agent-pairing-panel]')
