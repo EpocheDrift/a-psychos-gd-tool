@@ -101,7 +101,7 @@ export const DEFAULT_AGENT_LIMITS: Readonly<AgentLimits> = Object.freeze({
   maxTransactionLedgerBytes: 256 * 1024 * 1024,
   maxPendingWorkerRequests: 4,
   maxPendingWorkerBytes: 128 * 1024 * 1024,
-  // The shipped four-layer 2480×3508 factory document keeps a last successful
+  // The bundled four-layer 2480×3508 poster example keeps a last successful
   // evaluator generation while a changed Blur/Output pair cooks. 512 MiB
   // rejects that supported edit; 768 MiB preserves the transactional cache
   // guarantee while remaining a deterministic, advertised hard ceiling.
@@ -109,7 +109,7 @@ export const DEFAULT_AGENT_LIMITS: Readonly<AgentLimits> = Object.freeze({
   maxGpuFreeTextureBytes: 128 * 1024 * 1024,
   maxGpuTextures: 512,
   maxGpuPasses: 2_048,
-  // The factory document deliberately renders ~1,000 eroding elements as
+  // The poster example deliberately renders ~1,000 eroding elements as
   // isolated full-frame Canvas2D flushes. Pass count remains the primary queue
   // cap; this secondary pixel-equivalent cap must preserve that shipped case.
   maxGpuPixelWork: 32_000_000_000,

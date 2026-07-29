@@ -121,8 +121,8 @@ async function assertNoAgentRuntime(url, options = {}) {
   await withSmokePage({ url, storage: { mode: 'empty' } }, async ({ page }) => {
     await navigateToApp(page, url);
     await page.waitForSelector('.app');
-    if (options.waitForFactory) {
-      await waitForInitialCook(page, { width: 2480, height: 3508 });
+    if (options.waitForBlank) {
+      await waitForInitialCook(page, { width: 2304, height: 3456 });
       const exportReady = await page.$eval(
         '[data-agent-action="export-png"]',
         (element) => element instanceof HTMLButtonElement && !element.disabled,
@@ -238,7 +238,7 @@ await assertAgentSourceDevFailsClosed();
 await withPreview(
   ['--host', '127.0.0.1', '--port', '5201', '--strictPort'],
   defaultUrl,
-  () => assertNoAgentRuntime(defaultUrl, { waitForFactory: true }),
+  () => assertNoAgentRuntime(defaultUrl, { waitForBlank: true }),
 );
 
 const wrongOriginUrl = 'http://127.0.0.1:5202/';
@@ -259,5 +259,5 @@ console.log('default production Agent surface: absent');
 console.log('Agent Vite source-development mode: fail closed');
 console.log('wrong-origin Agent artifact: fail closed');
 console.log('Agent ESM namespace: no raw store authority');
-console.log('default production factory render/export: PASS');
+console.log('default production blank render/export: PASS');
 console.log('ALL CHECKS PASSED');

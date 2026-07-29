@@ -33,9 +33,11 @@ Open the URL printed by Vite in a WebGPU browser. `setup.sh` checks Node,
 installs dependencies, and downloads the bundled free font. It is safe to run
 again.
 
-The app opens with a factory document already rendering. The left side is the
-node graph, the right side is the artboard, and the floating **layers** panel
-selects which layer graph you are editing.
+The app opens with a blank project already rendering: one layer with one
+**Output** node. The left side is the node graph, the right side is the
+artboard, and the floating **layers** panel selects which layer graph you are
+editing. To inspect a finished graph first, choose **Layered poster example**
+from **start from…** above the artboard.
 
 Useful canvas controls:
 
@@ -59,14 +61,12 @@ Text.out
   → Output.in
 ```
 
-### 1. Start on a clean layer
+### 1. Use the blank layer
 
-In the **layers** panel, click `+`. The new layer is selected automatically and
-already contains a transparent **Output** node. Hide the factory layers with
-their filled-circle visibility buttons so only your new layer is visible.
-
-You can keep the new layer transparent to reveal layers below it. For a
-standalone poster, turn off **transparent** on Output and choose a background
+The initial layer already contains an opaque white **Output** node, so you can
+build the pipeline directly on it. If you add another layer with `+`, its
+Output starts transparent so the layers below remain visible. For a standalone
+poster on that new layer, turn off **transparent** and choose a background
 color.
 
 ### 2. Add the five processing nodes
@@ -114,8 +114,11 @@ accept the live Text or vector Warp output directly.
 
 ## Save, load, and export
 
-The controls above the artboard have three different jobs:
+The project controls above the artboard serve different jobs:
 
+- **start from…** replaces the current project with a fresh blank project or a
+  bundled example after confirmation. Save first if you want to keep the
+  current graph.
 - **save project** downloads a portable `.gfxproject.json` file, including
   embedded image assets. Keep this if you want to edit the graph later.
 - **load project** replaces the current document with a compatible project

@@ -33,6 +33,10 @@ import type {
 } from './domain/renderCoordinator';
 import { DEFAULT_AGENT_LIMITS } from './domain/limits';
 import { maximumProjectImportJsonBytes } from './domain/projectCodec';
+import {
+  getStarterProject,
+  STARTER_PROJECTS,
+} from './starterProjects';
 
 const FONT_URLS = ['/fonts/Inter-Regular.otf', '/fonts/JetBrainsMono-Regular.ttf', '/fonts/local-fallback.ttf'];
 const AGENT_MODE = __GFX_AGENT_BUILD__;
@@ -330,6 +334,50 @@ export default function App() {
     }
   }, []);
 
+  const loadStarterProject = useCallback(async (
+    event: React.ChangeEvent<HTMLSelectElement>,
+  ) => {
+    const select = event.currentTarget;
+    const starter = getStarterProject(select.value);
+    select.value = '';
+    if (!starter) return;
+    const confirmed = window.confirm(
+      `Start from "${starter.label}"? This replaces the current project. `
+      + 'Save the current project first if you want to keep it.',
+    );
+    if (!confirmed) return;
+
+    const expectedRevision = useApp.getState().revision;
+    setProjectIoBusy('load');
+    setProjectIoMessage(null);
+    try {
+      const result = await useApp.getState().importProjectJson(
+        JSON.stringify(starter.document),
+        starter.documentId,
+        expectedRevision,
+      );
+      if (!result.ok) {
+        throw new Error(
+          result.report.errors[0]?.message
+            ?? 'Starter project failed validation.',
+        );
+      }
+      setProjectIoMessage({
+        kind: 'success',
+        text: `${starter.label} loaded.`,
+      });
+    } catch (error) {
+      setProjectIoMessage({
+        kind: 'error',
+        text: error instanceof Error
+          ? error.message
+          : 'Starter project could not be loaded.',
+      });
+    } finally {
+      setProjectIoBusy(null);
+    }
+  }, []);
+
   // Parse any local font a Text node (on any layer) references but that isn't
   // loaded yet; addFont then bumps `fonts`, which re-cooks via the effect
   // above. Also runs when `localFonts` arrives so a saved document's fonts
@@ -568,7 +616,7 @@ export default function App() {
           {startupLoadIssue.report.errors[0]
             ? ` (${startupLoadIssue.report.errors[0].code} at ${startupLoadIssue.report.errors[0].path || '/'})`
             : ''}
-          . The saved value was left untouched and the factory document is shown.
+          . The saved value was left untouched and a blank project is shown.
           Autosave is paused until a valid project is explicitly imported.
         </div>
       )}
@@ -675,6 +723,25 @@ export default function App() {
           >
             {projectIoBusy === 'load' ? 'loading…' : 'load project'}
           </button>
+          <select
+            className="project-starter-select"
+            aria-label="Start from a blank project or bundled example"
+            data-project-action="load-starter"
+            defaultValue=""
+            disabled={projectIoBusy !== null}
+            onChange={loadStarterProject}
+          >
+            <option value="" disabled>start from…</option>
+            {STARTER_PROJECTS.map((starter) => (
+              <option
+                key={starter.id}
+                value={starter.id}
+                data-starter-project-id={starter.id}
+              >
+                {starter.label}
+              </option>
+            ))}
+          </select>
           <input
             ref={projectFileRef}
             className="sr-only"

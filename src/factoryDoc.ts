@@ -1,7 +1,6 @@
-// The first-run document: a four-layer poster wired up as a worked example of
-// the tool (image treatments, scatter layouts, text on a sampled path). It is
-// only the fallback when no saved document exists — every edit persists to
-// localStorage, so a returning visitor sees their own work, not this.
+// A bundled four-layer poster retained as an explicit worked example of the
+// tool (image treatments, scatter layouts, text on a sampled path). New
+// projects start blank; this document is loaded only when a person selects it.
 //
 // The Image nodes reference /factory-image.jpg from public/ instead of the
 // usual embedded data: URI, keeping this module small; the app serves the

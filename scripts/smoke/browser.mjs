@@ -13,6 +13,15 @@ if (!Number.isFinite(parsedTimeout) || parsedTimeout <= 0) {
 }
 export const DEFAULT_TIMEOUT_MS = parsedTimeout;
 
+export async function readDocumentFixture(name) {
+  return JSON.parse(
+    await readFile(
+      new URL(`../../test/fixtures/documents/${name}`, import.meta.url),
+      'utf8',
+    ),
+  );
+}
+
 async function isExecutable(candidate) {
   if (!candidate) return false;
   try {

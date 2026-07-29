@@ -26,7 +26,8 @@
     "fixtures:update": "vite-node scripts/update-baseline-fixtures.ts",
     "smoke:serve": "npm run build:agent && vite preview --mode agent",
     "smoke:baseline": "node scripts/baseline-check.mjs",
-    "smoke:factory": "node scripts/factory-check.mjs",
+    "smoke:example": "node scripts/factory-check.mjs",
+    "smoke:factory": "npm run smoke:example",
     "smoke:frame": "node scripts/verify.mjs",
     "smoke:blur": "node scripts/blur-check.mjs",
     "smoke:fringe": "node scripts/fringe-check.mjs",
@@ -34,7 +35,7 @@
     "smoke:render": "node scripts/render-coordinator-check.mjs",
     "smoke:controller": "node scripts/agent-controller-check.mjs",
     "smoke:agent-ui": "node scripts/agent-semantic-check.mjs",
-    "smoke:all": "npm run smoke:baseline && npm run smoke:factory && npm run smoke:controller && npm run smoke:frame && npm run smoke:blur && npm run smoke:fringe && npm run smoke:interaction && npm run smoke:render && npm run smoke:agent-ui",
+    "smoke:all": "npm run smoke:baseline && npm run smoke:example && npm run smoke:controller && npm run smoke:frame && npm run smoke:blur && npm run smoke:fringe && npm run smoke:interaction && npm run smoke:render && npm run smoke:agent-ui",
     "test": "vitest run && npm run test:mcp",
     "test:mcp": "npm --workspace @a-psychos/gd-mcp-companion run test && npm run check:mcp:authority",
     "typecheck": "tsc -b && npm --workspace @a-psychos/gd-mcp-companion run typecheck"

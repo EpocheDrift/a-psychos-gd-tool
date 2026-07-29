@@ -5,12 +5,15 @@ import {
   assertNoPageProblems,
   navigateToApp,
   pairAgent,
+  readDocumentFixture,
   waitForInitialCook,
   withSmokePage,
 } from './smoke/browser.mjs';
 
+const posterExample = await readDocumentFixture('factory-document.json');
+
 await withSmokePage(
-  { storage: { mode: 'empty' } },
+  { storage: { mode: 'v2', document: posterExample } },
   async ({ page, url, problems }) => {
     await navigateToApp(page, url);
     await waitForInitialCook(page, { width: 2480, height: 3508 });

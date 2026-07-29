@@ -8,12 +8,15 @@ import {
   assertNoPageProblems,
   navigateToApp,
   pairAgent,
+  readDocumentFixture,
   smokeArtifactPath,
   waitForInitialCook,
   withSmokePage,
 } from './smoke/browser.mjs';
 
-await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems }) => {
+const posterExample = await readDocumentFixture('factory-document.json');
+
+await withSmokePage({ storage: { mode: 'v2', document: posterExample } }, async ({ page, url, problems }) => {
   await navigateToApp(page, url);
   await waitForInitialCook(page, { width: 2480, height: 3508 });
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

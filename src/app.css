@@ -100,6 +100,24 @@ body {
 .export-btn:hover { background: var(--panel-3); border-color: var(--border-strong); }
 .export-btn:disabled { color: var(--muted); cursor: default; }
 
+.project-starter-select {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+  padding: 3px 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.project-starter-select:hover {
+  background: var(--panel-3);
+  border-color: var(--border-strong);
+}
+.project-starter-select:disabled { color: var(--muted); cursor: default; }
+
 .github-link { display: flex; align-items: center; color: var(--muted); }
 .github-link:hover { color: var(--text); }
 

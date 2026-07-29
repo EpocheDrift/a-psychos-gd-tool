@@ -33,7 +33,14 @@ versioned local working saves, and portable project save/load are built in.
 npm run dev          # open the printed URL in a WebGPU browser
 ```
 
-You'll get a default graph cooking to the artboard. Add nodes from the palette, drag wires between sockets — handle colors encode socket types, and illegal wires are rejected on drag. Canvas navigation is Figma-style: two-finger trackpad scroll pans and pinch zooms (space+drag or the middle/right button also pan); left-drag draws a box that selects every node it touches, and ⌘/shift-click adds single nodes to the selection. The selection moves or deletes (⌫) as a group — a group move is a single undo step.
+You'll get a blank project with one layer and one Output node cooking to the
+artboard. Add nodes from the palette, or choose the bundled layered-poster
+example from **start from…**. Drag wires between sockets — handle colors encode
+socket types, and illegal wires are rejected on drag. Canvas navigation is
+Figma-style: two-finger trackpad scroll pans and pinch zooms (space+drag or the
+middle/right button also pan); left-drag draws a box that selects every node it
+touches, and ⌘/shift-click adds single nodes to the selection. The selection
+moves or deletes (⌫) as a group — a group move is a single undo step.
 
 Other commands:
 

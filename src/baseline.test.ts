@@ -10,7 +10,7 @@ function readJsonFixture<T>(name: string): T {
 }
 
 describe('PR 0 saved-document baseline', () => {
-  it('freezes the current factory document and its layer/node counts', () => {
+  it('freezes the bundled poster example and its layer/node counts', () => {
     const fixture = readJsonFixture<Doc>('factory-document.json');
     expect(fixture).toEqual(factoryDoc);
     expect(fixture.layers.map((layer) => ({

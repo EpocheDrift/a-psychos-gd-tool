@@ -1,6 +1,6 @@
-// First-run gate: with no saved document, the app boots into the four-layer
-// factory doc extracted from the author's setup, the public image asset
-// fetches, and every layer cooks without page errors.
+// Starter-project gate: empty storage boots into the canonical blank project.
+// The historical four-layer poster loads only after an explicit human UI
+// selection; its bundled image and every layer then cook without page errors.
 // Usage: node scripts/factory-check.mjs [url]
 import {
   assertNoPageProblems,
@@ -13,8 +13,83 @@ import {
 
 await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems }) => {
   await navigateToApp(page, url);
-  await waitForInitialCook(page, { width: 2480, height: 3508 });
+  await waitForInitialCook(page, { width: 2304, height: 3456 });
   await pairAgent(page, { scopes: ['read'] });
+
+  const blank = await page.evaluate(() => {
+    const current = globalThis.gfxAgent.getDocument({
+      include: ['frame', 'layers', 'nodes', 'edges'],
+    });
+    return {
+      frame: current.frame,
+      layers: current.layers.map((layer) => ({
+        id: layer.id,
+        nodes: layer.graph.nodes.map((node) => node.type),
+        edges: layer.graph.edges.length,
+      })),
+    };
+  });
+  if (
+    blank.frame.width !== 2304
+    || blank.frame.height !== 3456
+    || JSON.stringify(blank.layers) !== JSON.stringify([{
+      id: 'layer_1',
+      nodes: ['Output'],
+      edges: 0,
+    }])
+  ) {
+    throw new Error(`wrong blank starter: ${JSON.stringify(blank)}`);
+  }
+
+  const dismissed = new Promise((resolve, reject) => {
+    page.once('dialog', (dialog) => {
+      dialog.dismiss().then(resolve, reject);
+    });
+  });
+  await page.select(
+    '[data-project-action="load-starter"]',
+    'factory-poster',
+  );
+  await dismissed;
+  const afterDismiss = await page.evaluate(() => {
+    const current = globalThis.gfxAgent.getDocument({
+      include: ['frame', 'layers', 'nodes', 'edges'],
+    });
+    return {
+      revision: current.revision,
+      frame: current.frame,
+      layerCount: current.layers.length,
+      nodeCount: current.layers.reduce(
+        (sum, layer) => sum + layer.graph.nodes.length,
+        0,
+      ),
+    };
+  });
+  if (
+    afterDismiss.revision !== 0
+    || afterDismiss.frame.width !== 2304
+    || afterDismiss.frame.height !== 3456
+    || afterDismiss.layerCount !== 1
+    || afterDismiss.nodeCount !== 1
+  ) {
+    throw new Error(
+      `cancelled starter replacement mutated the document: ${
+        JSON.stringify(afterDismiss)
+      }`,
+    );
+  }
+
+  const accepted = new Promise((resolve, reject) => {
+    page.once('dialog', (dialog) => {
+      dialog.accept().then(resolve, reject);
+    });
+  });
+  await page.select(
+    '[data-project-action="load-starter"]',
+    'factory-poster',
+  );
+  await accepted;
+  await waitForInitialCook(page, { width: 2480, height: 3508 });
 
   const state = await page.evaluate(() => {
     const current = globalThis.gfxAgent.getDocument({
@@ -72,7 +147,7 @@ await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems
   console.log('image fetch:', JSON.stringify(image));
   if (!image.ok || image.bytes !== 987604) throw new Error('factory image asset missing or wrong size');
 
-  const screenshot = await smokeArtifactPath('factory-first-run.png');
+  const screenshot = await smokeArtifactPath('factory-example.png');
   await page.screenshot({ path: screenshot });
   assertNoPageProblems(problems);
   console.log(`screenshot: ${screenshot}`);

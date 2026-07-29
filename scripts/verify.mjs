@@ -5,12 +5,15 @@
 import {
   assertNoPageProblems,
   navigateToApp,
+  readDocumentFixture,
   smokeArtifactPath,
   waitForInitialCook,
   withSmokePage,
 } from './smoke/browser.mjs';
 
-await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems }) => {
+const posterExample = await readDocumentFixture('factory-document.json');
+
+await withSmokePage({ storage: { mode: 'v2', document: posterExample } }, async ({ page, url, problems }) => {
   await navigateToApp(page, url);
   await waitForInitialCook(page, { width: 2480, height: 3508 });
 
@@ -24,7 +27,7 @@ await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems
   const canvasSize = () =>
     page.$eval('[data-agent-preview="main"]', (canvas) => `${canvas.width}x${canvas.height}`);
 
-  console.log('--- cook 1 (factory document, 2480×3508 frame) ---');
+  console.log('--- cook 1 (poster example, 2480×3508 frame) ---');
   const initialEvents = await readEvents();
   for (const event of initialEvents) console.log(event.text);
   console.log('canvas:', await canvasSize());

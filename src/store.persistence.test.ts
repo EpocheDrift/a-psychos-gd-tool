@@ -4,6 +4,8 @@ import type { Doc, Graph } from './engine/graph';
 import type { AssetMetadata, SerializedProjectV3 } from './domain/documentSchema';
 import { FACTORY_ASSET_METADATA } from './domain/assetPolicy';
 import { prepareProjectImport } from './domain/projectCodec';
+import { blankDoc } from './blankDoc';
+import { getStarterProject } from './starterProjects';
 
 const UNBACKED_V3_ASSET: AssetMetadata = {
   id: 'asset_1',
@@ -162,7 +164,7 @@ describe('versioned saved-project loading', () => {
       'gfx.document.v2': JSON.stringify(layered),
       'gfx.document.v1': JSON.stringify(legacy),
     });
-    expect(useApp.getState().doc.frame).toEqual({ width: 2480, height: 3508 });
+    expect(useApp.getState().doc).toEqual(blankDoc);
     expect(useApp.getState().doc).not.toEqual(layered);
     expect(useApp.getState().startupLoadIssue).toMatchObject({
       storageKey: 'gfx.project',
@@ -266,35 +268,49 @@ describe('versioned saved-project loading', () => {
     expect(harness.setItem).not.toHaveBeenCalled();
   });
 
-  it('uses the migrated factory document when storage is empty', async () => {
-    const factory = readFixture<Doc>('factory-document.json');
+  it('uses the canonical blank document when storage is empty', async () => {
+    const { assetBootstrapReady, useApp, harness } = await loadStore({});
+    await assetBootstrapReady;
+    expect(useApp.getState()).toMatchObject({
+      documentId: 'document_1',
+      doc: blankDoc,
+      revision: 0,
+      startupLoadIssue: null,
+    });
+    expect(useApp.getState().assets).toBeUndefined();
+    expect(harness.setItem).not.toHaveBeenCalled();
+  });
+
+  it('loads the bundled poster only through an explicit starter import', async () => {
+    const starter = getStarterProject('factory-poster');
+    expect(starter).toBeDefined();
+    if (!starter) return;
+    const expected = prepareProjectImport(starter.document, {
+      documentIdForLegacy: starter.documentId,
+    });
+    expect(expected.ok).toBe(true);
+    if (!expected.ok) return;
+
     const { assetBootstrapReady, useApp } = await loadStore({});
     await assetBootstrapReady;
-    const document = useApp.getState().doc;
-    expect(document).toEqual({
-      ...factory,
-      layers: factory.layers.map((layer) => ({
-        ...layer,
-        graph: {
-          ...layer.graph,
-          nodes: Object.fromEntries(Object.entries(layer.graph.nodes).map(([id, node]) => [
-            id,
-            {
-              ...node,
-              params: Object.fromEntries([
-                ...Object.entries(node.params).filter(([name]) =>
-                  !(node.type === 'Random' && name === 'count')
-                  && !(node.type === 'Image' && name === 'src')),
-                ...(node.type === 'Image'
-                  ? [['assetId', FACTORY_ASSET_METADATA.id]]
-                  : []),
-              ]),
-            },
-          ])),
-        },
-      })),
+    const result = await useApp.getState().importProjectJson(
+      JSON.stringify(starter.document),
+      starter.documentId,
+    );
+    expect(result.ok).toBe(true);
+    expect(useApp.getState()).toMatchObject({
+      documentId: starter.documentId,
+      doc: expected.project.document,
+      revision: 1,
     });
     expect(useApp.getState().assets).toEqual([FACTORY_ASSET_METADATA]);
+
+    useApp.getState().undo();
+    expect(useApp.getState()).toMatchObject({
+      documentId: 'document_1',
+      doc: blankDoc,
+      revision: 2,
+    });
   });
 
   it('checkpoints a staged v3 embedded-asset migration as v4 exactly once', async () => {

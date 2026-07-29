@@ -53,7 +53,7 @@ import {
   type TrustedAssetMutation,
   type TransactionPolicy,
 } from './domain/transactionSession';
-import { factoryDoc } from './factoryDoc';
+import { blankDoc } from './blankDoc';
 import { registry } from './nodes';
 import { extractFace, faceCount } from './util/sfnt';
 
@@ -99,9 +99,9 @@ export async function loadLocalFontsIfGranted(): Promise<void> {
 
 // The working document persists to localStorage, so the current set-up IS the
 // default on next load. Continuous edits are debounced to keep serialization
-// and browser storage off drag/scrub hot paths. The factory document is only
-// the first-run (or unreadable-save) fallback. v1 saves held a single graph —
-// they load as a one-layer document; v1 is left in place for older builds.
+// and browser storage off drag/scrub hot paths. A minimal blank document is the
+// first-run (or unreadable-save) fallback. v1 saves held a single graph — they
+// load as a one-layer document; v1 is left in place for older builds.
 export const PROJECT_STORAGE_KEY = 'gfx.project';
 export const LAYERED_STORAGE_KEY = 'gfx.document.v2';
 export const LEGACY_STORAGE_KEY = 'gfx.document.v1';
@@ -187,20 +187,20 @@ function loadSavedProject(): SavedProjectLoad {
   }
 }
 
-const factoryProject = prepareProjectImport(factoryDoc, {
+const blankProject = prepareProjectImport(blankDoc, {
   documentIdForLegacy: DEFAULT_DOCUMENT_ID,
 });
-if (!factoryProject.ok) {
-  throw new Error(`Factory document failed version 3 migration: ${factoryProject.report.errors[0]?.code ?? 'INTERNAL'}`);
+if (!blankProject.ok) {
+  throw new Error(`Blank document failed validation: ${blankProject.report.errors[0]?.code ?? 'INTERNAL'}`);
 }
 const savedProject = loadSavedProject();
 let lastDurableAssetIds = new Set(
   (savedProject.project?.assets ?? []).map((asset) => asset.id),
 );
-const initialProject = savedProject.project ?? factoryProject.project;
+const initialProject = savedProject.project ?? blankProject.project;
 const initialAssetsToStage = savedProject.project
   ? savedProject.assetsToStage
-  : factoryProject.assetsToStage;
+  : blankProject.assetsToStage;
 let assetBootstrapStatus: 'pending' | 'ready' | 'failed' = 'pending';
 let startupBootstrapSuperseded = false;
 const startupBootstrapAbort = new AbortController();
@@ -1556,7 +1556,7 @@ if (canPersist) {
       && s.documentId === prev.documentId
       && s.assets === prev.assets
     ) return;
-    // Do not overwrite a rejected recovery candidate with the factory fallback.
+    // Do not overwrite a rejected recovery candidate with the blank fallback.
     // A successful explicit import clears the issue and resumes autosave.
     if (
       s.startupLoadIssue

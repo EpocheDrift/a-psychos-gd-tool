@@ -193,8 +193,8 @@ try {
   const initiallyVisible = (initial.layers ?? [])
     .filter((layer) => layer?.visible === true)
     .map((layer) => layer.id);
-  // This transport gate should exercise its own model/poster layers, not pay
-  // the software-GPU cost of the full factory artwork on headless CI.
+  // This transport gate exercises its own model/poster layers, independent of
+  // whichever human document was restored at startup.
   const isolationCommands = [
     ...(
       initial.frame?.width === 128 && initial.frame?.height === 128

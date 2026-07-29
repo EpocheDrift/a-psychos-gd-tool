@@ -2,8 +2,9 @@
 
 The browser checks freeze the human editing/rendering baseline and exercise the
 paired Agent controller. They run against an isolated temporary Chrome context
-and explicitly seed or clear `gfx.document.v1` and `gfx.document.v2`, so results
-never depend on a developer's existing localStorage.
+and explicitly seed or clear `gfx.project`, `gfx.document.v1`, and
+`gfx.document.v2`, so results never depend on a developer's existing
+localStorage.
 
 The shared harness also isolates network behavior. It serves the historical
 same-origin `/fonts/Inter-Regular.otf` request with the bundled JetBrains Mono
@@ -44,10 +45,10 @@ Individual checks:
 | Command | Gate |
 | --- | --- |
 | `npm run smoke:baseline` | Renders the reviewed 256×192 Shape fixture; checks PNG dimensions, colors, alpha coverage, bounds, tolerant pixel drift, and page/console errors. |
-| `npm run smoke:factory` | Boots from empty storage; checks the 4-layer, 42-node, 38-edge factory document and bundled image. |
+| `npm run smoke:example` | Proves empty storage starts with the one-layer blank project, then loads the 4-layer, 42-node, 38-edge poster example through the real **start from…** UI and checks its bundled image. (`smoke:factory` remains an alias.) |
 | `npm run smoke:controller` | Verifies headers, paired scope grant, token replay/failure paths, revoke, session-local transactions, exact preview handles, absence of legacy globals/secrets, and fail-closed model execution. |
-| `npm run smoke:frame` | Changes the factory frame through the human UI; asserts the 1024×3508 canvas plus expected frame-independent HITs and frame-aware MISSes. |
-| `npm run smoke:blur` | Edits `blur1` in its explicit layer, waits for a cache miss, and proves no phantom node was created. |
+| `npm run smoke:frame` | Explicitly loads the poster fixture, changes its frame through the human UI, and asserts the 1024×3508 canvas plus expected frame-independent HITs and frame-aware MISSes. |
+| `npm run smoke:blur` | Explicitly loads the poster fixture, edits `blur1` in its layer, waits for a cache miss, and proves no phantom node was created. |
 | `npm run smoke:fringe` | Loads the legacy v1 fixture, renders white-on-white, and rejects any dark fringe in the native PNG readback. |
 | `npm run smoke:interaction` | Exercises pan, zoom, marquee selection, cross-platform Shift-add, group movement, delete, and undo. |
 | `npm run smoke:render` | Churns revisions, retries, and frame sizes; proves coalescing, exact terminal tickets, last-known-good display, and bounded GPU-pool recovery. |

@@ -1,4 +1,4 @@
-// Blur gate: cook the factory graph (Text -> Outline -> Rasterize -> Blur ->
+// Blur gate: cook the bundled poster example (Text -> Outline -> Rasterize -> Blur ->
 // Output) at a heavy radius and capture the native poster PNG. Eyeball the halo:
 // it should fade to paper with no dark rim and no hard cutoff.
 // Usage: node scripts/blur-check.mjs [url]
@@ -8,12 +8,15 @@ import {
   captureExportPng,
   navigateToApp,
   pairAgent,
+  readDocumentFixture,
   smokeArtifactPath,
   waitForInitialCook,
   withSmokePage,
 } from './smoke/browser.mjs';
 
-await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems }) => {
+const posterExample = await readDocumentFixture('factory-document.json');
+
+await withSmokePage({ storage: { mode: 'v2', document: posterExample } }, async ({ page, url, problems }) => {
   await navigateToApp(page, url);
   await waitForInitialCook(page, { width: 2480, height: 3508 });
   await pairAgent(page, { scopes: ['read', 'edit'] });
@@ -25,7 +28,7 @@ await withSmokePage({ storage: { mode: 'empty' } }, async ({ page, url, problems
     });
     const layer = snapshot.layers?.[0];
     if (!layer?.graph.nodes.some((node) => node.id === 'blur1')) {
-      throw new Error('factory layer_1 blur1 node missing');
+      throw new Error('poster example layer_1 blur1 node missing');
     }
     return {
       revision: snapshot.revision,
