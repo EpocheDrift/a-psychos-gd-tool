@@ -65,6 +65,8 @@ for (const [label, pattern] of [
   ['legacy __render global', /(?:globalThis|window)\.__render\b|["']__render["']/],
   ['Google Fonts stylesheet', /fonts\.googleapis\.com/],
   ['Google Fonts asset', /fonts\.gstatic\.com/],
+  ['Node-native ONNX runtime', /onnxruntime-node|onnxruntime_binding/],
+  ['Node-native archive/image stack', /adm-zip|libvips|node_modules\/sharp/],
 ]) {
   if (pattern.test(defaultText) || pattern.test(agentText)) {
     throw new Error(`Production artifact contains forbidden marker: ${label}`);

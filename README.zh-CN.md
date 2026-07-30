@@ -28,7 +28,7 @@
 
 ## 环境要求
 
-- **Node.js 20.19+ 或 22+**（Vite 7 的要求）
+- **Node.js 22.12+**（CI 的参考环境为 Node 22）
 - **支持 WebGPU 的浏览器：** Chrome/Edge 113+ 或 Safari 18+
 - 只有浏览器渲染需要 GPU；无头引擎测试不需要 GPU
 
@@ -37,7 +37,7 @@
 在已经克隆好的仓库根目录运行：
 
 ```sh
-./scripts/setup.sh   # 检查 Node、安装依赖、获取自由字体
+./scripts/setup.sh   # 检查 Node、严格安装 lockfile、校验仓库内置字体
 npm run dev          # 用浏览器打开终端打印的地址
 ```
 
@@ -227,6 +227,10 @@ Agent runtime 时，还应运行：
 npm run check:mcp
 npm run check:agent-build
 ```
+
+完整协作流程见 [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)，安全问题请按
+[SECURITY.zh-CN.md](SECURITY.zh-CN.md) 私密报告，正式版本流程见
+[发布说明](docs/releasing.zh-CN.md)。
 
 ## 许可证
 

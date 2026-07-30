@@ -23,13 +23,13 @@ versioned local working saves, and portable project save/load are built in.
 
 ## Requirements
 
-- **Node.js 20.19+ or 22+** (for Vite 7)
+- **Node.js 22.12+** (Node 22 is the CI reference environment)
 - **A WebGPU browser** to run the app: Chrome/Edge 113+ or Safari 18+. The headless engine tests don't need a GPU.
 
 ## Quick start
 
 ```sh
-./scripts/setup.sh   # checks Node, installs deps, fetches a free font into public/fonts/
+./scripts/setup.sh   # checks Node, installs the exact lockfile, verifies the bundled font
 npm run dev          # open the printed URL in a WebGPU browser
 ```
 
@@ -213,7 +213,10 @@ Issues and PRs are welcome. CI runs typecheck, all unit/authority tests, both
 app builds, the compiled MCP build, real child-stdio MCP/Chrome round-trips,
 stdio lifecycle profiles, and Agent artifact checks. Rendering and Agent
 runtime changes also require `npm run check:mcp`, `npm run check:agent-build`,
-and the documented [WebGPU smoke suite](docs/testing/browser-smoke.md).
+and the documented [WebGPU smoke suite](docs/testing/browser-smoke.md). See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow,
+[SECURITY.md](SECURITY.md) for private vulnerability reports, and the
+[release process](docs/releasing.md) for versioned releases.
 
 ## License
 

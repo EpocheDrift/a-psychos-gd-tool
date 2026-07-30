@@ -123,23 +123,12 @@ function attachProblemCollector(page) {
 
 async function installDeterministicNetwork(page, appUrl, problems) {
   const appOrigin = new URL(appUrl).origin;
-  const fallbackFont = await readFile(
-    new URL('../../public/fonts/JetBrainsMono-Regular.ttf', import.meta.url),
-  );
   const pending = new Set();
   await page.setRequestInterception(true);
   page.on('request', (request) => {
     const task = (async () => {
       if (request.isInterceptResolutionHandled()) return;
       const requested = new URL(request.url());
-      if (requested.origin === appOrigin && requested.pathname === '/fonts/Inter-Regular.otf') {
-        await request.respond({
-          status: 200,
-          contentType: 'font/ttf',
-          body: fallbackFont,
-        });
-        return;
-      }
       if (
         (requested.protocol === 'http:' || requested.protocol === 'https:')
         && requested.origin !== appOrigin

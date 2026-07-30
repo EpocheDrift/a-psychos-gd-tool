@@ -34,7 +34,7 @@ shell commands, arbitrary URLs, or general filesystem access as tools.
 From the repository root:
 
 ```sh
-npm install
+./scripts/setup.sh
 npm run build:agent
 npm run build:mcp
 ```
@@ -139,7 +139,7 @@ An explicit Chrome can be selected with `--chrome /absolute/path/to/chrome` or
 the `CHROME` environment variable. The first release launches a new isolated
 Chrome session; it does not attach to an existing user profile.
 
-Node.js 20.19 or newer and a WebGPU-capable Chrome/Chromium are required. The
+Node.js 22.12 or newer and a WebGPU-capable Chrome/Chromium are required. The
 host is intentionally fixed at `http://127.0.0.1:5199`; a port conflict is a
 startup error, not a reason to widen or dynamically change the origin.
 

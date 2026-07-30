@@ -4,6 +4,9 @@
   "version": "0.0.1",
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "workspaces": [
     "packages/*"
   ],
@@ -14,6 +17,8 @@
     "build": "tsc -b && vite build && vite build --mode agent && npm run build:mcp",
     "build:agent": "tsc -b && vite build --mode agent",
     "build:mcp": "npm --workspace @a-psychos/gd-mcp-companion run build",
+    "check:font": "node scripts/check-font.mjs",
+    "check:versions": "node scripts/version-check.mjs",
     "check:agent-artifacts": "node scripts/agent-artifact-check.mjs --build",
     "check:agent-build": "npm run check:agent-artifacts && node scripts/agent-build-check.mjs",
     "check:mcp:authority": "node scripts/mcp-authority-check.mjs",
@@ -35,6 +40,7 @@
     "smoke:render": "node scripts/render-coordinator-check.mjs",
     "smoke:controller": "node scripts/agent-controller-check.mjs",
     "smoke:agent-ui": "node scripts/agent-semantic-check.mjs",
+    "smoke:ci": "node scripts/ci-smoke-check.mjs",
     "smoke:all": "npm run smoke:baseline && npm run smoke:example && npm run smoke:controller && npm run smoke:frame && npm run smoke:blur && npm run smoke:fringe && npm run smoke:interaction && npm run smoke:render && npm run smoke:agent-ui",
     "test": "vitest run && npm run test:mcp",
     "test:mcp": "npm --workspace @a-psychos/gd-mcp-companion run test && npm run check:mcp:authority",
@@ -60,7 +66,7 @@
     "axe-core": "^4.12.1",
     "puppeteer-core": "^25.1.0",
     "typescript": "^5.6.0",
-    "vite": "^7.0.0",
+    "vite": "^7.3.6",
     "vite-node": "^3.0.0",
     "vitest": "^3.0.0"
   }
