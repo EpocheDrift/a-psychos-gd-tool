@@ -7,7 +7,7 @@ Agent 通过本地 MCP Companion 连接进来。你不需要提前用过节点�
 
 ## 需要准备什么
 
-- Node.js 20.19+ 或 22+
+- Node.js 22.12+（CI 的参考环境为 Node 22）
 - 支持 WebGPU 的浏览器：Chrome/Edge 113+ 或 Safari 18+
 - Git
 - 如果要玩 Agent：Codex、Claude Code 等 MCP 客户端，以及支持 WebGPU 的
@@ -27,8 +27,9 @@ cd a-psychos-gd-tool
 npm run dev
 ```
 
-用支持 WebGPU 的浏览器打开 Vite 在终端里打印的网址。`setup.sh` 会检查 Node、
-安装依赖并下载项目自带的免费字体；重复执行也是安全的。
+用支持 WebGPU 的浏览器打开 Vite 在终端里打印的网址。`setup.sh` 会检查 Node，
+校验仓库内置字体及其许可证，并严格安装 lockfile；重复执行也是安全的，也不会
+下载会随时间变化的构建输入。
 
 这套源码开发 UI 通常位于 `http://localhost:5173`（实际端口以 Vite 打印的为准）。
 它用于人类开发调试，而且有意不包含 Agent bridge。之后启动 MCP Companion 时，
@@ -188,7 +189,7 @@ Companion 通过 stdio 与 MCP 宿主通信，并独占固定的本地 HTTP/WebS
 在仓库根目录执行：
 
 ```sh
-npm install
+./scripts/setup.sh
 npm run build:agent
 npm run build:mcp
 ```
@@ -350,10 +351,11 @@ RMBG 第一次下载和许可证确认仍然需要人类单独操作。
 执行：
 
 ```sh
-./scripts/get-font.sh
+npm run check:font
 ```
 
-然后重启开发服务器。
+如果校验失败，请从 git 恢复 `public/fonts/JetBrainsMono-Regular.ttf`，然后重启
+开发服务器。
 
 ### 连线怎么都接不上
 

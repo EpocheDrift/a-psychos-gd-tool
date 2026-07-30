@@ -38,7 +38,7 @@ import {
   STARTER_PROJECTS,
 } from './starterProjects';
 
-const FONT_URLS = ['/fonts/Inter-Regular.otf', '/fonts/JetBrainsMono-Regular.ttf', '/fonts/local-fallback.ttf'];
+const FONT_URLS = ['/fonts/JetBrainsMono-Regular.ttf'];
 const AGENT_MODE = __GFX_AGENT_BUILD__;
 
 // only show the loading overlay once a cook has run this long — keeps quick
@@ -539,7 +539,17 @@ export default function App() {
       </div>
     );
   }
-  if (status === 'no-font') return <div className="boot-msg">No font found — run <code>scripts/get-font.sh</code> to fetch one into <code>public/fonts/</code>.</div>;
+  if (status === 'no-font') {
+    return (
+      <div className="boot-msg">
+        Bundled font missing or invalid — restore
+        {' '}
+        <code>public/fonts/JetBrainsMono-Regular.ttf</code>
+        {' '}
+        from git.
+      </div>
+    );
+  }
 
   const frame = doc.frame;
   const displayedTicket = renderStatus.displayedTicket;

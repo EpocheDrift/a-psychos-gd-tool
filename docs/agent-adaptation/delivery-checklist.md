@@ -438,13 +438,13 @@ release or grants commercial rights for RMBG-1.4.
   worker. DCT pHash is similarity evidence and may vary at floating-point
   boundaries across browser engines; canonical RGBA SHA-256 remains the
   integrity evidence.
-- `npm audit` reports 9 full-tree advisories (1 low, 3 moderate, 5 high) and 7
-  production-tree advisories (3 moderate, 4 high), with zero critical. The new
-  MCP path is a transitive `@hono/node-server` static-serving advisory, while
-  this companion imports only the stdio SDK subpaths and its authority gate
-  forbids HTTP adapter imports; the remaining high paths are in the existing
-  model/native-image toolchain. The suggested SDK downgrade was not applied;
-  dependency remediation remains separately reviewable.
+- As of the 2026-07-29 maintenance baseline, both the full and production-tree
+  audits report four high advisories and zero critical. The fixable MCP SDK,
+  Hono, build-tool, and protobuf findings were upgraded. The remaining four
+  entries are the upstream Transformers.js Node-native dependency chain; the
+  browser artifact selects `onnxruntime-web` and does not bundle that path.
+  The accepted exception, stop conditions, and 2026-10-29 review deadline are
+  recorded in [`docs/dependency-security.md`](../dependency-security.md).
 - The shared IndexedDB CAS deliberately does not automatically delete orphaned
   records because one tab cannot prove another tab's retention set. It is
   bounded at 256 MiB and fails closed with `RESOURCE_LIMIT`; reclaiming shared

@@ -155,12 +155,7 @@ const runtime = new CompanionRuntime({
       page.on('console', (message) => {
         if (message.type() !== 'error') return;
         const location = message.location().url;
-        // The app deliberately probes this optional font before falling back to
-        // the bundled JetBrains Mono face.
-        if (
-          !location.endsWith('/fonts/Inter-Regular.otf')
-          && !location.includes('/__gfx_model_v1/files/')
-        ) {
+        if (!location.includes('/__gfx_model_v1/files/')) {
           browserProblems.push(`console.error: ${message.text()}`);
         }
       });

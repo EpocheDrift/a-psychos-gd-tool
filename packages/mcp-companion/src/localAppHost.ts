@@ -35,6 +35,7 @@ import {
   type HumanModelApprovalRequest,
 } from './modelManager.js';
 import { COMPANION_TRANSPORT_LIMITS } from './protocol.js';
+import { COMPANION_VERSION } from './version.js';
 
 const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
   '.css': 'text/css; charset=utf-8',
@@ -594,7 +595,7 @@ export class LocalAppHost {
       }
       const body = Buffer.from(JSON.stringify({
         status: 'ok',
-        version: '0.0.1',
+        version: COMPANION_VERSION,
         bridge: this.bridge.healthState(),
       }));
       response.writeHead(200, {

@@ -8,7 +8,7 @@ required.
 
 ## What you need
 
-- Node.js 20.19+ or 22+
+- Node.js 22.12+ (Node 22 is the CI reference environment)
 - A WebGPU browser: Chrome/Edge 113+ or Safari 18+
 - Git
 - For the Agent workflow: an MCP client such as Codex or Claude Code, plus a
@@ -30,8 +30,8 @@ npm run dev
 ```
 
 Open the URL printed by Vite in a WebGPU browser. `setup.sh` checks Node,
-installs dependencies, and downloads the bundled free font. It is safe to run
-again.
+verifies the bundled font and license, and installs the exact lockfile. It is
+safe to run again and does not download mutable build inputs.
 
 This source-development UI normally appears at `http://localhost:5173` (Vite
 prints the actual port). It is for human development and intentionally has no
@@ -206,7 +206,7 @@ or make human edits while the Agent works on the same document.
 From the repository root:
 
 ```sh
-npm install
+./scripts/setup.sh
 npm run build:agent
 npm run build:mcp
 ```
@@ -385,10 +385,11 @@ The UI cannot render the poster without WebGPU.
 Run:
 
 ```sh
-./scripts/get-font.sh
+npm run check:font
 ```
 
-Then restart the development server.
+If verification fails, restore `public/fonts/JetBrainsMono-Regular.ttf` from
+git, then restart the development server.
 
 ### A wire will not connect
 

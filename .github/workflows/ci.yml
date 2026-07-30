@@ -6,20 +6,30 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: 22
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
           cache: npm
+      - run: npm run check:font
       - run: npm ci
+      - run: npm run check:versions
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build
-      - run: npm run check:mcp:authority
       - run: npm run check:agent-artifacts
 
   agent-e2e:
@@ -27,10 +37,12 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: 22
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npm run build:agent
@@ -39,10 +51,17 @@ jobs:
       - run: node scripts/mcp-e2e-check.mjs
       - run: node scripts/agent-eval-check.mjs
         timeout-minutes: 10
+      - name: Run stable WebGPU smoke subset
+        run: npm run smoke:ci
+        env:
+          SMOKE_ARTIFACT_DIR: test-results/smoke
       - name: Upload Agent evaluation evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-eval-evidence
-          path: test-results/agent-evals
+          path: |
+            test-results/agent-evals
+            test-results/smoke
           if-no-files-found: ignore
+          retention-days: 14

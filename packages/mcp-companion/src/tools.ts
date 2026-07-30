@@ -49,6 +49,7 @@ import {
 import { CompanionFault, type PublicAgentFault } from './faults.js';
 import type { ModelManager } from './modelManager.js';
 import type { PublicModelStatus } from './modelManifest.js';
+import { COMPANION_VERSION } from './version.js';
 
 export interface ToolServerOptions {
   bridge: BridgeClient;
@@ -373,9 +374,9 @@ export function createToolServer(options: ToolServerOptions): McpServer {
   }
   const server = new McpServer({
     name: 'a-psychos-gd-tool',
-    version: '0.0.1',
+    version: COMPANION_VERSION,
   });
-  // SDK 1.29 catches pre-handler input validation errors and otherwise emits
+  // SDK 1.30 catches pre-handler input validation errors and otherwise emits
   // prose-only CallTool errors. The dependency is exact-pinned; shadow its
   // internal formatter so every tool failure retains the common structured
   // envelope without bypassing the SDK's advertised input schemas.

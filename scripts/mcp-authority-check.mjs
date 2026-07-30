@@ -38,6 +38,7 @@ const PACKAGE_FILE_NAMES = [
   'runtime',
   'toolSchemas',
   'tools',
+  'version',
 ];
 const PACKAGE_FILE_KEYS = new Map();
 for (const name of PACKAGE_FILE_NAMES) {

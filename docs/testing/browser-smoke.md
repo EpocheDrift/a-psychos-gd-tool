@@ -6,14 +6,13 @@ and explicitly seed or clear `gfx.project`, `gfx.document.v1`, and
 `gfx.document.v2`, so results never depend on a developer's existing
 localStorage.
 
-The shared harness also isolates network behavior. It serves the historical
-same-origin `/fonts/Inter-Regular.otf` request with the bundled JetBrains Mono
-fallback and blocks every cross-origin request. Production artifact checks also
-forbid Google Fonts URLs and third-party scripts.
+The shared harness also isolates network behavior and blocks every
+cross-origin request. Production artifact checks forbid Google Fonts URLs,
+third-party scripts, and Node-native model/image packages in browser bundles.
 
 ## Prerequisites
 
-- Node.js 20.19+ or 22+ and dependencies installed with `npm ci`;
+- Node.js 22.12+ and dependencies installed with `npm ci`;
 - Chrome or Chromium with a working WebGPU adapter;
 - a localhost or HTTPS URL, because WebGPU requires a secure context;
 - the explicit built Agent artifact. `smoke:serve` builds `dist-agent` and uses
@@ -86,8 +85,9 @@ diagnostic and the semantic color/bounds checks still gate the run.
 
 Every pull request runs typecheck, Vitest, the default and Agent production
 builds, the compiled MCP authority gate, a real child-process stdio-to-browser
-MCP E2E, the compiled companion stdio lifecycle check, and
-`check:agent-artifacts`. The MCP E2E exercises the enabled read, preview, edit,
+MCP E2E, the compiled companion stdio lifecycle check,
+`check:agent-artifacts`, and the stable `smoke:baseline` plus `smoke:frame`
+WebGPU subset. The MCP E2E exercises the enabled read, preview, edit,
 asset, and model handlers through the official stdio client transport,
 including in-app browser-trusted approval, exact preview bytes, pinned
 same-origin model routing, exact-ticket node clipping measurement, revert,
