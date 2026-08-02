@@ -19,8 +19,39 @@ export interface BrowserSessionOptions {
 }
 
 const WORKBENCH_READY_TIMEOUT_MS = 20_000;
+const INITIAL_WINDOW_WIDTH = 1480;
+const INITIAL_WINDOW_HEIGHT = 920;
 export const AGENT_WORKBENCH_READY_SELECTOR =
   '[data-agent-render-status][data-agent-workbench-ready="true"]';
+
+export function companionBrowserLaunchViewport(headless: boolean): {
+  defaultViewport: {
+    width: number;
+    height: number;
+    deviceScaleFactor: number;
+  } | null;
+  args: string[];
+} {
+  return {
+    // A visible workbench belongs to the person as well as the Agent. Let its
+    // layout viewport follow the native Chrome window instead of retaining the
+    // deterministic device emulation used by automation.
+    defaultViewport: headless
+      ? {
+          width: INITIAL_WINDOW_WIDTH,
+          height: INITIAL_WINDOW_HEIGHT,
+          deviceScaleFactor: 1,
+        }
+      : null,
+    args: [
+      '--enable-unsafe-webgpu',
+      '--no-first-run',
+      '--no-default-browser-check',
+      ...(headless ? ['--hide-scrollbars'] : []),
+      `--window-size=${INITIAL_WINDOW_WIDTH},${INITIAL_WINDOW_HEIGHT}`,
+    ],
+  };
+}
 
 function pathCandidates(names: readonly string[]): string[] {
   return (process.env.PATH ?? '')
@@ -110,22 +141,14 @@ export async function launchCompanionBrowser(
     throw new Error('The browser bootstrap token must contain 256 bits.');
   }
   const executablePath = await resolveChromeExecutable(options.executablePath);
+  const headless = options.headless ?? false;
+  const viewport = companionBrowserLaunchViewport(headless);
   const browser = await puppeteer.launch({
     executablePath,
     pipe: true,
-    headless: options.headless ?? false,
-    defaultViewport: {
-      width: 1480,
-      height: 920,
-      deviceScaleFactor: 1,
-    },
-    args: [
-      '--enable-unsafe-webgpu',
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--hide-scrollbars',
-      '--window-size=1480,920',
-    ],
+    headless,
+    defaultViewport: viewport.defaultViewport,
+    args: viewport.args,
   });
   let context: BrowserContext | undefined;
   try {

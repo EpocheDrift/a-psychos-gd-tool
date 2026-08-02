@@ -29,6 +29,8 @@
 
 * { box-sizing: border-box; margin: 0; }
 
+html, body, #root { width: 100%; height: 100%; overflow: hidden; }
+
 :focus-visible {
   outline: 2px solid var(--accent-2);
   outline-offset: 2px;
@@ -53,7 +55,14 @@ body {
   font-size: 12px;
 }
 
-.app { display: flex; height: 100vh; }
+.app {
+  display: flex;
+  width: 100%;
+  height: 100dvh;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
 
 /* title sits atop the node palette in the editor */
 .editor-title {
@@ -124,8 +133,43 @@ body {
 .node-id { color: var(--muted-2); font-weight: normal; }
 
 /* node map (left) + poster (right); relative so the layers panel can pin
-   itself to the pane's upper-right corner */
-.editor { position: relative; flex: 1.5; min-width: 0; border-right: 1px solid var(--border); }
+   itself to the pane's upper-right corner. The basis is controlled by the
+   accessible workbench splitter instead of a fixed 60/40 flex ratio. */
+.editor {
+  position: relative;
+  flex: 0 1 var(--editor-pane-size, 60%);
+  min-width: 460px;
+  min-height: 0;
+}
+
+.workbench-splitter {
+  position: relative;
+  z-index: 25;
+  flex: 0 0 10px;
+  min-width: 10px;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+.workbench-splitter::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--border);
+  transition: width 120ms ease, background 120ms ease;
+}
+.workbench-splitter:hover::before,
+.workbench-splitter:focus-visible::before {
+  width: 3px;
+  background: var(--accent-2);
+}
 
 .param { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .param > span:first-child { width: 64px; color: var(--muted); flex-shrink: 0; }
@@ -244,8 +288,8 @@ body {
 }
 
 .viewport {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 0;
+  min-width: 340px;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -262,6 +306,7 @@ body {
 /* both canvases share the artboard's aspect ratio and the same max box, so
    centering the guide absolutely lands it exactly over the main canvas */
 .stage canvas {
+  width: auto; height: auto;
   max-width: 92%; max-height: 92%;
   border: 1px solid var(--border);
 }
@@ -657,7 +702,51 @@ button.layer-name {
 }
 .layer-tools .num-arrow:disabled { opacity: 0.3; cursor: default; }
 
+@media (max-width: 900px) {
+  /* The app owns the fallback scroll path when zoom or a very short window
+     cannot fit both pane minima. The document itself remains fixed so there
+     is still only one predictable workbench scroller. */
+  .app { flex-direction: column; overflow-y: auto; }
+  .editor {
+    flex-basis: var(--editor-pane-size, 60%);
+    min-width: 0;
+    min-height: 180px;
+  }
+  .workbench-splitter {
+    flex-basis: 10px;
+    width: 100%;
+    min-width: 0;
+    min-height: 10px;
+    cursor: row-resize;
+  }
+  .workbench-splitter::before {
+    top: 50%;
+    right: 0;
+    bottom: auto;
+    left: 0;
+    width: auto;
+    height: 1px;
+    transform: translateY(-50%);
+    transition: height 120ms ease, background 120ms ease;
+  }
+  .workbench-splitter:hover::before,
+  .workbench-splitter:focus-visible::before {
+    width: auto;
+    height: 3px;
+  }
+  .viewport {
+    min-width: 0;
+    min-height: 200px;
+  }
+  .frame-config {
+    flex: 0 0 auto;
+    max-height: 45%;
+    overflow-y: auto;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cook-pending { animation: none; opacity: 0.45; }
   .palette button { transition: none; }
+  .workbench-splitter::before { transition: none; }
 }

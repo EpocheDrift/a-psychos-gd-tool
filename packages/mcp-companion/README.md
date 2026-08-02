@@ -131,13 +131,22 @@ after process restart, page reload, 30-minute session expiry, transport loss,
 or **Revoke now**. Trusted Local performs this pairing automatically for its
 explicit startup profile.
 
-`--headless` exists for automated E2E. Keep ordinary and Trusted Local
-sessions headed so the active scopes, shared canvas, model disclosure, and
-**Revoke now** control remain visible.
+`--headless` exists for automated E2E and uses an explicit deterministic
+viewport. Keep ordinary and Trusted Local sessions headed so the active scopes,
+shared canvas, model disclosure, and **Revoke now** control remain visible. A
+headed workbench follows the native Chrome viewport: its initial window size is
+only a starting suggestion, and a person may freely resize or browser-zoom it.
+This presentation state is independent from document Frame pixels and exact MCP
+preview evidence.
 
 An explicit Chrome can be selected with `--chrome /absolute/path/to/chrome` or
 the `CHROME` environment variable. The first release launches a new isolated
-Chrome session; it does not attach to an existing user profile.
+Chrome session; it does not attach to an existing user profile. The launched
+process uses a temporary profile plus a separate browser context, so it does not
+inherit personal cookies, extensions, or site storage. Context-local working
+storage ends with that session: use **save project** before closing if the work
+must survive. The separately managed, integrity-checked model cache has its own
+lifecycle and is not stored in that browser context.
 
 Node.js 22.12 or newer and a WebGPU-capable Chrome/Chromium are required. The
 host is intentionally fixed at `http://127.0.0.1:5199`; a port conflict is a

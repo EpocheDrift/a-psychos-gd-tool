@@ -735,6 +735,12 @@ arbitrary CDP/page evaluation. The companion should:
 - expose no generic filesystem or browser-eval tool;
 - return bounded, redacted tool results;
 - terminate the browser session it created;
+- use the native, freely resizable viewport for a visible human-and-Agent
+  workbench; fixed device metrics belong only to explicit automation;
+- keep browser viewport, document Frame dimensions, and exact render/preview
+  evidence independent;
+- treat the temporary profile/context working storage as session-local rather
+  than a replacement for portable project save;
 - surface WebGPU and permission prerequisites clearly.
 
 The hosted Vercel page should not connect directly to a localhost bridge in the
