@@ -4,7 +4,13 @@
 // Node parameters are edited inline on each node. Any document edit synchronously
 // schedules an exact revision ticket; cooking remains serialized offscreen.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import * as opentype from 'opentype.js';
 import type { Font } from 'opentype.js';
 import { Evaluator } from './engine/evaluator';
@@ -37,6 +43,7 @@ import {
   getStarterProject,
   STARTER_PROJECTS,
 } from './starterProjects';
+import { WorkbenchSplitter } from './workbench/WorkbenchSplitter';
 
 const FONT_URLS = ['/fonts/JetBrainsMono-Regular.ttf'];
 const AGENT_MODE = __GFX_AGENT_BUILD__;
@@ -44,6 +51,7 @@ const AGENT_MODE = __GFX_AGENT_BUILD__;
 // only show the loading overlay once a cook has run this long — keeps quick
 // re-cooks (most param tweaks) from flashing it
 const PENDING_DELAY_MS = 250;
+const WORKBENCH_SPLIT_STORAGE_KEY = 'gfx.workbench.split.v1';
 
 const FRAME_PRESETS: { label: string; width: number; height: number }[] = [
   { label: 'Phone — 2304×3456', width: 2304, height: 3456 },
@@ -53,6 +61,17 @@ const FRAME_PRESETS: { label: string; width: number; height: number }[] = [
   { label: 'A4 300dpi — 2480×3508', width: 2480, height: 3508 },
   { label: 'Portrait — 1080×1350', width: 1080, height: 1350 },
 ];
+
+function initialWorkbenchSplit(): number {
+  try {
+    const stored = Number(localStorage.getItem(WORKBENCH_SPLIT_STORAGE_KEY));
+    return Number.isFinite(stored) && stored >= 20 && stored <= 80
+      ? stored
+      : 60;
+  } catch {
+    return 60;
+  }
+}
 
 async function loadFirstFont(): Promise<Font | null> {
   for (const url of FONT_URLS) {
@@ -102,6 +121,12 @@ export default function App() {
     kind: 'error' | 'success';
     text: string;
   } | null>(null);
+  const [editorPanePreference, setEditorPanePreference] = useState(
+    initialWorkbenchSplit,
+  );
+  const [editorPanePercent, setEditorPanePercent] = useState(
+    initialWorkbenchSplit,
+  );
   const [guide, setGuide] = useState<{
     placements: Placement[];
     /** generator's coverage rect (Random's area params), artboard-centered */
@@ -113,6 +138,21 @@ export default function App() {
   const guideRef = useRef<HTMLCanvasElement>(null);
   const projectFileRef = useRef<HTMLInputElement>(null);
   const gpuRef = useRef<GpuContext | null>(null);
+  const workbenchRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        localStorage.setItem(
+          WORKBENCH_SPLIT_STORAGE_KEY,
+          String(editorPanePreference),
+        );
+      } catch {
+        // Resizing remains available when browser storage is unavailable.
+      }
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [editorPanePreference]);
 
   useEffect(() => {
     let cancelled = false;
@@ -576,7 +616,14 @@ export default function App() {
     : null;
 
   return (
-    <div className="app">
+    <div
+      className="app"
+      ref={workbenchRef}
+      data-workbench-layout
+      style={{
+        '--editor-pane-size': `${editorPanePercent}%`,
+      } as CSSProperties}
+    >
       <div
         className="sr-only"
         role="status"
@@ -651,11 +698,17 @@ export default function App() {
           {' '}The current edit remains in memory.
         </div>
       )}
-      <div className="editor">
+      <div className="editor" id="workbench-node-editor">
         <NodeEditor />
         <LayersPanel />
       </div>
-      <div className="viewport">
+      <WorkbenchSplitter
+        containerRef={workbenchRef}
+        value={editorPanePreference}
+        onChange={setEditorPanePreference}
+        onEffectiveChange={setEditorPanePercent}
+      />
+      <div className="viewport" id="workbench-poster-preview">
         <div className="frame-config" data-agent-fixed-panel="frame">
           <div className="preset-icons">
             {FRAME_PRESETS.map((p) => {

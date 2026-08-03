@@ -100,6 +100,7 @@ try {
   await waitForWorkbench(preview, previewError);
   await waitForExit(startNpm('smoke:baseline'), 'smoke:baseline');
   await waitForExit(startNpm('smoke:frame'), 'smoke:frame');
+  await waitForExit(startNpm('smoke:workbench'), 'smoke:workbench');
 } finally {
   await stopPreview(preview);
 }

@@ -38,7 +38,14 @@ prints the actual port). It is for human development and intentionally has no
 Agent bridge. When you later start the MCP companion, it serves another full UI
 at the fixed `http://127.0.0.1:5199`; that 5199 window is the shared workbench
 where the human and Agent edit the same document. You do not need to keep 5173
-running for an Agent session.
+running for an Agent session. The visible 5199 window opens at a useful initial
+size but follows the native Chrome viewport: resize it or use browser zoom as
+you would with an ordinary app. The node editor and preview can be resized with
+the separator between them, and they stack in a narrow window. The artboard
+continues to preserve the document Frame ratio. At very high zoom or very short
+window heights, scroll the workbench vertically to reach both panes. Temporary
+window constraints do not replace your preferred split when you return to a
+larger window.
 
 The app opens with a blank project already rendering: one layer with one
 **Output** node. The left side is the node graph, the right side is the
@@ -134,7 +141,10 @@ The project controls above the artboard serve different jobs:
   after the current document revision has finished rendering.
 
 The app also keeps versioned working data in browser storage. Treat the
-downloaded project file—not browser storage—as the portable backup.
+downloaded project file—not browser storage—as the portable backup. This is
+especially important on 5199: the companion uses a temporary isolated browser
+context, so save a project file before closing the companion or its Chrome
+window if you want to continue in a later session.
 
 The project `schemaVersion` identifies the document/storage envelope, not
 forward compatibility with every older application build. Unknown newer node
@@ -199,7 +209,9 @@ explicit Trusted Local startup profile.
 The companion communicates with the MCP host over stdio and owns a fixed local
 HTTP/WebSocket origin at `127.0.0.1:5199`. The Chrome window it opens contains
 the complete Web UI, not an Agent-only copy: keep that window visible to review
-or make human edits while the Agent works on the same document.
+or make human edits while the Agent works on the same document. Window resize,
+browser zoom, and the workbench separator change only how the UI is displayed;
+they do not change Frame pixels or the exact revision preview returned by MCP.
 
 ### 1. Build the Agent artifacts
 

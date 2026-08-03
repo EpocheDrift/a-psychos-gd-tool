@@ -11,6 +11,13 @@ published an official tag yet; current work remains under **Unreleased**.
 - Agent-ready v1 provides the shared 5199 Web UI and bounded local MCP
   companion.
 - Agent-ready v1 提供共享的 5199 Web UI 和有明确权限边界的本地 MCP Companion。
+- The visible 5199 workbench now follows its native window, provides an
+  accessible resizable split, and stacks its panes at narrow widths without
+  changing exact design output. Extreme zoom retains an internal scroll path,
+  and temporary layout clamping does not overwrite the preferred split.
+- 可见的 5199 工作台现在会跟随真实窗口，提供可访问的分栏调整，并在窄窗口下自动
+  上下排列，同时保持准确设计输出不变。极高缩放下仍有内部滚动路径，临时布局约束也
+  不会覆盖用户偏好的分栏比例。
 - Local development now requires Node.js 22.12+ and uses a reproducible
   lockfile plus bundled-font verification.
 - 本地开发现在要求 Node.js 22.12+，并使用可复现的 lockfile 和内置字体校验。

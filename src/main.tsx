@@ -4,6 +4,10 @@ import App from './App';
 import { installBrowserAgentBridge } from './agent/browserBridge';
 import './app.css';
 
+if (__GFX_AGENT_BUILD__) {
+  document.title = 'Graphic Design Workbench — Agent + Human';
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

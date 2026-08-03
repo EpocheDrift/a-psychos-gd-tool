@@ -52,8 +52,33 @@ Individual checks:
 | `npm run smoke:interaction` | Exercises pan, zoom, marquee selection, cross-platform Shift-add, group movement, delete, and undo. |
 | `npm run smoke:render` | Churns revisions, retries, and frame sizes; proves coalescing, exact terminal tickets, last-known-good display, and bounded GPU-pool recovery. |
 | `npm run smoke:agent-ui` | Runs the semantic Text → Outline → Rasterize → Output workflow 50 times, captures exact PNG/WebP evidence and metrics, checks rejected wiring/stale capture, exercises keyboard parameters/fonts/layers plus app-owned pan/zoom controls, scans accessibility, and verifies 20-node collision-free placement. |
+| `npm run smoke:workbench` | Resizes the shared workbench by pointer and keyboard, verifies wide, stacked, extreme-zoom scroll fallback, preference restoration, and DPR 2 layouts, and proves viewport changes preserve revision, canvas pixels, ratio, and exact PNG bytes. |
 
-The default is headless Chrome. Set `SMOKE_HEADED=1` to watch a run.
+The default is headless Chrome. Set `SMOKE_HEADED=1` to watch a run. Smoke
+harnesses still use their explicitly declared deterministic viewport when
+headed; making a test visible does not turn that viewport into the interactive
+5199 product contract. The main harness defaults to 1480×920 at DPR 1, while
+individual checks may declare another size and MCP E2E uses its own launcher.
+
+### Visible 5199 release check
+
+Headless viewport changes are deterministic enough for CI, but they are not a
+substitute for native Chrome window management. After changing the companion
+launch policy or workbench layout, perform this release check once on a rebuilt
+visible 5199 session:
+
+1. resize the Chrome window across the side-by-side/stacked breakpoint;
+2. test browser zoom at 100%, 200%, and one higher level, confirming the
+   workbench offers a vertical scroll path when both panes cannot fit;
+3. drag the separator, use its arrow keys, and confirm a temporary narrow or
+   zoomed state does not replace the preferred wide split after returning;
+4. capture the same exact revision before and after and confirm its Frame
+   dimensions and exported PNG are unchanged.
+
+This is a deliberate local/release gate rather than a headed CI gate: window
+decorations, focus, and display-server behavior make GUI Chrome runs unsuitable
+as a stable pull-request requirement. The companion unit test separately gates
+the production `defaultViewport: null` launch contract.
 
 ## Configuration and artifacts
 
@@ -86,8 +111,8 @@ diagnostic and the semantic color/bounds checks still gate the run.
 Every pull request runs typecheck, Vitest, the default and Agent production
 builds, the compiled MCP authority gate, a real child-process stdio-to-browser
 MCP E2E, the compiled companion stdio lifecycle check,
-`check:agent-artifacts`, and the stable `smoke:baseline` plus `smoke:frame`
-WebGPU subset. The MCP E2E exercises the enabled read, preview, edit,
+`check:agent-artifacts`, and the stable `smoke:baseline`, `smoke:frame`, and
+`smoke:workbench` WebGPU subset. The MCP E2E exercises the enabled read, preview, edit,
 asset, and model handlers through the official stdio client transport,
 including in-app browser-trusted approval, exact preview bytes, pinned
 same-origin model routing, exact-ticket node clipping measurement, revert,
