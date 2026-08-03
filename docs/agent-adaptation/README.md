@@ -65,8 +65,10 @@ autonomous art direction remains outside the first-release scope.
 
 ## Try it
 
-- [Getting started: Web UI and Agent MCP](../getting-started.md)
-- [中文入门：Web UI 与 Agent MCP](../getting-started.zh-CN.md)
+- [Codex Quick Start: repo-local Skill + MCP](../codex-quickstart.md)
+- [Codex 中文快速入门：repo-local Skill + MCP](../codex-quickstart.zh-CN.md)
+- [Host-neutral getting started: Web UI and Agent MCP](../getting-started.md)
+- [通用中文入门：Web UI 与 Agent MCP](../getting-started.zh-CN.md)
 - [Local MCP companion reference](../../packages/mcp-companion/README.md)
 
 The walkthroughs are the user-facing entry point. The documents below are the
@@ -97,21 +99,15 @@ architecture, security, implementation, and review record.
 10. **Preview is evidence, not state.** The JSON document is authoritative;
     screenshots and image metrics verify the render.
 
-## Documents
+## Evidence map
 
-- [Agent × MCP 平面设计审美实验规约](../agent-aesthetic-experiments/SPEC.zh-CN.md)
-  — 在工程闭环之外，规范持续的人机 Brief、艺术指导、视觉质量和协作效率实验。
-- [Agent × MCP 审美协作 Playbook](../agent-aesthetic-experiments/PLAYBOOK.zh-CN.md)
-  — 从当前实验提炼的操作性工作流、质量闸门、anti-template 规则和未来 Skill 晋升
-  条件；当前仍受两项目、单评价者和小样本证据限制。
-- [`collaborate-on-graphic-design` v0.1-alpha](../../skills/collaborate-on-graphic-design/SKILL.md)
-  — 把当前 working rules 封装成可安装、可 forward-test 的审美协作 Skill；它不宣称
-  已验证稳定或保证“好看”。
-- [v0.1-alpha operator/evaluator suite](../../evals/collaborate-on-graphic-design/v0.1-alpha/SUITE.md)
-  — 与 runner context 隔离的 retrospective、forward、failure-honesty gates、公开合成素材
-  和报告入口；当前明确缺少晋升所需的正式 recovery regression。
-- [真实审美实验的 MCP 交互反馈](../agent-aesthetic-experiments/MCP-UX-FEEDBACK.zh-CN.md)
-  — 基于首个实测 Session 的边界测量、会话连续性、字体授权和人类反馈桥建议。
+The two groups below answer different questions. Passing the engineering MCP
+suite proves bounded execution and evidence integrity; it does not prove stable
+aesthetic quality. The aesthetic documents are early process evidence; they do
+not replace the v1 security and protocol record.
+
+### Engineering implementation and security
+
 - [中文审批简报](./approval-brief.zh-CN.md) — 所有者的最终批准、明确豁免的
   额外验收项、风险分层和不在批准范围内的事项。
 - [Readiness audit](./readiness-audit.md) — original baseline gap analysis and
@@ -124,6 +120,23 @@ architecture, security, implementation, and review record.
   golden/preview policy, recovery traces, metrics, and helper decisions.
 - [Delivery evidence](./delivery-checklist.md) — non-normative phase status and
   reproducible verification links.
+
+### Aesthetic collaboration research — experimental
+
+- [Agent × MCP 平面设计审美实验规约](../agent-aesthetic-experiments/SPEC.zh-CN.md)
+  — 在工程闭环之外，规范持续的人机 Brief、艺术指导、视觉质量和协作效率实验。
+- [Agent × MCP 审美协作 Playbook](../agent-aesthetic-experiments/PLAYBOOK.zh-CN.md)
+  — 从当前实验提炼的操作性工作流、质量闸门、anti-template 规则和未来 Skill 晋升
+  条件；当前仍受两项目、单评价者和小样本证据限制。
+- [`collaborate-on-graphic-design` v0.1-alpha](../../.agents/skills/collaborate-on-graphic-design/SKILL.md)
+  — 把当前 working rules 封装成 repo-local、可 forward-test 的审美协作 Skill；它不宣称
+  已验证稳定或保证“好看”。
+- [v0.1-alpha operator/evaluator suite](../../evals/collaborate-on-graphic-design/v0.1-alpha/SUITE.md)
+  — **仅供实验操作与评价，不是新用户教程。**它包含与 runner context 隔离的
+  retrospective、forward、failure-honesty gates、公开合成素材和报告入口；当前明确缺少
+  晋升所需的正式 recovery regression。
+- [真实审美实验的 MCP 交互反馈](../agent-aesthetic-experiments/MCP-UX-FEEDBACK.zh-CN.md)
+  — 基于首个实测 Session 的边界测量、会话连续性、字体授权和人类反馈桥建议。
 
 ## Non-goals for the first release
 
