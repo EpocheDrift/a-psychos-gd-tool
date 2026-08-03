@@ -25,6 +25,9 @@
 - **审阅 Agent-ready v1：** 先看
   [中文审批简报](docs/agent-adaptation/approval-brief.zh-CN.md)，需要技术细节
   时再进入 [Agent 适配文档](docs/agent-adaptation/README.md)。
+- **通过 MCP 协作完成审美方向：** 使用实验性的
+  [`collaborate-on-graphic-design` Skill](skills/collaborate-on-graphic-design/SKILL.md)。
+  它是 `v0.1-alpha` 协作流程，不承诺普遍或客观“好看”。
 
 ## 环境要求
 

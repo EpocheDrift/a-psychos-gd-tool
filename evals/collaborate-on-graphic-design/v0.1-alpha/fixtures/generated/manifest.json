@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "generate-abstract-series.mjs",
+  "dimensions": {
+    "width": 600,
+    "height": 750
+  },
+  "license": "MIT",
+  "containsPrivateAssets": false,
+  "fixtures": [
+    {
+      "name": "field-01.png",
+      "pattern": "offset-orbit",
+      "bytes": 16372,
+      "sha256": "eb49c4af1adfcb2e85444ee760950014650bcb14e995690502199f152ff8a986"
+    },
+    {
+      "name": "field-02.png",
+      "pattern": "vertical-slit",
+      "bytes": 5481,
+      "sha256": "373a9bc60db5162630308d1303772971728921631aefd2c8f15d59e958dc2c18"
+    },
+    {
+      "name": "field-03.png",
+      "pattern": "low-horizon",
+      "bytes": 21329,
+      "sha256": "008b6c78e96f3a6ddf1edabdfc11ef9566379b51d25836d281ecfc4c8c49e970"
+    },
+    {
+      "name": "field-04.png",
+      "pattern": "split-current",
+      "bytes": 4320,
+      "sha256": "e244dc1957ae4e93d231a83825095c5067ae5e99562689a97c1e9f95d2c781a1"
+    }
+  ]
+}
