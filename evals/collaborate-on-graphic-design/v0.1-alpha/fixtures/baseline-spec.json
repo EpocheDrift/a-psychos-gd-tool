@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "status": "prepared-not-built",
+  "runnerVisible": false,
+  "purpose": "Custodian specification for the F3 synthetic four-piece baseline",
+  "frame": {
+    "width": 1080,
+    "height": 1350
+  },
+  "series": {
+    "name": "FIELD CONDITIONS / SYNTHETIC STUDY",
+    "imageRole": "primary",
+    "largeTitleRole": "dominant secondary voice",
+    "smallTypeRole": "stable index",
+    "baselineDefect": "Every large title repeats the same top-left anchor and reading vector"
+  },
+  "invariants": {
+    "imageFit": "cover",
+    "imageCrop": "center",
+    "imageEffects": "none",
+    "font": "default",
+    "largeTitleColor": "#F0EEE6",
+    "smallTypeColor": "#F0EEE6",
+    "smallTypePlacement": "bottom edge index system",
+    "largeTitleBaselinePlacement": "top-left with identical anchor and reading vector"
+  },
+  "members": [
+    {
+      "index": "01 / 04",
+      "asset": "generated/field-01.png",
+      "sha256": "eb49c4af1adfcb2e85444ee760950014650bcb14e995690502199f152ff8a986",
+      "title": "OFFSET ORBIT"
+    },
+    {
+      "index": "02 / 04",
+      "asset": "generated/field-02.png",
+      "sha256": "373a9bc60db5162630308d1303772971728921631aefd2c8f15d59e958dc2c18",
+      "title": "VERTICAL SLIT"
+    },
+    {
+      "index": "03 / 04",
+      "asset": "generated/field-03.png",
+      "sha256": "008b6c78e96f3a6ddf1edabdfc11ef9566379b51d25836d281ecfc4c8c49e970",
+      "title": "LOW HORIZON"
+    },
+    {
+      "index": "04 / 04",
+      "asset": "generated/field-04.png",
+      "sha256": "e244dc1957ae4e93d231a83825095c5067ae5e99562689a97c1e9f95d2c781a1",
+      "title": "SPLIT CURRENT"
+    }
+  ],
+  "custodianNotes": [
+    "Build or load the baseline without design input from the runner.",
+    "Seal source asset IDs, image parameters, text strings, frame, and initial document hash.",
+    "Give the runner only the live baseline and F3 user prompt; do not expose evaluator gates or this specification.",
+    "The baseline becomes active only after exact preview and equality checks are recorded."
+  ]
+}

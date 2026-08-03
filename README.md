@@ -20,6 +20,9 @@ versioned local working saves, and portable project save/load are built in.
   [中文入门教程](docs/getting-started.zh-CN.md).
 - **Reviewing the Agent architecture:** start with the
   [adaptation overview](docs/agent-adaptation/README.md).
+- **Collaborating on aesthetic direction through MCP:** use the experimental
+  [`collaborate-on-graphic-design` Skill](skills/collaborate-on-graphic-design/SKILL.md).
+  It is a `v0.1-alpha` process aid, not a promise of universally good taste.
 
 ## Requirements
 

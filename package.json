@@ -25,6 +25,7 @@
     "check:mcp:stdio": "node scripts/mcp-stdio-check.mjs",
     "check:mcp": "npm run build:agent && npm run build:mcp && npm run check:mcp:authority && node scripts/mcp-e2e-check.mjs && node scripts/agent-eval-check.mjs && npm run check:mcp:stdio",
     "check:agent-evals": "npm run build:agent && npm run build:mcp && node scripts/agent-eval-check.mjs",
+    "check:aesthetic-skill": "node scripts/aesthetic-skill-check.mjs",
     "mcp:start": "npm run build:agent && npm run build:mcp && npm --workspace @a-psychos/gd-mcp-companion run start --",
     "preview": "vite preview",
     "preview:agent": "vite preview --mode agent",
@@ -43,7 +44,7 @@
     "smoke:workbench": "node scripts/workbench-layout-check.mjs",
     "smoke:ci": "node scripts/ci-smoke-check.mjs",
     "smoke:all": "npm run smoke:baseline && npm run smoke:example && npm run smoke:controller && npm run smoke:frame && npm run smoke:blur && npm run smoke:fringe && npm run smoke:interaction && npm run smoke:render && npm run smoke:agent-ui && npm run smoke:workbench",
-    "test": "vitest run && npm run test:mcp",
+    "test": "vitest run && npm run test:mcp && npm run check:aesthetic-skill",
     "test:mcp": "npm --workspace @a-psychos/gd-mcp-companion run test && npm run check:mcp:authority",
     "typecheck": "tsc -b && npm --workspace @a-psychos/gd-mcp-companion run typecheck"
   },

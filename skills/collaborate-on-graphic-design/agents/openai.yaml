@@ -1,0 +1,4 @@
+interface:
+  display_name: "Graphic Design Collaborator (Alpha)"
+  short_description: "Evidence-limited alpha for graphic-design collaboration"
+  default_prompt: "Use $collaborate-on-graphic-design v0.1-alpha to turn my brief into distinct art directions and execute the chosen direction through the Graphic Design MCP."
