@@ -60,5 +60,24 @@ project should be isolated from downstream-only code and proposed against
 from a branch based on that upstream's current `main`. Do not ask upstream to
 review the full downstream history.
 
+When an upstream contribution is ready to implement, use an on-demand branch
+based directly on the current upstream branch:
+
+```sh
+git fetch upstream main
+git switch -c upstream-contrib/topic-name upstream/main
+```
+
+Target the resulting pull request at the original repository's `main`. Do not
+merge that branch back into this fork merely to preserve it; bring any relevant
+downstream change into `origin/main` through its own product PR.
+
+Use `research/<topic>` only for a bounded active experiment. Raw prompts, assets,
+and repetitive session evidence stay outside `main`; a stable result is promoted
+with a focused, tested product PR. Snapshot and release tags are immutable. These
+branch prefixes are created on demand, so the repository does not keep empty
+placeholder branches. See the [Public Alpha roadmap](docs/roadmap.md) for the
+current decision gates.
+
 By contributing, you agree that your contribution is licensed under the
 repository's [MIT License](LICENSE).

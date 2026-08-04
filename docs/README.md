@@ -21,6 +21,7 @@ longer architecture and evaluation records are not required for ordinary use.
 | Run browser verification | [Browser and WebGPU smoke tests](testing/browser-smoke.md) | Chrome prerequisites, individual suites, environment variables, and artifacts |
 | Prepare a release | [Release process](releasing.md) | Version PR, required evidence, tag, GitHub Release, and rollback |
 | Review dependency risk | [Dependency security baseline](dependency-security.md) | Current reviewed exceptions, reachability, mitigations, and expiry |
+| Review product direction | [Public Alpha roadmap](roadmap.md) | Current baseline, deferred decisions, and the lifecycle of product, upstream, research, and release lanes |
 
 ## The workspace rule
 
@@ -56,6 +57,7 @@ suite is engineering/research material rather than a new-user tutorial.
 ## Project policy
 
 - [Known limitations](known-limitations.md)
+- [Public Alpha roadmap](roadmap.md)
 - [Security policy](../SECURITY.md)
 - [Contributing](../CONTRIBUTING.md)
 - [Changelog](../CHANGELOG.md)
