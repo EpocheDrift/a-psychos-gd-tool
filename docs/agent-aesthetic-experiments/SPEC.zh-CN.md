@@ -2,9 +2,11 @@
 
 状态：**Active working specification**
 
-版本：**0.1.0**
+版本：**0.2.0**
 
 生效日期：**2026-07-28**
+
+最近修订：**2026-08-03**
 
 规范所有者：**项目所有者**
 
@@ -27,6 +29,14 @@
 
 本文档中的“必须”“不得”是实验有效性的强约束；“建议”是默认做法，偏离时应在
 Session 记录中解释。
+
+本文档只约束**正式实验**，不应强迫普通设计协作进行完整预注册。日常协作以
+[`collaborate-on-graphic-design`](../../.agents/skills/collaborate-on-graphic-design/SKILL.md)
+为操作性来源；当前研究状态、公开证据和限制见
+[`README.md`](./README.md)。Spec 决定实验有效性，Skill 决定普通协作行为，二者不得
+互相冒充。Spec 由独立 custodian/evaluator 持有；因为它包含评价维度和 protocol
+expectations，不得直接进入计数 Run 的 runner context。custodian 只能据此派生不含评价
+规则、历史结果或预期诊断的最小 runner packet。
 
 ## 2. 研究目的
 
@@ -241,13 +251,20 @@ capability 版本。默认新建实验图层，不修改已有作品。需要继
 
 除非实验条件有意改变某一步，每个 Run 遵循以下阶段。
 
+本节规定实验顺序和证据纪律；当前工具名、参数、retry、render ticket、measurement、
+asset 与 recovery 细节以冻结版本的
+[`mcp-execution.md`](../../.agents/skills/collaborate-on-graphic-design/references/mcp-execution.md)
+为准。若实时 capability 与参考文档不一致，应在设计写入前停止并记录，不得临时改动
+条件后继续把该 Run 计入原实验。
+
 ### A. Preflight
 
 1. 创建 Run ID。
-2. 记录 Agent、MCP、浏览器、scope 和时间。
-3. 调用 `gfx_get_capabilities`。
-4. 调用 `gfx_get_document`，记录 baseline revision、frame 和 layers。
-5. 确认不会覆盖非实验图层。
+2. 核对冻结的研究问题、主要结果、预算、停止规则和 runner allowlist。
+3. 记录 Agent、Skill、MCP、浏览器、scope、环境和时间。
+4. 调用当前 capability 与 document preflight，记录 baseline revision、frame 和 layers。
+5. 确认 writable target 与其他 Run 隔离，并且不会覆盖非实验图层。
+6. 确认 runner 无法读取 evaluator criteria、其他 Run、历史偏好或预期诊断。
 
 ### B. Brief 解释
 
@@ -277,22 +294,24 @@ Agent 在写入前记录预期的：
 
 ### D. MCP 写入
 
-1. 使用当前 `expectedRevision`。
-2. 每个语义完整的设计步骤优先使用一次原子 `gfx_apply_transaction`。
-3. 使用稳定、可追踪的 `requestId`。
-4. 不把自动排版后的编辑器节点位置误认为画面构图。
-5. 失败时保留结构化错误；修正参数后使用新的 request ID。
-6. revision 冲突时重新读取文档，不得盲目重放修改后的旧请求。
+1. 在写入前封存本 Run 的策略与语义计划。
+2. 使用当前 revision 对完整语义计划进行 dry-run，不把 dry-run 当成持久写入证据。
+3. dry-run 后重新读取相关文档状态；若 revision 或依赖状态改变，先解释介入编辑，再
+   重新计划和 dry-run。
+4. 使用新的 request ID、最新 revision 和同一语义计划进行原子提交。
+5. 不把编辑器节点位置误认为画面构图，也不因工具缺少某能力而静默更换研究问题。
+6. 保留所有结构化错误、冲突和失败；只有预注册预算允许的技术修正可以继续。
 
 ### E. 精确渲染证据
 
-1. 调用 `gfx_validate_document`。
-2. 使用 `gfx_await_render` 等待本次提交对应的准确 revision。
-3. 调用 `gfx_capture_preview` 获取视觉证据。
+1. 验证当前文档达到预注册的 renderable 条件。
+2. 等待本次提交对应的准确 revision / render attempt。
+3. 测量预注册的关键 rendered outputs，并获取准确 preview 证据。
 4. 默认至少检查：
    - 接近 `1024px` 边长的大预览，用于细节与工艺；
    - 接近 `256px` 边长的缩略预览，用于层级与整体构图。
-5. 记录 preview revision、尺寸、hash 和渲染状态。
+5. 在 private sealed record 中保存 revision、尺寸、hash、渲染状态和必要 reconstruction
+   inputs；公开 ledger 只保留脱敏结果与不透明 archive key。
 
 不得用旧 revision 的预览评价新事务。
 
@@ -406,86 +425,65 @@ Q0–Q1 是硬门槛；Q2–Q7 是审美判断，不得宣称由代码“保证�
 - Run ID：`<Session-ID>-<条件>-R<重复序号>`
 - MCP request ID：`<Run-ID>-<动作>-V<序号>`，转换为工具接受的安全字符格式。
 
-### 13.2 存储
+### 13.2 四个证据面
 
-- 规范性 Session 摘要：
-  `docs/agent-aesthetic-experiments/sessions/<Session-ID>.md`
-- 可再生或体积较大的运行证据：
-  `test-results/agent-aesthetic/<Session-ID>/<Run-ID>/`
+每个正式 Session 必须把以下材料逻辑或物理隔离：
 
-`test-results/` 默认不提交 Git。若某张预览要成为长期审阅证据，应另行选择明确、
-不含敏感信息的路径，并在 Session 摘要中记录来源 revision 和 hash。
+1. **Runner packet**：只包含冻结的 Skill、任务 prompt、baseline、允许的公开/合成素材
+   和该 Run 必需的 capability 信息。不得包含评价规则、旧结果、偏好方向或预期诊断。
+2. **Private sealed record**：保存精确 Brief、全部 Run（包括失败）、原始或明确脱敏的人类
+   反馈、环境 fingerprint、工具 trace、revision、资产身份、hash、preview、偏离和
+   reconstruction inputs。它必须位于项目所有者批准且 runner 不可见的 evidence store。
+3. **Evaluator packet**：保存 rubric、权重、expected assertions、随机展示标签、结果映射和
+   evaluator notes；在计数 Run 完成并封存前不得向 runner 暴露。
+4. **Public ledger**：只保存脱敏后的条件、观察、限制、协议偏离和不透明 archive key；不得
+   保存私人图片、相机文件名、本地路径、source/output hash 或未经授权的逐字家庭场景
+   对话。
 
-### 13.3 最小记录内容
+公开目录中的 [`sessions/`](./sessions/) 是 v0.2.0 分层建立前产生的 legacy public
+traces。当前 `main` 已隐藏已识别的私人 source 文件名、source hash 与家庭对话，但仍保留
+output/reconstruction hashes 和相对 evidence paths；这是对既有公开工程来源的明确例外，
+不是 v0.2.0 的未来存储标准。它们不得作为干净 forward Run 的输入。未来正式实验只向
+本仓库提交 [`README.md`](./README.md) 中的脱敏 ledger 更新；完整记录进入 private sealed
+store。
 
-每个 Session 必须包含：
+### 13.3 Private sealed record 的最小内容
 
-- 研究问题、假设和任务族；
-- 条件、控制变量、主要结果和停止规则；
-- 完整 Brief 与条件间的实际差异；
-- 每个 Run 的环境、基线、工具 trace 和 revision；
-- 关键预览；
-- Agent 执行前策略和执行后评价；
-- 原样保存的人类反馈；
-- 盲评结果、维度评分和理由；
-- 偏离、失败、混杂因素；
-- 结论、不能得出的结论和下一步。
+每个正式 Session 至少保留：
 
-记录模板位于
-[`sessions/TEMPLATE.zh-CN.md`](./sessions/TEMPLATE.zh-CN.md)。
+- 研究问题、假设、任务族和冻结时间；
+- 条件、控制变量、主要结果、预算、失败处理和停止规则；
+- 完整 Brief、条件间实际差异和 runner allowlist；
+- 每个 Run 的环境、baseline、策略封存、工具 trace 和 revision；
+- 全部 preview、measurement、hash、失败和缺失 artifact；
+- Agent 执行前策略与执行后评价；
+- 人类反馈原文，或明确标记且不改变含义的脱敏版本；
+- 盲评结果、维度评分、理由和 evaluator 映射；
+- 偏离、混杂因素、不能得出的结论和下一步。
 
-## 14. 首个实验：S1 Brief × 协作流程 Pilot
+### 13.4 Public ledger 的最小内容
 
-### 14.1 目的
+每个完成或停止的 Session 在公开 ledger 中只需记录：
 
-建立可运行的实验记录流程，并初步观察 Brief 结构与执行前策略确认对纯文字海报的
-影响。Pilot 只验证方法，不形成普遍性结论。
+- 不泄露私密内容的任务和条件摘要；
+- primary outcome 是否可获得；
+- 可支持的 Observation、Working rule 或 Hypothesis；
+- 失败、偏离和限制；
+- 若存在，经批准的不透明 private archive key。
 
-### 14.2 固定任务
+不得把 private record 的缺失用更详细的公开披露补齐，也不得让公开 ledger 成为未来
+runner 发现 evaluator expectations 或历史视觉 token 的入口。
 
-- 任务族：T1 纯文字海报；
-- frame：1080 × 1350；
-- 相同完整文案、受众和使用场景；
-- 不使用外部图片和本地模型；
-- 相同 Agent、MCP 版本、字体条件和初始文档；
-- 每个 Run 新建独立图层；
-- 每个条件 Pilot 运行 1 次；
-- 正式阶段在协议稳定后增加到每条件至少 3 次。
+## 14. 历史证据与下一阶段
 
-具体文案和审美目标必须在 Session 开始时写入记录，在第一个 Run 后不得改变。
+首个 S1 Brief pilot 已经停止，且没有完成原计划中的有效三条件比较。它只能支持协议、
+裁切、会话连续性和盲评缺陷等历史观察，不能支持某一 Brief 条件优于另一条件。历史证据的
+脱敏汇总与限制见 [`README.md`](./README.md)。
 
-### 14.3 条件
-
-- **A — 短自然语言 + 直接执行**
-  - 只提供未经结构化的一段需求；
-  - Agent 不向人类展示执行前设计策略；
-  - 完成后不修订。
-
-- **B — 结构化 Brief + 直接执行**
-  - 使用第 9 节模板；
-  - Agent 不向人类展示执行前设计策略；
-  - 完成后不修订。
-
-- **C — 结构化 Brief + 策略确认 + 视觉反馈**
-  - 使用与 B 相同的信息；
-  - Agent 先展示设计策略，经人确认后执行；
-  - 最多两轮人类反馈；
-  - 每轮只处理最高优先级问题。
-
-### 14.4 主要结果与停止规则
-
-主要结果：
-
-1. 三个最终版本的盲测成对偏好与理由；
-2. 需求符合度、信息层级、构图、字体和独特性的维度评价；
-3. C 条件的额外交互成本是否带来可感知提升。
-
-停止规则：
-
-- A、B 在第一张准确 preview 后停止；
-- C 在最多两轮反馈后停止，或人类明确表示目标已达到时提前停止；
-- 技术失败允许按 MCP 恢复协议处理，不计作审美修订轮；
-- 若不同条件没有使用等价 Brief 信息，Pilot 作废并重新开始。
+下一候选阶段是一个真实 T2 信息密集任务下的 Frozen Brief × 3 Clean Runs。当前
+[`PHASE-2-PLAN.zh-CN.md`](./PHASE-2-PLAN.zh-CN.md) 只是 preparation：在真实 Brief、
+完整 Frozen Run Packet、隔离 targets、盲评程序和项目所有者确认全部冻结前，它不构成
+预注册，也不授权任何 MCP 设计写入。
 
 ## 15. 修改本规约
 
@@ -500,3 +498,4 @@ Q0–Q1 是硬门槛；Q2–Q7 是审美判断，不得宣称由代码“保证�
 | 版本 | 日期 | 修改 | 原因 |
 | --- | --- | --- | --- |
 | 0.1.0 | 2026-07-28 | 建立初始研究问题、协议、rubric、记录规范和 S1 Pilot | 为持续的 Agent × MCP 审美实验提供共同基线 |
+| 0.2.0 | 2026-08-03 | 分离 runner、private sealed record、evaluator 与 public ledger；把当前 MCP mechanics 委托给冻结的 Skill reference；将 S1 改为历史观察而非活动协议 | 避免私人证据公开、forward-run 污染、旧工具流程漂移和未完成 Pilot 被误读为比较结果 |
