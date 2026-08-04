@@ -13,16 +13,21 @@ versioned local working saves, and portable project save/load are built in.
 
 - **First time in the Web UI:** follow the
   [10-minute guided poster](docs/getting-started.md#make-your-first-poster).
-- **Connecting Codex, Claude Code, or another MCP host:** follow the
+- **Using Codex with the bundled Skill and MCP:** follow the
+  [Codex Quick Start](docs/codex-quickstart.md). The repository-local Skill is
+  discovered automatically; the guide gives the exact MCP registration and
+  first combined prompt.
+- **Connecting Claude Code or another MCP host:** follow the generic
   [Agent MCP walkthrough](docs/getting-started.md#connect-an-agent-in-about-10-minutes).
 - **Prefer Chinese:** use the
   [简体中文 README](README.zh-CN.md) and
-  [中文入门教程](docs/getting-started.zh-CN.md).
+  [Codex 中文快速入门](docs/codex-quickstart.zh-CN.md).
 - **Reviewing the Agent architecture:** start with the
   [adaptation overview](docs/agent-adaptation/README.md).
-- **Collaborating on aesthetic direction through MCP:** use the experimental
-  [`collaborate-on-graphic-design` Skill](skills/collaborate-on-graphic-design/SKILL.md).
-  It is a `v0.1-alpha` process aid, not a promise of universally good taste.
+
+The repo-local
+[`collaborate-on-graphic-design` Skill](.agents/skills/collaborate-on-graphic-design/SKILL.md)
+is a `v0.1-alpha` process aid, not a promise of universally good taste.
 
 ## Requirements
 
@@ -158,8 +163,9 @@ Claude Code may separately have permissions granted by its own runtime; this
 project neither grants nor revokes those host-level permissions.
 Browser-trusted approval rejects page-script synthetic events but is not
 physical-user proof. Build/run details are in the
-[Agent walkthrough](docs/getting-started.md#connect-an-agent-in-about-10-minutes)
-and [companion guide](packages/mcp-companion/README.md); the readiness audit,
+[Codex Quick Start](docs/codex-quickstart.md), the generic
+[Agent walkthrough](docs/getting-started.md#connect-an-agent-in-about-10-minutes),
+and the [companion guide](packages/mcp-companion/README.md); the readiness audit,
 target architecture, security model, and staged implementation/evidence live
 in [`docs/agent-adaptation/`](docs/agent-adaptation/README.md).
 The project owner approved this v1 scope on 2026-07-27, and PR

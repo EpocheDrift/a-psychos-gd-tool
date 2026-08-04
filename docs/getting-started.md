@@ -199,6 +199,11 @@ model download.
 
 ## Connect an Agent in about 10 minutes
 
+Codex users who want both the repository-local aesthetic Skill and the MCP
+execution surface should start with the [Codex Quick Start](codex-quickstart.md).
+This section is the host-neutral permission, lifecycle, and troubleshooting
+walkthrough. Connecting MCP alone does not install or replace the Skill.
+
 The MCP companion provides a deliberately narrow design API. It does not expose
 shell, arbitrary filesystem, arbitrary network, browser navigation, page
 evaluation, or pointer-control tools. Your MCP host may have its own separate
@@ -229,7 +234,23 @@ Do not use both methods for the same session.
 
 #### Method A — let the MCP client launch it (recommended)
 
-Configure your MCP client with the absolute path to the built entry point:
+For Codex, this exact command registers the full personal-workspace profile.
+Run it from the repository root after the build:
+
+```sh
+codex mcp add graphic-design -- \
+  "$(command -v node)" \
+  "$PWD/packages/mcp-companion/dist/index.js" \
+  --profile=full-design-v1 \
+  --trusted-local
+codex mcp list
+```
+
+The absolute executable path avoids a common Desktop/NVM `PATH` mismatch. See
+the [Codex Quick Start](codex-quickstart.md) for Skill discovery, the first
+combined prompt, updates, and removal.
+
+For other MCP clients, configure the absolute path to the built entry point:
 
 ```json
 {
@@ -304,7 +325,11 @@ Use this as the first prompt:
 
 ### 4. Add edit permission when you are ready
 
-Stop the read-only session. Add `--allow-edit` to the configured `args`:
+Stop the read-only session. For a client-managed process, exit and relaunch the
+Codex CLI (`/exit` or `/quit`), choose **Restart** in the desktop app's
+**Settings → MCP servers**, or choose **Restart extension** in the IDE. For a
+manual `npm run mcp:start` process, press Ctrl-C in its terminal. Then add
+`--allow-edit` to the configured `args`:
 
 ```json
 {

@@ -19,15 +19,19 @@
 - **第一次使用 Web UI：** 跟着
   [10 分钟中文海报教程](docs/getting-started.zh-CN.md#做出第一张海报)
   完成第一张作品。
-- **连接 Codex、Claude Code 或其他 MCP 宿主：** 阅读
+- **用 Codex 同时使用内置 Skill 和 MCP：** 阅读
+  [Codex 中文快速入门](docs/codex-quickstart.zh-CN.md)。repo-local Skill 会被自动发现；
+  文档给出准确的 MCP 注册命令和第一条组合 prompt。
+- **连接 Claude Code 或其他 MCP 宿主：** 阅读通用的
   [Agent MCP 入门](docs/getting-started.zh-CN.md#大约-10-分钟接入-agent)。
 - **查看完整英文技术说明和节点词典：** 阅读 [English README](README.md)。
 - **审阅 Agent-ready v1：** 先看
   [中文审批简报](docs/agent-adaptation/approval-brief.zh-CN.md)，需要技术细节
   时再进入 [Agent 适配文档](docs/agent-adaptation/README.md)。
-- **通过 MCP 协作完成审美方向：** 使用实验性的
-  [`collaborate-on-graphic-design` Skill](skills/collaborate-on-graphic-design/SKILL.md)。
-  它是 `v0.1-alpha` 协作流程，不承诺普遍或客观“好看”。
+
+repo-local
+[`collaborate-on-graphic-design` Skill](.agents/skills/collaborate-on-graphic-design/SKILL.md)
+是 `v0.1-alpha` 协作流程，不承诺普遍或客观“好看”。
 
 ## 环境要求
 
@@ -176,8 +180,9 @@ Chrome 和本地 stdio MCP Companion 连接。
 换句话说，这个项目保证的是 **MCP 自己保持窄边界**，而不是替其他 Agent
 宿主撤销它们已经拥有的权限。
 
-构建与使用方式见 [MCP Companion 文档](packages/mcp-companion/README.md)；
-第一次上手建议直接看
+构建与使用方式见 [MCP Companion 文档](packages/mcp-companion/README.md)；Codex
+用户第一次上手建议看 [Codex 中文快速入门](docs/codex-quickstart.zh-CN.md)，其他
+MCP 宿主使用通用的
 [Agent MCP 入门](docs/getting-started.zh-CN.md#大约-10-分钟接入-agent)；
 方案、风险和交付证据见
 [`docs/agent-adaptation/`](docs/agent-adaptation/README.md)。

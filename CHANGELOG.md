@@ -8,6 +8,11 @@ published an official tag yet; current work remains under **Unreleased**.
 
 ## Unreleased
 
+- A fresh clone now exposes the alpha graphic-design collaboration Skill from
+  `.agents/skills` without a separate install, with bilingual Codex setup,
+  verification, update, and removal guidance for the local MCP companion.
+- 新 clone 现在会从 `.agents/skills` 直接发现 alpha 平面设计协作 Skill，无需额外安装；
+  同时补齐了本地 MCP Companion 的双语 Codex 注册、验证、更新和移除说明。
 - Agent-ready v1 provides the shared 5199 Web UI and bounded local MCP
   companion.
 - Agent-ready v1 提供共享的 5199 Web UI 和有明确权限边界的本地 MCP Companion。

@@ -181,6 +181,10 @@ RMBG-1.4，第一次使用时可能需要下载模型。
 
 ## 大约 10 分钟接入 Agent
 
+如果要在 Codex 中同时使用 repo-local 审美 Skill 和 MCP 执行接口，请先看
+[Codex 中文快速入门](codex-quickstart.zh-CN.md)。本节是与宿主无关的权限、生命周期和
+故障排查教程。只连接 MCP，并不等于安装或替代 Skill。
+
 MCP Companion 给 Agent 的是一套刻意收窄的设计 API。它不会提供 shell、任意文件
 系统、任意网络、浏览器导航、页面代码执行或鼠标控制工具。你的 MCP 宿主本身可能
 另外拥有这些权限，但 Companion 仍然只接受明确命名的 `gfx_*` 操作，以及你在
@@ -208,7 +212,21 @@ npm run build:mcp
 
 #### 方式 A——让 MCP 客户端启动（推荐）
 
-在 MCP 客户端中配置构建后的入口，而且必须使用绝对路径：
+Codex 用户可以在构建完成后，从仓库根目录执行下面这条完整个人工作区配置：
+
+```sh
+codex mcp add graphic-design -- \
+  "$(command -v node)" \
+  "$PWD/packages/mcp-companion/dist/index.js" \
+  --profile=full-design-v1 \
+  --trusted-local
+codex mcp list
+```
+
+使用绝对的 Node 路径可以避免常见的 Desktop/NVM `PATH` 不一致。Skill discovery、第一条
+组合 prompt、更新和移除方式见 [Codex 中文快速入门](codex-quickstart.zh-CN.md)。
+
+其他 MCP 客户端应配置构建后的入口，而且必须使用绝对路径：
 
 ```json
 {
@@ -277,7 +295,10 @@ npm run mcp:start
 
 ### 4. 确认后再增加编辑权限
 
-先停止只读会话，再在客户端配置的 `args` 中增加 `--allow-edit`：
+先停止只读会话。由客户端管理时：Codex CLI 使用 `/exit` 或 `/quit` 后重新启动；desktop
+app 在 **Settings → MCP servers** 中选择 **Restart**；IDE 中选择
+**Restart extension**。若通过 `npm run mcp:start` 手动运行，就在对应 terminal 按
+Ctrl-C。然后在客户端配置的 `args` 中增加 `--allow-edit`：
 
 ```json
 {

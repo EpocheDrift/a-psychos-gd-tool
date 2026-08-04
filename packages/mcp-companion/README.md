@@ -1,7 +1,9 @@
 # Local MCP companion
 
-[Beginner walkthrough](../../docs/getting-started.md#connect-an-agent-in-about-10-minutes)
-· [中文入门教程](../../docs/getting-started.zh-CN.md#大约-10-分钟接入-agent)
+[Codex Quick Start](../../docs/codex-quickstart.md)
+· [Codex 中文快速入门](../../docs/codex-quickstart.zh-CN.md)
+· [Host-neutral walkthrough](../../docs/getting-started.md#connect-an-agent-in-about-10-minutes)
+· [通用中文教程](../../docs/getting-started.zh-CN.md#大约-10-分钟接入-agent)
 
 The companion is the authenticated local adapter for the explicit Agent build.
 It starts one fixed loopback app host, launches an isolated Chrome context, and

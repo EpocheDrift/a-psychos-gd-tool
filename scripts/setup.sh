@@ -22,4 +22,6 @@ node scripts/check-font.mjs
 npm ci
 
 echo
-echo "setup complete — run 'npm run dev' and open the printed URL in a WebGPU browser (Chrome/Edge 113+ or Safari 18+)"
+echo "setup complete"
+echo "  Web UI:     run 'npm run dev' and open the printed URL in a WebGPU browser"
+echo "  Codex+MCP:  follow docs/codex-quickstart.md (or docs/codex-quickstart.zh-CN.md)"

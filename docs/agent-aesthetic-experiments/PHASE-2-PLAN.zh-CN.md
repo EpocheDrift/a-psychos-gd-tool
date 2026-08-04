@@ -12,7 +12,7 @@
 
 执行工作流：[`PLAYBOOK.zh-CN.md`](./PLAYBOOK.zh-CN.md) v0.3.0-alpha
 
-候选产品：[`collaborate-on-graphic-design`](../../skills/collaborate-on-graphic-design/SKILL.md)
+候选产品：[`collaborate-on-graphic-design`](../../.agents/skills/collaborate-on-graphic-design/SKILL.md)
 v0.1-alpha
 
 ## 1. 文档边界
