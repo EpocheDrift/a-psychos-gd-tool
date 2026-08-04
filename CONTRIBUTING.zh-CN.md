@@ -18,7 +18,20 @@ npm test
 ## Pull Request
 
 每个分支只处理一个明确主题，不要把无关改动混入 PR。提交前至少运行与改动相关的
-检查：
+检查。如果行为、兼容边界或设计还没有达成共识，请先开 bug/feature Issue；小型文档和
+测试修复可以直接提 PR。
+
+按改动类型选择最低验证：
+
+| 改动 | 最低本地证据 |
+| --- | --- |
+| 文档或仓库元数据 | `npm run check:versions`，并检查改动过的链接 |
+| TypeScript 或 UI 行为 | `npm run typecheck` 和 `npm test` |
+| Agent build 或 controller | `npm run check:agent-artifacts` |
+| MCP protocol 或 Companion | `npm run check:mcp` |
+| 渲染或浏览器交互 | browser smoke 指南中对应的检查 |
+
+通用基线为：
 
 ```sh
 npm run typecheck
@@ -34,3 +47,13 @@ npm run check:agent-artifacts
 
 CI 必须通过才能合并。安全问题请按 [SECURITY.zh-CN.md](SECURITY.zh-CN.md)
 私密报告，不要公开创建漏洞 Issue。
+
+## Fork 与上游策略
+
+这个仓库是带 Agent 能力的下游发行版。依赖 MCP、持久化或 Agent 契约的改动应提交到
+本仓库 `main`。如果修复对 Blake Shao 的原版也普遍有用，请把它与下游专属代码隔离，
+从上游当前 `main` 新建分支，再单独向
+[`blakeshao/a-psychos-gd-tool`](https://github.com/blakeshao/a-psychos-gd-tool)
+提案；不要让上游一次审查整段下游历史。
+
+提交贡献即表示你同意按本仓库的 [MIT License](LICENSE) 许可该贡献。

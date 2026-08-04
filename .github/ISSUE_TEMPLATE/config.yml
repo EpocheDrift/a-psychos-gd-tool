@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/EpocheDrift/a-psychos-gd-tool/security/advisories/new
+    about: Report vulnerabilities privately. Do not open a public issue.
+  - name: Getting started and troubleshooting
+    url: https://github.com/EpocheDrift/a-psychos-gd-tool/blob/main/docs/README.md
+    about: Check the documentation routes before filing an issue.

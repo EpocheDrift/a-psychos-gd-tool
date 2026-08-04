@@ -14,7 +14,13 @@ required.
 - For the Agent workflow: an MCP client such as Codex or Claude Code, plus a
   WebGPU-capable Chrome/Chromium installation
 
-The hosted app is useful for exploring the human UI. The Agent/MCP workflow is
+The documented setup and CI paths cover macOS and Linux. The companion includes
+Windows Chrome discovery, but the repository setup script is POSIX-only;
+Windows users should build from WSL/Git Bash or perform the equivalent npm
+steps themselves. Windows is not yet a CI reference platform.
+
+The original upstream demo is useful for exploring its human UI, but it does
+not include this distribution's Agent/MCP additions. The Agent/MCP workflow is
 local-only because the companion starts a loopback app and an isolated browser
 session.
 
@@ -46,6 +52,11 @@ continues to preserve the document Frame ratio. At very high zoom or very short
 window heights, scroll the workbench vertically to reach both panes. Temporary
 window constraints do not replace your preferred split when you return to a
 larger window.
+
+Open 5199 through the Chrome window launched by the companion. A normal browser
+tab typed manually at that address has no process-local authentication cookie
+and correctly receives `401 Unauthorized`; it is not a second way to join the
+same session.
 
 The app opens with a blank project already rendering: one layer with one
 **Output** node. The left side is the node graph, the right side is the
@@ -473,6 +484,12 @@ Stop the other companion process. The fixed loopback origin is intentional and
 does not fall back to another port. This is unrelated to Vite's development
 port (normally 5173): 5173 is a separate human source-development build, while
 the companion-owned 5199 window is the shared human-and-Agent workbench.
+
+### A normal 5199 tab says `Unauthorized`
+
+This is expected. The companion injects a short-lived, process-local cookie
+only into the isolated Chrome context it launches. Use that launched window;
+do not copy the URL into your everyday browser profile.
 
 ### Chrome does not launch
 

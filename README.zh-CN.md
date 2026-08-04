@@ -1,249 +1,135 @@
-# a-psychos-gd-tool
+# a-psychos-gd-tool — Agent 增强下游版本
 
 [English](README.md) · 简体中文
 
-**在线版本：** [a-psychos-gd-tool.vercel.app](https://a-psychos-gd-tool.vercel.app/)
+本仓库是
+[Blake Shao 原始 `a-psychos-gd-tool`](https://github.com/blakeshao/a-psychos-gd-tool)
+的 Agent-enabled downstream：它保留了在浏览器里通过 WebGPU 渲染的节点式平面
+设计工作台，并加入可移植工程、本地 MCP Companion、准确的 revision/render 证据，
+以及处于 Alpha 阶段的平面设计协作 Skill。
 
-需要支持 WebGPU 的浏览器，例如 Chrome/Edge 113+ 或 Safari 18+。
+> **当前是预发布 Alpha。**需要从源码安装，API 和工程兼容性仍可能变化。这个下游
+> 版本目前没有在线部署。你可以通过
+> [原上游 Demo](https://a-psychos-gd-tool.vercel.app/) 体验上游的人类 Web UI，但它
+> **不包含**本 Fork 的 Agent/MCP 能力。
 
-这是一个运行在浏览器和 GPU 上的节点式平面设计工具。你通过连线搭建海报：
-文字可以转成矢量轮廓，矢量可以变形和组合，栅格图像可以模糊、抖动或重新
-着色。类型转换全部由显式节点完成，不会在背后偷偷转换。修改参数时，引擎
-只重新计算真正受影响的下游节点，因此复杂节点图也能保持交互性。
+## 选择工作台
 
-**状态：** 实验性项目，仍在积极开发中。目前包含 31 种节点、撤销/重做、
-带版本的本地工作存档，以及可移植的项目保存/载入。
+项目有两条刻意分开的启动路径；同一个设计 Session 不要混用。
 
-## 从这里开始
+| Session | 启动方式 | 工作台 |
+| --- | --- | --- |
+| 只有人类 | `npm run dev` | Vite 打印的地址，通常是 `http://localhost:5173` |
+| Human + Agent | 由 MCP 宿主启动 Companion | Companion 自动打开的可见 Chrome：`http://127.0.0.1:5199` |
 
-- **第一次使用 Web UI：** 跟着
-  [10 分钟中文海报教程](docs/getting-started.zh-CN.md#做出第一张海报)
-  完成第一张作品。
-- **用 Codex 同时使用内置 Skill 和 MCP：** 阅读
-  [Codex 中文快速入门](docs/codex-quickstart.zh-CN.md)。repo-local Skill 会被自动发现；
-  文档给出准确的 MCP 注册命令和第一条组合 prompt。
-- **连接 Claude Code 或其他 MCP 宿主：** 阅读通用的
-  [Agent MCP 入门](docs/getting-started.zh-CN.md#大约-10-分钟接入-agent)。
-- **查看完整英文技术说明和节点词典：** 阅读 [English README](README.md)。
-- **审阅 Agent-ready v1：** 先看
-  [中文审批简报](docs/agent-adaptation/approval-brief.zh-CN.md)，需要技术细节
-  时再进入 [Agent 适配文档](docs/agent-adaptation/README.md)。
+只要 Agent 参与，**5199 就是本次 Session 唯一的工作台**。人和 Agent 在这里编辑
+同一份内存文档；5173 是另一份用于源码开发的构建，不会连接 MCP。
 
-repo-local
-[`collaborate-on-graphic-design` Skill](.agents/skills/collaborate-on-graphic-design/SKILL.md)
-是 `v0.1-alpha` 协作流程，不承诺普遍或客观“好看”。
+Companion 会启动一个隔离且可见的 Chrome Context。如果你在日常浏览器里手动打开
+`http://127.0.0.1:5199`，会得到 `401 Unauthorized`：临时认证 Cookie 只会发给
+Companion 启动的 Context。这是刻意的安全边界，不是缺少登录页面。
 
 ## 环境要求
 
-- **Node.js 22.12+**（CI 的参考环境为 Node 22）
-- **支持 WebGPU 的浏览器：** Chrome/Edge 113+ 或 Safari 18+
-- 只有浏览器渲染需要 GPU；无头引擎测试不需要 GPU
+- Node.js 22.12 或更新版本，以及 Git
+- 人类 Web UI：支持 WebGPU 的 Chrome/Edge 113+ 或 Safari 18+
+- Agent Session：已安装且支持 WebGPU 的 Chrome/Chromium
+- Agent Session：Codex、Claude Code 等 MCP 宿主
 
-## 快速启动
+文档与 CI 的主要参考环境是 macOS 和 Linux，setup 脚本需要 POSIX shell。Windows
+可以使用 Git Bash 或 WSL；Codex 入门还提供了 PowerShell 版 MCP 注册命令。在拥有
+专门的 Windows CI 之前，请把 Windows 端到端行为视为 best-effort。
 
-在已经克隆好的仓库根目录运行：
-
-```sh
-./scripts/setup.sh   # 检查 Node、严格安装 lockfile、校验仓库内置字体
-npm run dev          # 用浏览器打开终端打印的地址
-```
-
-应用默认打开一个空白工程：里面只有一个图层和一个已经开始计算的 `Output`
-节点。你可以直接从节点面板添加节点；如果想拆解完整案例，也可以从
-**start from…** 手动载入内置的分层海报示例。插口颜色表示类型，不合法的连接
-会被直接拒绝。
-
-画布操作类似 Figma：
-
-- 触控板双指滚动平移，捏合缩放；
-- `Space` + 拖动，或鼠标中键/右键拖动，也可以平移；
-- 左键拖框批量选择节点；
-- `⌘`/`Shift` + 点击追加单个节点；
-- `Delete` 删除选择内容；
-- 多节点移动会记录为一次撤销操作。
-
-常用开发命令：
+## 只有人类时快速启动
 
 ```sh
-npm test              # 应用、Companion 和权限边界测试；不需要 GPU
-npm run typecheck     # 应用与 Companion TypeScript 检查
-npm run build         # 构建普通应用、Agent 应用和 MCP Companion
-npm run check:mcp     # 真实 stdio + Chrome/WebGPU Agent 闭环
+git clone https://github.com/EpocheDrift/a-psychos-gd-tool.git
+cd a-psychos-gd-tool
+./scripts/setup.sh
+npm run dev
 ```
 
-## 核心概念
+打开终端打印的地址。空白工程默认包含一个图层和一个 `Output` 节点；如果想先拆解
+完成案例，可以从 **start from…** 手动选择内置示例。节点连线、保存/载入、导出和
+画布操作见 [10 分钟中文海报教程](docs/getting-started.zh-CN.md)。
 
-### 带类型的连线和转换阶梯
+## Agent 快速启动
 
-连线中的值有明确类型：`text`、`vector`、`raster`、`alpha`、`layout` 和
-`elements`。内容转换遵循：
-
-```text
-text → vector → raster
-```
-
-例如 `Outline Text` 把文字变为矢量，`Rasterize` 把矢量变为像素，
-`Trace` 则可以把像素重新描摹为矢量。转换不会隐式发生；你在图里看到的节点
-就是实际计算过程。
-
-### Elements 与排版
-
-`elements` 表示一个或多个待放置的设计元素。`Grid`、`Math Function`、
-`Sample Path` 和 `Random` 产生位置槽位，`Place` 决定元素如何进入这些
-槽位。`Place` 还可以用 `start/center/end` 与 `top/middle/bottom`，把元素
-实际画出来的边缘或中心对准槽位；默认的 `legacy` 会完整保留旧工程原来的定位
-方式。一个最小的散布图只需要：
-
-```text
-Shape → Place ← Grid
-          ↓
-        Output
-```
-
-### Frame
-
-每个文档有一个统一画板尺寸。`Rasterize`、`Noise`、`Output` 等节点会在
-这个尺寸下计算。修改 Frame 时，只会重新计算真正依赖画板尺寸的节点及其
-下游。
-
-### Layers
-
-文档是一个有顺序的图层栈，每个图层都是一张独立节点图，并拥有自己的
-`Output`。Layers 面板可以：
-
-- 调整图层顺序和可见性；
-- 切换当前编辑的节点图；
-- 设置透明度和混合模式。
-
-新图层的 `Output` 默认透明，因此可以自然叠加在下面的图层上。各图层拥有
-独立缓存，修改一层不会让其他层重新计算。
-
-### 缓存
-
-引擎从 `Output` 向上游按需计算，并使用节点类型、参数和上游内容哈希作为
-缓存键。调整一个参数时，上游节点通常命中缓存，只有当前节点和下游需要更新。
-
-## 节点概览
-
-完整插口定义和英文说明见 [English README 的 Nodes 表](README.md#nodes)。
-
-| 类别 | 节点 |
-| --- | --- |
-| 素材 | Text、Shape、Image、Noise |
-| 文字 | Split |
-| 矢量 | Displace、Warp、Boolean |
-| 栅格效果 | Blur、Dither、ASCII、Recolor、Chroma Key |
-| 排版 | Grid、Sample Path、Math Function、Random、Weight、Filter |
-| 放置 | Duplicator、Place |
-| 类型转换 | Outline Text、Rasterize、Trace、Remove Background、Outline Image、To Alpha、Draw Layout、Flatten |
-| 合成 | Composite |
-| 输出 | Output |
-
-## 架构
-
-- `src/engine/`：JSON 文档图、节点注册表、按需求值和哈希缓存；
-- `src/gpu/`：WebGPU 封装、纹理池和 WGSL shader；
-- `src/nodes/`：节点定义，`src/nodes/index.ts` 是节点面板的事实来源；
-- `src/store.ts`：Zustand 状态和文档编辑动作；
-- `src/editor/`：节点画布、插口和连线；
-- `src/util/`：字体、表达式、颜色和噪声工具。
-
-## AI Agent 适配
-
-Agent-ready v1 已实现，并于 2026-07-27 获得项目所有者正式批准；随后 PR
-[#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2) 已由所有者手动
-合并到 `main`。批准与合并均不等于生产发布或商业许可放行。普通生产构建不会
-暴露 Agent 全局接口；显式的本地 Agent 构建通过固定 loopback 服务、隔离
-Chrome 和本地 stdio MCP Companion 连接。
-
-有两条使用路径：
-
-- **交互式最小权限**：默认只有 `read` 和 `preview`；下面三类权限需要命令行
-  允许，并在浏览器里一次确认；
-- **个人本地 Trusted Local（推荐）**：使用
-  `--profile=full-design-v1 --trusted-local`，启动这条明确的 MCP 进程本身就代表
-  授权，当前全部设计 scopes 会自动配对，不再反复弹批准窗口。
-
-三类额外 scope 是：
-
-- `edit`：原子修改节点图；
-- `assets`：上传受限大小、按内容寻址的 PNG/JPEG/WebP；
-- `model`：运行固定并经过校验的本地 RMBG-1.4 模型。
-
-这里要区分两层权限：
-
-1. Codex 或 Claude Code 宿主本来拥有的 shell、工作区、网络等权限，由宿主
-   环境和用户批准策略管理；
-2. 本项目的 Graphic Design MCP 只提供经过 allowlist 的设计工具，不会额外
-   变成 shell、通用文件系统、任意 URL、CDP、页面执行或浏览器导航入口。
-
-换句话说，这个项目保证的是 **MCP 自己保持窄边界**，而不是替其他 Agent
-宿主撤销它们已经拥有的权限。
-
-构建与使用方式见 [MCP Companion 文档](packages/mcp-companion/README.md)；Codex
-用户第一次上手建议看 [Codex 中文快速入门](docs/codex-quickstart.zh-CN.md)，其他
-MCP 宿主使用通用的
-[Agent MCP 入门](docs/getting-started.zh-CN.md#大约-10-分钟接入-agent)；
-方案、风险和交付证据见
-[`docs/agent-adaptation/`](docs/agent-adaptation/README.md)。
-
-## 浏览器与 Agent 验证
-
-完整 WebGPU smoke suite：
+先构建显式 Agent 产物和本地 stdio Companion：
 
 ```sh
-npm run smoke:serve
-npm run smoke:all
+./scripts/setup.sh
+npm run build:agent
+npm run build:mcp
 ```
 
-`smoke:serve` 构建并服务固定的 `dist-agent` 静态产物，不是 Agent 源码开发
-服务器。普通代码和产物安全检查可以运行：
+Codex 用户继续阅读 [Codex 中文快速入门](docs/codex-quickstart.zh-CN.md)，里面包含
+准确的注册命令、repo-local Skill 与 MCP 工具验证，以及共享 5199 工作台的启动方式。
+Claude Code 和其他 MCP 宿主可以阅读
+[通用教程](docs/getting-started.zh-CN.md#大约-10-分钟接入-agent)。
+
+个人工作区推荐使用固定版本的 `full-design-v1` profile 和 `--trusted-local`。启动这条
+明确配置的本地进程，就代表批准它当前的 `read`、`preview`、`edit`、`assets` 和
+`model` 设计 scopes；第一次下载 RMBG-1.4 仍需要人类单独确认模型许可。
+
+## 已包含的能力
+
+- [31 种带类型的节点](docs/node-reference.zh-CN.md)，覆盖文字、矢量、栅格、
+  排版、放置、合成与输出
+- WebGPU 渲染、每图层独立节点图、混合模式、Frame-aware 缓存和撤销/重做
+- 内容寻址图片素材、可移植 `.gfxproject.json` 保存/载入，以及准确 PNG 导出
+- revision 检查、原子提交且可安全重试的 Agent 命令层
+- 只监听 loopback 的 MCP Companion、准确 render/preview 证据，以及响应式共享
+  5199 工作台
+- repo-local
+  [`collaborate-on-graphic-design`](.agents/skills/collaborate-on-graphic-design/SKILL.md)
+  Skill，明确标记为 `v0.1-alpha`
+- 单元、权限边界、浏览器/WebGPU、无障碍、MCP 生命周期和 Agent E2E 检查
+
+Skill 是协作方法，不承诺普遍或客观“好看”。正式使用前请先看
+[已知限制](docs/known-limitations.zh-CN.md)。
+
+## 安全边界
+
+Graphic Design MCP 只暴露命名的 `gfx_*` 操作，不是通用电脑控制入口。它不会授予
+shell、任意文件系统、任意 URL、浏览器导航、CDP 输入或页面执行能力。替换整个工程
+和可移植保存/载入仍是明确的人类 UI 操作。
+
+MCP 宿主本身可能另外拥有用户授予的 shell、workspace 或网络权限；本项目既不新增，
+也不撤销这些宿主级权限。Companion 始终只监听 loopback，并保持认证和 scope 控制。
+详见 [MCP 参考](packages/mcp-companion/README.md)和
+[安全政策](SECURITY.zh-CN.md)。
+
+## 文档
+
+从[中文文档索引](docs/README.zh-CN.md)选择最短路径：
+
+- 使用人类 Web UI；
+- 连接 Codex 或其他 MCP 宿主；
+- 审阅 Agent 架构与安全边界；
+- 参与贡献、测试和发布；
+- 了解 Alpha 协作 Skill 与证据限制。
+
+## 质量检查
 
 ```sh
-npm run check:agent-build
-npm run check:mcp
+npm run typecheck              # 应用与 Companion TypeScript
+npm test                       # 单元、权限和 Skill gates；不需要 GPU
+npm run build                  # 人类应用、Agent 应用和 MCP Companion
+npm run check:agent-build      # Agent/default 产物安全边界
+npm run check:mcp              # 真实 stdio → Companion → Chrome/WebGPU 闭环
 ```
 
-具体测试、fixture 和浏览器要求见
-[Browser and WebGPU smoke tests](docs/testing/browser-smoke.md)。
+浏览器与 MCP 检查需要可用的 Chrome/WebGPU 环境。更细的命令和 artifact 规则见
+[浏览器 Smoke 指南](docs/testing/browser-smoke.md)。
 
-## 路线图
+## 贡献、许可和来源
 
-已经完成：
+欢迎提交 Issue 和聚焦的 PR。修改前请阅读
+[CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)；安全问题请使用
+[私密漏洞报告流程](SECURITY.zh-CN.md)。
 
-1. 引擎、节点编辑器和带类型连线；
-2. 文字、矢量、栅格、排版、放置与合成节点；
-3. 多图层、Frame、缓存、撤销/重做；
-4. PNG 导出、工作存档和项目保存/载入；
-5. 内容寻址图片素材和固定 RMBG-1.4 去背景；
-6. 本地 Agent MCP、浏览器配对、权限控制和闭环视觉评测。
-
-计划中：
-
-- 更多异步模型节点；
-- 可编辑路径的 `.ai`/SVG 导出；
-- 栅格和 Frame 裁切节点；
-- 更多文字、矢量、栅格和 elements 操作。
-
-## 参与贡献
-
-欢迎提交 Issue 和 PR。CI 会运行 TypeScript 检查、应用与 Companion 测试、
-普通/Agent 构建、真实 MCP/Chrome 闭环和 Agent 产物安全检查。修改渲染或
-Agent runtime 时，还应运行：
-
-```sh
-npm run check:mcp
-npm run check:agent-build
-```
-
-完整协作流程见 [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)，安全问题请按
-[SECURITY.zh-CN.md](SECURITY.zh-CN.md) 私密报告，正式版本流程见
-[发布说明](docs/releasing.zh-CN.md)。
-
-## 许可证
-
-项目使用 [MIT License](LICENSE)。
-
-仓库中的 [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono)
-（`public/fonts/`）使用
-[SIL Open Font License 1.1](public/fonts/OFL.txt)。
+代码使用 [MIT License](LICENSE)。原项目由 Blake Shao 创建；本下游版本与上游 Demo
+的关系见 [NOTICE.md](NOTICE.md)。仓库内置 JetBrains Mono 使用
+[SIL Open Font License 1.1](public/fonts/OFL.txt)。可选下载的模型 artifact 有自己的
+许可条款，不会被本仓库重新许可为 MIT。

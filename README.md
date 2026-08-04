@@ -1,234 +1,152 @@
-# a-psychos-gd-tool
+# a-psychos-gd-tool — Agent-enabled downstream
 
 English · [简体中文](README.zh-CN.md)
 
-**Hosted version:** [a-psychos-gd-tool.vercel.app](https://a-psychos-gd-tool.vercel.app/) — needs a WebGPU browser (Chrome/Edge 113+ or Safari 18+).
+This repository is an Agent-enabled downstream of
+[Blake Shao's original `a-psychos-gd-tool`](https://github.com/blakeshao/a-psychos-gd-tool):
+a node-based graphic-design workbench that renders in the browser with WebGPU.
+It keeps the human node editor and adds portable projects, a local MCP
+companion, exact revision/render evidence, and an alpha graphic-design
+collaboration Skill.
 
-A node-based graphic design tool that runs in the browser, on the GPU. You build a poster by wiring nodes on a canvas: text is shaped into vector outlines, vectors are warped and combined, rasters are blurred and dithered — every conversion is an explicit node on a typed wire, never a hidden coercion. The engine only re-computes what a change actually touches, so dragging a parameter stays interactive even in deep graphs.
+> **Pre-release alpha.** Install from source; APIs and project compatibility may
+> still change. This downstream currently has no hosted deployment. The
+> [original upstream demo](https://a-psychos-gd-tool.vercel.app/) is useful for
+> exploring the upstream human UI, but it does **not** include this fork's
+> Agent/MCP features.
 
-**Status:** experimental, under active development. 31 node types; undo/redo,
-versioned local working saves, and portable project save/load are built in.
+## Choose your workspace
 
-## Start here
+There are two deliberate ways to run the project. Do not mix them in one
+design session.
 
-- **First time in the Web UI:** follow the
-  [10-minute guided poster](docs/getting-started.md#make-your-first-poster).
-- **Using Codex with the bundled Skill and MCP:** follow the
-  [Codex Quick Start](docs/codex-quickstart.md). The repository-local Skill is
-  discovered automatically; the guide gives the exact MCP registration and
-  first combined prompt.
-- **Connecting Claude Code or another MCP host:** follow the generic
-  [Agent MCP walkthrough](docs/getting-started.md#connect-an-agent-in-about-10-minutes).
-- **Prefer Chinese:** use the
-  [简体中文 README](README.zh-CN.md) and
-  [Codex 中文快速入门](docs/codex-quickstart.zh-CN.md).
-- **Reviewing the Agent architecture:** start with the
-  [adaptation overview](docs/agent-adaptation/README.md).
+| Session | Start it with | Workspace |
+| --- | --- | --- |
+| Human only | `npm run dev` | The URL printed by Vite, normally `http://localhost:5173` |
+| Human + Agent | Let an MCP host start the Companion | The visible Companion Chrome at `http://127.0.0.1:5199` |
 
-The repo-local
-[`collaborate-on-graphic-design` Skill](.agents/skills/collaborate-on-graphic-design/SKILL.md)
-is a `v0.1-alpha` process aid, not a promise of universally good taste.
+If an Agent participates, **5199 is the only workbench for that session**. The
+human and Agent edit the same in-memory document there. The 5173 development UI
+is a different build and is not connected to MCP.
+
+The Companion launches an isolated, visible Chrome context. Manually opening
+`http://127.0.0.1:5199` in a normal browser returns `401 Unauthorized`: only the
+Companion-launched context receives the temporary authentication cookie. This
+is intentional, not a missing login page.
 
 ## Requirements
 
-- **Node.js 22.12+** (Node 22 is the CI reference environment)
-- **A WebGPU browser** to run the app: Chrome/Edge 113+ or Safari 18+. The headless engine tests don't need a GPU.
+- Node.js 22.12 or newer and Git
+- A WebGPU browser for the human UI: Chrome/Edge 113+ or Safari 18+
+- A WebGPU-capable Chrome/Chromium installation for Agent sessions
+- An MCP host such as Codex or Claude Code for Agent sessions
 
-## Quick start
+The documented setup and CI reference paths are macOS and Linux. The setup
+script requires a POSIX shell. Windows users can use Git Bash or WSL; the Codex
+guide also includes the PowerShell MCP-registration command. Treat Windows
+end-to-end behavior as best-effort until it has dedicated CI coverage.
 
-```sh
-./scripts/setup.sh   # checks Node, installs the exact lockfile, verifies the bundled font
-npm run dev          # open the printed URL in a WebGPU browser
-```
-
-You'll get a blank project with one layer and one Output node cooking to the
-artboard. Add nodes from the palette, or choose the bundled layered-poster
-example from **start from…**. Drag wires between sockets — handle colors encode
-socket types, and illegal wires are rejected on drag. Canvas navigation is
-Figma-style: two-finger trackpad scroll pans and pinch zooms (space+drag or the
-middle/right button also pan); left-drag draws a box that selects every node it
-touches, and ⌘/shift-click adds single nodes to the selection. The selection
-moves or deletes (⌫) as a group — a group move is a single undo step.
-
-Other commands:
+## Human-only quick start
 
 ```sh
-npm test              # app + companion unit/authority gates; no GPU needed
-npm run typecheck     # app + companion TypeScript projects
-npm run build         # default app, Agent app, and local MCP companion
-npm run check:mcp     # real child stdio + Chrome/WebGPU Agent round-trip
+git clone https://github.com/EpocheDrift/a-psychos-gd-tool.git
+cd a-psychos-gd-tool
+./scripts/setup.sh
+npm run dev
 ```
 
-## Core ideas
+Open the printed URL. A blank project starts with one layer and one `Output`
+node; choose the bundled example from **start from…** if you want to inspect a
+finished graph. Follow the [10-minute poster guide](docs/getting-started.md) for
+node wiring, save/load, export, and canvas controls.
 
-### Typed wires and the conversion ladder
+## Agent quick start
 
-Values on wires are typed: `text`, `vector`, `raster`, `alpha`, `layout`, `elements`. Content conversions follow one ladder — `text => vector => raster` — and each step down is an explicit node (Outline Text, Rasterize, or back up via Trace). Nothing converts silently; the graph you see is the computation you get.
+Build the explicit Agent artifact and local stdio Companion:
 
-### Elements: singular or plural, one type
+```sh
+./scripts/setup.sh
+npm run build:agent
+npm run build:mcp
+```
 
-`elements` is a list of placed things — but it's **one type, singular or plural**. A lone vector, raster, or text value lifts into a single-element list at any elements socket (containment, not coercion: the value is untouched). Element content can be vector, raster, or live text. Union input sockets (white handles) accept several types — e.g. `Output.in: raster | elements`.
+Codex users should continue with the
+[Codex Quick Start](docs/codex-quickstart.md). It provides the exact registration
+command, verifies both the repository-local Skill and MCP tools, and starts the
+shared 5199 workbench. Claude Code and other MCP hosts can follow the
+[host-neutral walkthrough](docs/getting-started.md#connect-an-agent-in-about-10-minutes).
 
-**Output is the artboard.** It composites elements natively in z-order — vector and text content batches through the 2D tessellator, raster content quad-draws its texture with the element's transform, all GPU-side. Placing things on the artboard never needed the conversion ladder. A minimal scatter graph is four nodes: `Shape → Place ← Grid`, `Place → Output`.
+The personal-workspace path uses the versioned `full-design-v1` profile with
+`--trusted-local`. Starting that explicitly configured local process authorizes
+its current `read`, `preview`, `edit`, `assets`, and `model` design scopes. The
+first RMBG-1.4 download still requires a separate human license confirmation.
 
-### The frame
+## What is included
 
-The document has one **frame** (artboard size), edited in the sidebar and stored in the document. Frame-aware nodes — Rasterize, Noise, Output — cook at frame resolution via `ctx.frame` and declare `usesFrame`, so the evaluator folds the frame into their content hash. Changing the frame re-cooks exactly those nodes and their descendants; text shaping and vector geometry stay cached. There are no per-node resolution params.
+- [31 typed node kinds](docs/node-reference.md) for text, vector, raster,
+  layout, placement, composition, and output
+- WebGPU rendering, per-layer graphs, blend modes, frame-aware caching, and
+  undo/redo
+- Content-addressed image assets, portable `.gfxproject.json` save/load, and
+  exact PNG export
+- A revision-checked, atomic and idempotent Agent command layer
+- A loopback-only MCP Companion with exact render/preview evidence and a shared
+  responsive 5199 workbench
+- A repository-local
+  [`collaborate-on-graphic-design`](.agents/skills/collaborate-on-graphic-design/SKILL.md)
+  Skill, explicitly marked `v0.1-alpha`
+- Unit, authority, browser/WebGPU, accessibility, MCP lifecycle, and Agent E2E
+  checks
 
-### Layers
+The Skill is a collaboration method, not a promise of universally good taste.
+See [known limitations](docs/known-limitations.md) before relying on the project
+for production work.
 
-The document is an ordered stack of **layers**, and each layer is its own complete node graph with its own Output. The layers panel (over the viewport) reorders the stack, toggles visibility, and switches which graph the node editor shows; the stack composites bottom-to-top on the GPU with a per-layer **opacity** and **blend mode** — the full Photoshop set (multiply, screen, overlay, color dodge/burn, vivid/linear/pin light, hard mix, difference, divide, hue, saturation, color, luminosity, …). A new layer's Output starts transparent so the layers below show through; layers keep independent cook caches, so editing one never re-cooks the others.
+## Security boundary
 
-### Caching
-
-Evaluation is pull-based from Output with hash-keyed memoization: a node's key is `hash(type, params, upstream hashes)`. Editing a parameter re-cooks only that node and its descendants; everything upstream is a cache hit. GPU render targets come from a ref-counted texture pool, so param drags recycle textures instead of allocating.
-
-## Nodes
-
-| Node | Wires | Description |
-| --- | --- | --- |
-| **Assets** | | Sources — no inputs; where content enters the graph. |
-| Text | `→ text` | Live type: shapes a string into kerned, positioned glyphs, with fill/stroke and a synthetic weight axis. |
-| Shape | `→ vector` | Parametric vector source: rect, ellipse, or n-sided polygon, with fill and stroke. |
-| Image | `→ raster` | A validated PNG/JPEG/WebP referenced by content-addressed `assetId`; fit / scale / offset / rotate / opacity onto the frame. |
-| Noise | `→ raster` | Generated value-noise or grain texture at frame resolution — deterministic by (seed, scale), so the cache stays honest. |
-| **Text ops** | | Operations on live type, while it's still text and not yet geometry. |
-| Split | `text → elements` | Peels live type into per-character or per-word elements that keep their kerned positions and indices. |
-| **Vector ops** | | Bend and combine path geometry — resolution-independent, upstream of any pixels. |
-| Displace | `vector → vector` | Jitters path points with two decorrelated noise fields (amount / scale / seed). |
-| Warp | `vector → vector` | Sine-wave displacement along the x or y axis (amplitude / wavelength / phase). |
-| Boolean | `vector, vector → vector` | Union, subtract, or intersect two vectors (Paper.js on flattened polygons). |
-| **Raster ops** | | Pixel effects — each is one GPU shader pass: sample the upstream texture, write a new one. |
-| Blur | `raster → raster` | Separable gaussian blur, two GPU passes. |
-| Dither | `raster → raster` | Ordered dithering: quantizes to N levels at a chosen pixel scale. |
-| ASCII | `raster → raster` | Rebuilds the image from monospace glyph cells picked by brightness. |
-| Recolor | `raster → raster` | Duotone: remaps luminance onto a dark→light two-color ramp. |
-| Chroma Key | `raster → raster` | Keys a color out to transparency, with tolerance and softness. |
-| **Layout** | | The slot lane: decide what placement slots exist and what signals ride on them — Place decides how elements meet them. |
-| Grid | `(raster/alpha mask?) → layout` | Weighted rows × columns over the frame's padded content box — per-axis track distributions (uniform / fibonacci / golden / geometric / custom / expression), gaps, stagger, fill flow. A mask decides which cells exist. |
-| Sample Path | `vector (+ raster/alpha mask?) → layout` | Even arc-length samples along a path, with optional tangent rotation; progress = position along the path. A mask trims samples to its coverage. |
-| Math Function | `(raster/alpha mask?) → layout` | Even arc-length slots along a circle, spiral, or wave — the gap decides how many fit the curve. A mask trims slots to its coverage. |
-| Random | `layout? (+ raster/alpha mask?) → layout` | Standalone: random placements in an area — uniform, poisson-disk, or gaussian, with spacing as the density knob (poisson: the min distance); a mask trims them to its coverage. Wired: seeded jitter (offset / rotation / scale) on an upstream layout, constrained to the mask. |
-| Weight | `layout (+ raster?) → layout` | Writes a signal channel onto each slot — noise, image luma/alpha/saturation, progress, cell area, distance from center, or an expression — for Place and Filter to read. |
-| Filter | `layout → layout` | Prunes slots: every nth, channel threshold, or random keep. Survivors keep their identity for by-index Place. |
-| **Placement** | | The element lane: decide how many things exist and marry them to layout slots. |
-| Duplicator | `any → elements` | Makes N copies of its input as elements — content shared, transforms independent until Place. |
-| Place | `elements, layout → elements` | Assigns elements to layout slots — in order, keyed by index, or spread evenly along the layout — with explicit painted-bounds anchors and slot-signal bindings for scale / rotation / blur. The `legacy` anchors preserve old documents exactly. |
-| **Conversion** | | The explicit type-changing steps — every rung of the `text => vector => raster` ladder, up and down. |
-| Outline Text | `text → vector` | Glyphs become paths — the explicit step down the ladder from live type to geometry. |
-| Rasterize | `vector → raster` | Draws paths at frame resolution — the CPU→GPU boundary; ink on a transparent ground. |
-| Trace | `raster → vector` | Pixels become paths, by region fill or Sobel edge detection, traced in a Web Worker. |
-| Remove Background | `raster → raster` | Segments the foreground subject (RMBG-1.4 via Transformers.js, in a worker) and folds the mask into the image's alpha. |
-| Outline Image | `raster → vector` | Traces a hollow outline around the image's alpha silhouette — pairs with Remove Background. |
-| To Alpha | `raster → alpha` | Extracts a mask from luminance or alpha, optionally inverted, cut at an explicit threshold (softness feathers the edge; note luminance reads transparency as white paper). |
-| Draw Layout | `layout → vector` | Renders slots as debug geometry — cell rects for grids, dot-and-tick markers elsewhere. |
-| Flatten | `elements → vector` | Collapses placed elements into one vector, baking each element's transform into its paths. |
-| **Composition** | | Merge separate lanes into one image before (or instead of) the artboard. |
-| Composite | `raster/elements ×2 (+ alpha?) → raster` | Blends overlay onto base (normal / multiply / screen / overlay) with opacity and an optional mask. |
-| **Output** | | The cook root — requesting it is what makes the graph compute. |
-| Output | `raster/elements → raster` | The layer's artboard: composites its input over the background paper (or a transparent ground) at frame resolution, in z-order. |
-
-`?` marks an optional input; `any` on Duplicator is `vector | raster | text | elements`. `src/nodes/index.ts` is the single source of truth for the palette.
-
-## Architecture
-
-- `src/engine/` — the core: document graph (pure JSON), node registry (typed sockets + `cook()`), pull-based evaluator with hash-keyed memoization.
-- `src/gpu/` — WebGPU wrapper: ref-counted texture pool, fullscreen-pass runner, WGSL shaders. Every raster op is one pass: sample previous target, write next.
-- `src/nodes/` — node definitions. `Rasterize` is the CPU→GPU boundary; resolution is introduced there and inherited downstream.
-- `src/store.ts` — zustand store; the document — an ordered stack of layers, each one a full node graph — is the single source of truth, the editor and evaluator both read it. `wireIsValid` = socket-type equality + acyclicity.
-- `src/editor/` — xyflow canvas + custom node component; handles and wires colored by socket type.
-- `src/util/` — font parsing (sfnt), expression evaluation, color, noise.
-
-### AI agent adaptation — Agent-ready v1 complete and owner-approved
-
-The default production artifact exposes no Agent global. An explicit
-loopback-only static Agent artifact provides a paired, scope-gated browser
-controller and authenticated local stdio MCP companion. Interactive mode keeps
-the least-authority path: the default profile is read/preview, while edit,
-bounded content-addressed assets, and the pinned local RMBG-1.4 model require
-command-line allowance plus one in-app grant. For a personal local workspace,
-the recommended `--profile=full-design-v1 --trusted-local` path treats starting
-that explicit MCP process as authorization and auto-pairs all current design
-scopes without repeated dialogs. A first model download still requires a
-separate human license confirmation, and every artifact is
-byte-length/SHA-256 verified before same-origin worker use.
-The final seven-scenario official-client evaluation covers three creative
-workflows and four recovery paths through the real MCP/WebSocket/browser
-rendering chain, with reviewed PNGs and redacted metrics.
-
+The Graphic Design MCP exposes named `gfx_*` operations, not a general computer
+control surface. It does not grant shell access, arbitrary filesystem access,
+arbitrary URL fetching, browser navigation, CDP input, or page evaluation.
 Project replacement and portable save/load remain explicit human UI actions.
-Through this MCP, an Agent receives no filesystem, arbitrary URL fetch, CDP
-input, navigation, page evaluation, or shell tool. A host such as Codex or
-Claude Code may separately have permissions granted by its own runtime; this
-project neither grants nor revokes those host-level permissions.
-Browser-trusted approval rejects page-script synthetic events but is not
-physical-user proof. Build/run details are in the
-[Codex Quick Start](docs/codex-quickstart.md), the generic
-[Agent walkthrough](docs/getting-started.md#connect-an-agent-in-about-10-minutes),
-and the [companion guide](packages/mcp-companion/README.md); the readiness audit,
-target architecture, security model, and staged implementation/evidence live
-in [`docs/agent-adaptation/`](docs/agent-adaptation/README.md).
-The project owner approved this v1 scope on 2026-07-27, and PR
-[#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2) was subsequently
-merged manually into `main`. Neither the approval nor the merge approves a
-production/commercial release.
 
-### Dev scripts
+An MCP host may separately have shell, workspace, or network permissions that
+the user granted to that host. This project neither grants nor revokes those
+host-level permissions. The Companion stays loopback-only, authenticated, and
+scope-gated. See the [MCP reference](packages/mcp-companion/README.md) and
+[security policy](SECURITY.md).
 
-The Puppeteer smoke suite drives an isolated real Chrome/Chromium WebGPU
-session. Start the fixed local server, then run the whole suite:
+## Documentation
+
+Use the [documentation index](docs/README.md) to choose the shortest path for:
+
+- human Web UI use;
+- Codex or another MCP host;
+- Agent architecture and security review;
+- contribution, testing, and release work;
+- the alpha collaboration Skill and its evidence limits.
+
+## Quality checks
 
 ```sh
-npm run smoke:serve
-npm run smoke:all
+npm run typecheck              # app + Companion TypeScript
+npm test                       # unit, authority, and Skill gates; no GPU needed
+npm run build                  # human app, Agent app, and MCP Companion
+npm run check:agent-build      # Agent/default artifact security boundary
+npm run check:mcp              # real stdio → Companion → Chrome/WebGPU round-trip
 ```
 
-`smoke:serve` builds `dist-agent` and serves that static artifact at the fixed
-loopback origin; it does not run an Agent source-development server. Use
-`npm run check:agent-build` to build both artifacts and run the production
-module/runtime security gate.
+Browser and MCP checks require a working Chrome/WebGPU environment. The
+[browser smoke guide](docs/testing/browser-smoke.md) lists the narrower commands
+and artifact policy.
 
-The checks cover the reviewed small-frame render, factory load, frame/cache
-behavior, blur/fringe regressions, canvas interactions, revision-coordinator
-churn, exact PNG/WebP preview evidence, semantic keyboard automation,
-accessibility, and collision-aware node placement. They default to headless
-mode and support `CHROME`, `SMOKE_URL`, and `SMOKE_HEADED=1`. See
-[Browser and WebGPU smoke tests](docs/testing/browser-smoke.md) for the
-individual commands, fixtures, prerequisites, and artifact policy.
+## Contributing, license, and provenance
 
-## Roadmap
+Issues and focused PRs are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md)
+before opening a change and use [private vulnerability reporting](SECURITY.md)
+for security issues.
 
-### Done
-
-1. ~~Engine spine + Text→Output slice~~
-2. ~~Node editor wired to the engine; type-checking on drag~~
-3. ~~Raster breadth: Noise, Dither, Recolor, Chroma Key, ASCII, To Alpha, Composite~~
-4. ~~Vector ops (Shape, Displace, Warp, Boolean) + Trace~~ (vector Slice deferred)
-5. ~~Elements & layout: Split, Duplicator, Place, Flatten, Grid, Random, SamplePath, Function, Filter, Weight, DrawLayout~~ (~~Alpha Map~~ landed as the generators' mask input)
-6. ~~Export, persistence, portable project save/load & undo/redo~~
-7. ~~Content-addressed image assets + pinned RMBG-1.4 Remove Background~~
-
-### Planned
-
-- **More async model nodes** — Extract Objects/Edges via ONNX Runtime Web.
-- **Export to Adobe Illustrator** — `.ai`/SVG export that round-trips vectors as editable paths.
-- **Cropping** — crop node for raster and frame content.
-- **More ops nodes** — additional vector, raster, and text operations.
-- **Elements ops** — nodes that manipulate one or more placed elements.
-
-## Contributing
-
-Issues and PRs are welcome. CI runs typecheck, all unit/authority tests, both
-app builds, the compiled MCP build, real child-stdio MCP/Chrome round-trips,
-stdio lifecycle profiles, and Agent artifact checks. Rendering and Agent
-runtime changes also require `npm run check:mcp`, `npm run check:agent-build`,
-and the documented [WebGPU smoke suite](docs/testing/browser-smoke.md). See
-[CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow,
-[SECURITY.md](SECURITY.md) for private vulnerability reports, and the
-[release process](docs/releasing.md) for versioned releases.
-
-## License
-
-[MIT](LICENSE).
-
-[JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) (`public/fonts/`) is included under the [SIL Open Font License 1.1](public/fonts/OFL.txt).
+The code is distributed under the [MIT License](LICENSE). The original project
+was created by Blake Shao; this downstream and its relationship to the upstream
+demo are described in [NOTICE.md](NOTICE.md). Bundled JetBrains Mono files use
+the [SIL Open Font License 1.1](public/fonts/OFL.txt). Optional downloaded model
+artifacts have their own terms and are not relicensed by this repository.

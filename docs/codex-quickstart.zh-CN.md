@@ -17,6 +17,10 @@
 
 你需要 Node.js 22.12 或更新版本、Git、Codex，以及支持 WebGPU 的 Chrome/Chromium。
 
+标准初始化路径支持 macOS/Linux。Windows 请通过 WSL/Git Bash 构建，或自行执行等价
+npm 步骤；下方 PowerShell 命令只负责注册已经构建好的产物，而且 Windows 暂时没有
+纳入 CI。
+
 ```sh
 git clone https://github.com/EpocheDrift/a-psychos-gd-tool.git
 cd a-psychos-gd-tool
@@ -109,7 +113,8 @@ preview 证据，再向我询问聚焦的审美反馈。
 
 Codex 启动 Companion 时，会打开 `http://127.0.0.1:5199` 的 Chrome 窗口。请保持
 它可见：这是人和 Agent 共用的工作台，不是状态页。`npm run dev` 通常打开的 5173 页面
-只用于源码开发，并未连接 MCP。
+只用于源码开发，并未连接 MCP。普通浏览器手动打开 5199 会收到 `401 Unauthorized`，
+因为它没有 Companion 的进程内 Cookie；请使用 Companion 自动打开的 Chrome 窗口。
 
 第一次下载 RMBG-1.4 模型时，仍需要人在 5199 窗口单独确认许可证；Trusted Local 不会
 绕过这个决定。
@@ -189,6 +194,8 @@ ln -s "$(pwd -P)/.agents/skills/collaborate-on-graphic-design" \
   必须是绝对可执行文件。
 - **5199 端口已占用：**停止另一份 Companion。固定的共享工作台只能由一个进程占用；
   不要同时运行手动版本和 Codex 管理的版本。
+- **手动打开的 5199 显示 `Unauthorized`：**请使用 Companion 自动启动的隔离 Chrome
+  窗口。401 会挡住没有进程内 Cookie 的普通浏览器 Profile，属于预期保护。
 - **Chrome 没有启动：**按[中文入门教程](getting-started.zh-CN.md#chrome-没有自动启动)
   使用显式 `--chrome` 参数。
 - **缺少某个工具：**`full-design-v1` 是固定的 scope 快照。自定义最小权限及审批行为请

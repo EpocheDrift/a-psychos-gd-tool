@@ -1,152 +1,71 @@
 # AI Agent Adaptation
 
-Status: **Agent-ready v1 implementation complete through PR 8,
-owner-approved, and merged manually through
-[#2](https://github.com/EpocheDrift/a-psychos-gd-tool/pull/2) on
-2026-07-27**. Before merge, the owner waived an additional full capability
-sweep and a current-head remote CI record as approval prerequisites. This is
-not a claim that those checks ran, and the merge does not approve production
-release or commercial RMBG-1.4 use. Phase-by-phase implementation evidence and
-the remaining disclosed risks live in
-[`delivery-checklist.md`](./delivery-checklist.md).
+Status: **experimental, pre-release**
 
-## Executive summary
+This project includes an optional local MCP companion that lets a tool-using
+Agent work on the same graphic-design document as the human Web UI. The Agent
+uses the application's versioned document and render contracts rather than
+screen coordinates or direct access to the Zustand store.
 
-`a-psychos-gd-tool` now has a versioned command/validation layer, exact
-revision/render/preview evidence, a paired narrow browser controller, and an
-authenticated local stdio MCP companion in an explicit loopback-only static
-Agent artifact. The default artifact exposes no Agent global, and neither
-artifact exposes the raw Zustand store. The isolated content-addressed asset
-boundary, portable project save/load, and human-approved pinned RMBG-1.4 model
-path are implemented. The seven-scenario Agent evaluation suite is the
-final delivered stage: it runs through the real MCP/stdio/WebSocket/browser
-path, verifies three creative workflows and four recovery workflows, and emits
-reviewed visual evidence plus redacted metrics.
+## What is available
 
-The codebase is unusually well-positioned for adaptation:
+- registry-derived node and parameter discovery;
+- compact, revisioned document inspection;
+- atomic, validated, idempotent graph transactions;
+- optimistic conflict detection and conflict-safe transaction revert;
+- exact revision/render/preview evidence and rendered-node measurements;
+- bounded content-addressed image ingestion;
+- a pinned, integrity-checked local RMBG-1.4 model path;
+- an authenticated loopback-only stdio MCP companion;
+- a visible, resizable Human + Agent workbench in an isolated Chrome context.
 
-- the saved document is JSON-safe;
-- node definitions already describe sockets, parameter kinds, defaults, and
-  ranges;
-- graph connection rules already enforce type compatibility and acyclicity;
-- document edits already flow through a small set of store actions;
-- rendering already emits cache events and user-visible errors;
-- Puppeteer smoke tests already exercise the app through a real WebGPU browser.
+The current MCP session scopes are `read`, `preview`, `edit`, `assets`, and
+`model`. Portable project save/load and full-resolution export remain explicit
+human UI actions.
 
-The implementation makes the existing domain model the supported tool surface,
-so an agent does not need to drag small sockets by screen coordinates.
+## Start here
 
-## Delivered v1 outcome
+- [Codex Quick Start](../codex-quickstart.md)
+- [Codex 中文快速入门](../codex-quickstart.zh-CN.md)
+- [Host-neutral Web UI and Agent MCP guide](../getting-started.md)
+- [通用 Web UI 与 Agent MCP 中文入门](../getting-started.zh-CN.md)
+- [MCP companion reference](../../packages/mcp-companion/README.md)
 
-An external agent can:
+## Technical references
 
-1. discover every supported node and parameter;
-2. inspect a compact, revisioned document snapshot;
-3. apply an atomic, validated batch of graph edits;
-4. wait for the exact document revision to finish rendering;
-5. inspect structured cook errors and a visual preview;
-6. retry safely without duplicating mutations;
-7. conflict-safely revert its own transaction;
-8. operate through either a browser bridge or a local MCP server without direct
-   access to the raw Zustand store.
+- [Current Agent control architecture](./architecture.md)
+- [Executable Agent evaluation suite](./evaluation-suite.md)
+- [Browser and WebGPU smoke tests](../testing/browser-smoke.md)
+- [Security policy](../../SECURITY.md)
+- [Aesthetic-collaboration research summary](../agent-aesthetic-experiments/README.md)
+- [`collaborate-on-graphic-design` alpha Skill](../../.agents/skills/collaborate-on-graphic-design/SKILL.md)
 
-## Delivered maturity model
+## Security boundary
 
-| Level | Capability | Project status |
-| --- | --- | --- |
-| L0 | Screenshot-only GUI control | Available, but brittle |
-| L1 | Internal automation/test hook | Replaced by semantic UI + paired controller tests |
-| L2 | Stable, validated command/query API | Implemented |
-| L3 | External tool adapter (MCP/browser bridge) | Implemented with human-approved read/preview plus independent edit/assets/model profiles |
-| L4 | Closed-loop visual planning and verification | Implemented for the bounded PR 8 workflow suite |
+The companion binds to loopback, authenticates its browser session, validates
+Host and Origin, enforces explicit scopes and resource budgets, and exposes
+only named design operations. It does not provide generic shell, filesystem,
+URL fetch, browser navigation, CDP input, page evaluation, or project
+replacement tools.
 
-Agent-ready v1 delivers **L3** plus the tested, constrained **L4** loop. Broader
-autonomous art direction remains outside the first-release scope.
+An Agent host such as Codex or Claude Code may independently have permissions
+granted by its own runtime. Connecting this MCP neither grants nor revokes
+those host-level permissions.
 
-## Try it
+The default Web build exposes no Agent controller. The Agent-enabled build is
+served by the local companion on its fixed loopback origin. Interactive mode
+uses browser-trusted scope approval; the explicit Trusted Local profile treats
+starting that local process as authorization for its versioned scope set.
+Neither mode is a claim that `Event.isTrusted` proves a physical human against
+an attacker that already controls browser input.
 
-- [Codex Quick Start: repo-local Skill + MCP](../codex-quickstart.md)
-- [Codex 中文快速入门：repo-local Skill + MCP](../codex-quickstart.zh-CN.md)
-- [Host-neutral getting started: Web UI and Agent MCP](../getting-started.md)
-- [通用中文入门：Web UI 与 Agent MCP](../getting-started.zh-CN.md)
-- [Local MCP companion reference](../../packages/mcp-companion/README.md)
+## Evidence and limits
 
-The walkthroughs are the user-facing entry point. The documents below are the
-architecture, security, implementation, and review record.
+`npm run check:agent-evals` exercises three creative workflows and four
+recovery paths through the real MCP, stdio, WebSocket, browser, and WebGPU
+chain. Passing those checks demonstrates bounded execution and evidence
+integrity; it does not prove general aesthetic quality.
 
-## Key architecture decisions
-
-1. **One domain API, multiple adapters.** UI, browser bridge, tests, and MCP
-   should share the same command/query layer.
-2. **Explicit layer IDs.** Agent commands must not depend on whichever layer or
-   node the human UI currently has selected.
-3. **Atomic transactions.** A multi-node edit produces one revision and one undo
-   entry, or changes nothing.
-4. **Optimistic concurrency and idempotency.** Every write carries
-   `expectedRevision` and `requestId`.
-5. **Structured failures.** Invalid commands return machine-readable error
-   codes and paths; they do not silently no-op.
-6. **Render by revision.** A successful mutation is distinct from a successful
-   GPU render. Agents can wait for or inspect the requested revision.
-7. **Capability-derived schemas.** Public node schemas are generated from the
-   existing registry, extended with descriptions and constraints where needed.
-8. **No raw store exposure.** Default and Agent artifacts expose neither
-   `__app` nor `__render`; a production artifact gate also checks that the ESM
-   namespace cannot yield Zustand `getState`/`setState`.
-9. **Local-first bridge.** The first MCP implementation binds to loopback,
-   authenticates each browser session, and does not require a hosted control
-   plane.
-10. **Preview is evidence, not state.** The JSON document is authoritative;
-    screenshots and image metrics verify the render.
-
-## Evidence map
-
-The two groups below answer different questions. Passing the engineering MCP
-suite proves bounded execution and evidence integrity; it does not prove stable
-aesthetic quality. The aesthetic documents are early process evidence; they do
-not replace the v1 security and protocol record.
-
-### Engineering implementation and security
-
-- [中文审批简报](./approval-brief.zh-CN.md) — 所有者的最终批准、明确豁免的
-  额外验收项、风险分层和不在批准范围内的事项。
-- [Readiness audit](./readiness-audit.md) — original baseline gap analysis and
-  the enduring threat model.
-- [Target architecture](./architecture.md) — components, command/query
-  contracts, MCP/browser transport, render lifecycle, and error model.
-- [Implementation plan](./implementation-plan.md) — staged PRs, acceptance
-  criteria, test matrix, and rollout gates.
-- [Agent evaluation suite](./evaluation-suite.md) — seven real MCP scenarios,
-  golden/preview policy, recovery traces, metrics, and helper decisions.
-- [Delivery evidence](./delivery-checklist.md) — non-normative phase status and
-  reproducible verification links.
-
-### Aesthetic collaboration research — experimental
-
-- [Aesthetic experiment program and public evidence ledger](../agent-aesthetic-experiments/README.md)
-  — separates formal experiment validity, ordinary Skill behavior, current MCP mechanics,
-  evaluator-only material, sanitized public claims, and private sealed evidence.
-- [Agent × MCP 平面设计审美实验规约](../agent-aesthetic-experiments/SPEC.zh-CN.md)
-  — 在工程闭环之外，规范持续的人机 Brief、艺术指导、视觉质量和协作效率实验。
-- [Agent × MCP 审美协作 Playbook](../agent-aesthetic-experiments/PLAYBOOK.zh-CN.md)
-  — 记录 Skill working rules 的历史研究来源；日常操作以当前 Skill 为准，而不是同时
-  加载第二套运行规则。
-- [`collaborate-on-graphic-design` v0.1-alpha](../../.agents/skills/collaborate-on-graphic-design/SKILL.md)
-  — 把当前 working rules 封装成 repo-local、可 forward-test 的审美协作 Skill；它不宣称
-  已验证稳定或保证“好看”。
-- [v0.1-alpha operator/evaluator suite](../../evals/collaborate-on-graphic-design/v0.1-alpha/SUITE.md)
-  — **仅供实验操作与评价，不是新用户教程。**它包含与 runner context 隔离的
-  retrospective、forward、failure-honesty gates、公开合成素材和报告入口；当前明确缺少
-  晋升所需的正式 recovery regression。
-- [真实审美实验的 MCP 交互反馈](../agent-aesthetic-experiments/MCP-UX-FEEDBACK.zh-CN.md)
-  — 基于首个实测 Session 的边界测量、会话连续性、字体授权和人类反馈桥建议。
-
-## Non-goals for the first release
-
-- natural-language generation inside the application;
-- a cloud-hosted multi-tenant agent service;
-- arbitrary JavaScript execution in document expressions;
-- pixel-perfect autonomous art direction;
-- replacing the existing human node editor;
-- exposing internal GPU textures or Zustand implementation details as a public
-  protocol.
+The project remains pre-release. CI is not a substitute for testing every
+browser and hardware GPU. RMBG-1.4 commercial use requires separate licensing
+review, and the current aesthetic-collaboration Skill remains alpha.

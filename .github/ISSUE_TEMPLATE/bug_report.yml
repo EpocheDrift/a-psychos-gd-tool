@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a reproducible problem in the Web UI, renderer, or Agent workflow
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Do not include tokens, private project files, or security-sensitive details. Report vulnerabilities through the private security link instead.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Human Web UI (normally 5173)
+        - Shared Human + Agent workbench (5199)
+        - MCP companion or tools
+        - Rendering or export
+        - Project save/load or assets
+        - Setup, CI, or documentation
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the actual and expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Give the smallest sequence that reproduces the problem.
+      placeholder: |
+        1. Start with ...
+        2. Run/click ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node version, browser/version, commit or release, and MCP host when relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence
+      description: Add redacted logs, screenshots, revisions, or validation output. Do not paste project content you cannot share.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues for this problem.
+          required: true
+        - label: This report contains no secrets or private project data.
+          required: true

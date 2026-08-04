@@ -13,8 +13,13 @@ Agent 通过本地 MCP Companion 连接进来。你不需要提前用过节点�
 - 如果要玩 Agent：Codex、Claude Code 等 MCP 客户端，以及支持 WebGPU 的
   Chrome/Chromium
 
-线上版本适合直接体验人类操作的 Web UI。Agent/MCP 需要在本地使用，因为
-Companion 会启动一个只监听本机回环地址的应用和一份隔离的浏览器会话。
+文档与 CI 的标准路径覆盖 macOS 和 Linux。Companion 内置了 Windows Chrome 发现，
+但仓库初始化脚本只支持 POSIX shell；Windows 用户应通过 WSL/Git Bash 构建，或自行
+执行等价的 npm 步骤。Windows 暂时还不是 CI 参考平台。
+
+上游原版在线 Demo 适合体验它的人类 UI，但不包含这个发行版新增的 Agent/MCP 能力。
+Agent/MCP 需要在本地使用，因为 Companion 会启动一个只监听本机回环地址的应用和
+一份隔离的浏览器会话。
 
 ## 克隆并启动 Web UI
 
@@ -40,6 +45,10 @@ Companion 会在固定的 `http://127.0.0.1:5199` 提供另一份完整 UI；519
 自动改成上下布局。右侧画板仍会保持文档 Frame 的长宽比。
 如果缩放倍率很高或窗口特别矮，工作台会提供纵向滚动，让上下两块都能访问；回到大
 窗口后，也会恢复你原先偏好的分栏比例，不会把临时受限的比例永久保存下来。
+
+请使用 Companion 自动打开的 5199 Chrome 窗口。普通浏览器手动输入同一地址时没有
+进程内的认证 Cookie，所以会正确返回 `401 Unauthorized`；它不是加入同一会话的第二
+种入口。
 
 应用启动后会打开一个已经在渲染的空白工程：里面只有一个图层和一个
 **Output** 节点。左边是节点图，右边是画板，浮动的 **layers** 面板决定你当前
@@ -425,6 +434,11 @@ profile 是否真的包含这个工具；以后新增 scope 时，`full-design-v
 停止另一份 Companion 进程。固定的本机回环地址是安全设计的一部分，因此不会自动
 换到其他端口。这与 Vite 通常使用的 5173 开发端口无关：5173 是独立的人类源码
 开发版本，Companion 独占的 5199 窗口才是人类和 Agent 的共享工作台。
+
+### 普通 5199 标签页显示 `Unauthorized`
+
+这是预期行为。Companion 只会向自己启动的隔离 Chrome Context 注入短期、进程内的
+认证 Cookie。请使用自动打开的那个窗口，不要把地址复制到日常浏览器 Profile。
 
 ### Chrome 没有自动启动
 
