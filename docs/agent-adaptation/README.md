@@ -123,11 +123,14 @@ not replace the v1 security and protocol record.
 
 ### Aesthetic collaboration research — experimental
 
+- [Aesthetic experiment program and public evidence ledger](../agent-aesthetic-experiments/README.md)
+  — separates formal experiment validity, ordinary Skill behavior, current MCP mechanics,
+  evaluator-only material, sanitized public claims, and private sealed evidence.
 - [Agent × MCP 平面设计审美实验规约](../agent-aesthetic-experiments/SPEC.zh-CN.md)
   — 在工程闭环之外，规范持续的人机 Brief、艺术指导、视觉质量和协作效率实验。
 - [Agent × MCP 审美协作 Playbook](../agent-aesthetic-experiments/PLAYBOOK.zh-CN.md)
-  — 从当前实验提炼的操作性工作流、质量闸门、anti-template 规则和未来 Skill 晋升
-  条件；当前仍受两项目、单评价者和小样本证据限制。
+  — 记录 Skill working rules 的历史研究来源；日常操作以当前 Skill 为准，而不是同时
+  加载第二套运行规则。
 - [`collaborate-on-graphic-design` v0.1-alpha](../../.agents/skills/collaborate-on-graphic-design/SKILL.md)
   — 把当前 working rules 封装成 repo-local、可 forward-test 的审美协作 Skill；它不宣称
   已验证稳定或保证“好看”。

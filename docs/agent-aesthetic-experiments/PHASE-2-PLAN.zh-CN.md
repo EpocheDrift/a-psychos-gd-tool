@@ -2,7 +2,7 @@
 
 状态：**Preparation only / 尚未预注册 / 禁止 MCP 设计写入**
 
-版本：**0.2.0-draft**
+版本：**0.3.0-draft**
 
 日期：**2026-08-03**
 
@@ -10,10 +10,13 @@
 
 规范来源：[`SPEC.zh-CN.md`](./SPEC.zh-CN.md)
 
-执行工作流：[`PLAYBOOK.zh-CN.md`](./PLAYBOOK.zh-CN.md) v0.3.0-alpha
+custodian protocol：[`SPEC.zh-CN.md`](./SPEC.zh-CN.md) v0.2.0 + 本计划
 
-候选产品：[`collaborate-on-graphic-design`](../../.agents/skills/collaborate-on-graphic-design/SKILL.md)
+runner workflow：[`collaborate-on-graphic-design`](../../.agents/skills/collaborate-on-graphic-design/SKILL.md)
 v0.1-alpha
+
+研究来源：[`PLAYBOOK.zh-CN.md`](./PLAYBOOK.zh-CN.md) v0.3.0-alpha；只供 custodian
+追溯，不进入 runner context
 
 ## 1. 文档边界
 
@@ -35,12 +38,12 @@ Spec 始终优先于本文；若二者冲突，以 Spec 为准。
 
 它回答：
 
-1. 冻结的 Playbook v0.3.0-alpha 与 `collaborate-on-graphic-design` v0.1-alpha 的 Brief
-   翻译、执行与硬质量闸门能否迁移到信息组织压力明显不同的 T2？
+1. 冻结的 `collaborate-on-graphic-design` v0.1-alpha 的 Brief 翻译、执行与硬质量闸门
+   能否迁移到信息组织压力明显不同的 T2？
 2. 同一冻结条件下，Agent 的需求符合度、审美质量和过程指标波动多大？
 3. 稳定性是否以三个结果坍缩为同一安全模板为代价？
 
-它不比较两个工作流，也不能证明 Playbook 优于未设置的 baseline。若未来比较两个条件，
+它不比较两个工作流，也不能证明 alpha Skill 优于未设置的 baseline。若未来比较两个条件，
 应预注册为每个条件各 3 次，而不是把本实验事后改写成 A/B。
 
 因为三个 Run 在首张 exact preview 停止、没有人类审美反馈，本实验不测量完整的人机协作
@@ -87,15 +90,20 @@ Brief 翻译或 trace 中至少一项证据对应？该问题不作为确认性�
 - Protected / Invariant / Adaptive；
 - Agent 自由度、禁止项和接受信号；
 - Agent 产品、模型和可见版本；若精确版本不可见，逐字记录不可见状态；
-- Spec / Playbook / `collaborate-on-graphic-design` 的精确版本、Skill 文件 hash、允许加载的
-  一层 references，以及会影响设计的 system/developer constraints；
+- 冻结的 `collaborate-on-graphic-design` Skill package、允许加载的一层 references，以及
+  会影响设计的 system/developer constraints；runner packet 不包含 Spec、Playbook、
+  eval suite、历史 sessions 或 evaluator rubric；
 - MCP Companion package、protocol、capability manifest、bridge 版本与 scopes；
 - OS、浏览器、viewport 和与渲染相关的环境；
 - baseline serialized/content hash、document ID、initial revision、frame 与完整 layer visibility；
 - runner 是否可见之前 Session 文件；本实验固定为不可见；
 - 固定运行顺序规则、候选数 `1`、human feedback rounds `0`、精确时间/调用/revision budget；
 - 分开的 non-design recovery budget 与 design technical-fix budget；
-- 相同证据流程、preview 尺寸、盲评和展示条件。
+- 相同 runner-visible 证据流程与 preview 尺寸。
+
+custodian 在 runner packet 之外单独冻结 Spec、历史 Playbook、Skill package、evaluator
+packet、盲评与展示条件的精确版本、文件清单和 hash。它们用于保证实验一致性，但不得
+因此进入 runner context。
 
 若审美意图仍有多种合理方向，应先只比较文字策略，由项目所有者在任何视觉 Run 前选择一条
 方向并写入 Packet。三个 Run 不得各自选择不同 art direction，否则测试的是方向探索，而不是
@@ -107,8 +115,8 @@ Brief 翻译或 trace 中至少一项证据对应？该问题不作为确认性�
 
 - 使用新的隔离 Agent context，不继承另两个 Run 的对话、策略、节点或 preview；
 - 使用同一 baseline 的独立克隆，frame、layers、asset hashes 与 baseline revision 等价；
-- 只读取 Frozen Run Packet、Spec、冻结 Playbook 与冻结 alpha Skill package；不得读取另
-  两个 Run 的文件或结果；
+- 只读取 Frozen Run Packet 与冻结 alpha Skill package 中允许的一层 references；不得读取
+  Spec、Playbook、eval suite、历史 sessions、evaluator packet 或另两个 Run 的文件与结果；
 - 不知道自己是第几次重复，也不被提示“和前一张不同”；
 - 独立记录并封存执行前策略、人类盲评前不得揭示；
 - 只生成一个候选，不允许 runner 从内部候选中挑最好版本；
@@ -122,7 +130,7 @@ Brief 翻译或 trace 中至少一项证据对应？该问题不作为确认性�
 
 任何已发生设计写入的 Run 都计入 `n=3`。只有第一笔设计写入前因 baseline 或环境不符而停止
 的 attempt，才允许在保留记录后恢复重试。若 Agent、MCP、字体、capability、Packet、
-Playbook 或 Skill package 在中途改变，停止 Session，不能把不同条件拼成三个重复。
+冻结 protocol 或 Skill package 在中途改变，停止 Session，不能把不同条件拼成三个重复。
 
 若某个计数 Run 在耗尽预算后仍没有 exact preview：该 Run 作为技术失败保留并计数，不补跑；
 H1 自动失败，H2 标记为不可获得，H3 只能作为剩余 artifacts 的部分诊断；只评价现有 exact
@@ -222,7 +230,8 @@ Session 级：
 - 三个计数 Run 完成后才进入 blind evaluation；
 - mapping 揭示与原始反馈保存后，停止评价与设计写入；随后只完成 Spec §10H 要求的 final
   trace、评分、偏离、能/不能支持的结论和 Session 状态收尾；
-- 文案、资产、方向、Agent、MCP 或 Playbook 改变时停止并保留已有证据；
+- 文案、资产、方向、Agent、MCP、冻结 protocol 或 Skill package 改变时停止并保留已有
+  证据；
 - refinement 不得发生在揭盲和 Session 收口之前。
 
 ## 11. 正式启动门槛
@@ -239,8 +248,8 @@ Session 级：
 - Frozen Run Packet、统一预算与 technical-fix budget 完整；
 - 三份 baseline clone 通过只读等价检查；
 - 隔离 runner、sealed evidence、随机标签与统一展示方式可执行；
-- Playbook 与 alpha Skill package 的版本、文件清单和 hash 在 Session 前冻结，运行中不得
-  修改；
+- custodian 持有的 Spec、历史 Playbook、evaluator packet 与 alpha Skill package，以及
+  runner-visible Packet 的版本、文件清单和 hash，均在 Session 前冻结，运行中不得修改；
 - Session 模板的完整预注册区已填写并由项目所有者确认；
 - 已同意“完成三次 blind evaluation 后再进入 production refinement”。
 
@@ -282,3 +291,4 @@ Agent 负责把对话整理为完整 Brief、指出缺口、提出文字 art-dir
 | --- | --- | --- | --- |
 | 0.1.0-draft | 2026-08-01 | 建立第三任务、单条件三次独立 Run 的准备骨架 | 尚无真实 Brief，未预注册 |
 | 0.2.0-draft | 2026-08-03 | 把冻结的 v0.1-alpha Skill package 纳入实验条件；允许在 Phase 2 前产品化，但禁止结果回写污染 | 尚无真实 Brief，未预注册；不增加审美证据 |
+| 0.3.0-draft | 2026-08-03 | 把 Spec、Playbook、evaluator packet 与历史结果移出 runner context；runner 只收到冻结 Skill 与最小 Packet | 尚无真实 Brief，未预注册；修正隔离协议，不增加审美证据 |
