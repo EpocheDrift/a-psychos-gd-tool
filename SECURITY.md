@@ -5,8 +5,11 @@ English · [简体中文](SECURITY.zh-CN.md)
 ## Supported code
 
 This project is still pre-release. Security fixes target the latest `main`
-branch; older commits and untagged snapshots do not receive separate support.
-There is currently no guaranteed response-time SLA.
+branch; when necessary, a fixed alpha may replace the latest GitHub Release.
+Tagged alphas are tested references, not long-term-support branches. A tag is a
+release only when it has a matching GitHub Release. Snapshot and archive tags,
+including `pre-public-curation-*`, do not receive separate security support.
+There is currently no guaranteed response-time or maintenance SLA.
 
 ## Report a vulnerability
 

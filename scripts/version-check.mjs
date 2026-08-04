@@ -34,13 +34,15 @@ if (
   throw new Error(`Version mismatch: ${JSON.stringify(versions)}`);
 }
 
-if (process.env.GITHUB_REF_TYPE === 'tag') {
+const refName = process.env.GITHUB_REF_NAME;
+if (
+  process.env.GITHUB_REF_TYPE === 'tag'
+  && refName?.startsWith('v')
+) {
   const expectedTag = `v${versions.root}`;
-  if (process.env.GITHUB_REF_NAME !== expectedTag) {
+  if (refName !== expectedTag) {
     throw new Error(
-      `Release tag mismatch: expected ${expectedTag}, received ${
-        process.env.GITHUB_REF_NAME ?? '(missing)'
-      }`,
+      `Release tag mismatch: expected ${expectedTag}, received ${refName}`,
     );
   }
 }

@@ -19,6 +19,9 @@ MCP client ↔ bounded stdio ↔ local companion
 The Chrome window is the shared human-and-Agent workbench. The companion serves
 that full UI at the fixed `http://127.0.0.1:5199`; edits made through MCP and
 edits made by a person in that window affect the same in-memory document.
+Use the Chrome window launched by the companion. Manually opening 5199 in a
+normal browser profile returns `401 Unauthorized` because that profile does not
+have the process-local authentication cookie.
 
 This is separate from `npm run dev`, which starts Vite's source-development UI
 at the URL it prints (normally `http://localhost:5173`). The development build
@@ -153,6 +156,9 @@ lifecycle and is not stored in that browser context.
 Node.js 22.12 or newer and a WebGPU-capable Chrome/Chromium are required. The
 host is intentionally fixed at `http://127.0.0.1:5199`; a port conflict is a
 startup error, not a reason to widen or dynamically change the origin.
+macOS and Linux are the documented/CI-covered setup paths. Windows Chrome
+discovery is implemented, but the POSIX setup script and Windows runtime are
+not currently covered by CI.
 
 ## Tool profiles
 
@@ -307,7 +313,9 @@ curl --fail http://127.0.0.1:5199/healthz
 It reports only the package version and one bridge state:
 `waiting-for-browser`, `waiting-for-human`, `ready`, `closed`, or `failed`.
 The hosted app itself requires a process-local HttpOnly cookie that Puppeteer
-sets before the fixed navigation.
+sets before the fixed navigation. The health endpoint is intentionally public
+on loopback; the app root and static assets are not. A normal `GET /` without
+that cookie returns `401 Unauthorized`.
 
 ## Security and lifecycle
 

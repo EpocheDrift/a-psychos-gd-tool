@@ -1,6 +1,6 @@
-# Target Architecture for Agent Control
+# Agent Control Architecture
 
-Status: **implemented through PR 8; Agent-ready v1 complete**
+Status: **current implementation reference; experimental and pre-release**
 
 ## Goals
 
@@ -49,7 +49,7 @@ flowchart LR
 The command service and validator are the key extraction. MCP is an adapter,
 not the source of domain rules.
 
-## Proposed module boundaries
+## Module boundaries
 
 ```text
 src/
@@ -59,21 +59,23 @@ src/
   domain/
     documentSchema.ts        versioned structural validation
     capabilityManifest.ts    serializable registry projection
-    commands.ts              command union and pure application logic
-    commandErrors.ts         stable error codes
+    commandTypes.ts          public command union
+    commands.ts              pure command application logic
+    agentErrors.ts           stable error codes
     semanticValidation.ts    graph/render invariants and budgets
     migrations.ts            document schema migrations
+    renderCoordinator.ts     revision-aware cook lifecycle
+    previewContract.ts       bounded preview contract
   agent/
     contracts.ts             JSON-safe public request/response types
     controller.ts            policy, revision, idempotency, transactions
-    renderCoordinator.ts     revision-aware cook lifecycle
-    preview.ts               readback, downsampling, image metrics
-    browserBridge.ts         optional, gated global adapter
+    queries.ts               capability/document query projection
+    browserBridge.tsx        optional, gated global adapter
   store.ts                   Zustand integration and human UI state
 
 packages/
-  mcp-server/
-    src/server.ts            local stdio MCP server
+  mcp-companion/
+    src/index.ts             local stdio MCP entry point
     src/localAppHost.ts      same-origin app + authenticated WebSocket host
     src/browserSession.ts    launches/connects to the locally hosted app
     src/tools.ts             maps MCP tools to AgentController
@@ -89,14 +91,14 @@ The engine must never import MCP or browser-transport code.
 
 ## Document versioning
 
-Wrap persisted/exported content in an explicit versioned envelope:
+Persisted/exported content uses an explicit versioned envelope:
 
 ```ts
-interface SerializedProjectV3 {
+interface SerializedProjectV4 {
   format: "a-psychos-gd-tool";
-  schemaVersion: 3;
+  schemaVersion: 4;
   documentId: string;
-  document: DocV3;
+  document: Doc;
   assets?: AssetMetadata[];
 }
 ```
@@ -105,7 +107,7 @@ Runtime revision is session state, not persisted content:
 
 ```ts
 interface DocumentState {
-  document: DocV3;
+  document: Doc;
   revision: number;
   persistedRevision: number | null;
 }
@@ -115,13 +117,15 @@ Migration rules:
 
 1. values without an envelope are detected as the current legacy shapes;
 2. `gfx.document.v1` single-graph documents migrate to a one-layer document;
-3. `gfx.document.v2` layer documents gain the envelope and schema version;
-4. migrations are pure and covered by fixtures;
-5. a newer unsupported schema returns `UNSUPPORTED_SCHEMA_VERSION` and is never
+3. `gfx.document.v2` layer documents gain a versioned envelope;
+4. version 3 projects migrate to the version 4 content-addressed asset-reference
+   contract;
+5. migrations are pure and covered by fixtures;
+6. a newer unsupported schema returns `UNSUPPORTED_SCHEMA_VERSION` and is never
    partially loaded;
-6. successful import returns warnings for values normalized during migration;
-7. legacy `Weight.source = "image"` becomes `"image luma"` explicitly;
-8. zero/multiple Output nodes produce a diagnostic instead of selecting an
+7. successful import returns warnings for values normalized during migration;
+8. legacy `Weight.source = "image"` becomes `"image luma"` explicitly;
+9. zero/multiple Output nodes produce a diagnostic instead of selecting an
    object-enumeration winner.
 
 Do not use the localStorage key version as a substitute for document schema
@@ -177,10 +181,9 @@ interface PublicNodeDescriptor {
 }
 ```
 
-The initial manifest can infer most fields from `NodeDef` and `PALETTE`.
-Descriptions and traits should be added to `NodeDef` (or a colocated public
-metadata object) so documentation, UI help, and Agent schemas share one source
-of truth.
+The manifest derives fields from `NodeDef`, `PALETTE`, and colocated public
+metadata so documentation, UI help, and Agent schemas share one source of
+truth.
 
 Schema-generation rules:
 
@@ -529,7 +532,7 @@ transactions are validated. This turns a corrupt or bypassed graph into
 
 ## Revisioned render coordinator
 
-The current `busyRef`/`queuedRef` behavior should become an explicit service:
+The revisioned render coordinator exposes an explicit service:
 
 ```ts
 type RenderState = "idle" | "queued" | "cooking" | "complete" | "failed" | "superseded";
@@ -698,9 +701,9 @@ Enable it only when all configured conditions hold, for example:
 - an exact top-level, secure owning-page realm/origin and loopback check.
 
 Before pairing, only the narrow `gfxAgentPairing` bootstrap exists and
-`gfxAgent` is `undefined`. PR 5 can validate the page realm and the bundled
-preview host. PR 6 owns per-request HTTP `Host`, WebSocket upgrade `Origin`,
-connection authentication, and transport budgets.
+`gfxAgent` is `undefined`. The browser bridge validates the page realm and
+bundled preview host; the companion owns per-request HTTP `Host`, WebSocket
+upgrade `Origin`, connection authentication, and transport budgets.
 
 Do not expose generic `call(methodName, args)` dispatch. Export named,
 allowlisted methods so the callable surface is auditable.
@@ -710,7 +713,7 @@ tests use the paired controller or app-owned semantic UI.
 
 ## MCP adapter
 
-The first MCP server should be a local companion over stdio that also hosts the
+The MCP adapter is a local companion over stdio that also hosts the
 Agent-enabled app build and same-origin WebSocket bridge:
 
 ```text
@@ -719,11 +722,10 @@ MCP client ↔ stdio server/local app host ↔ authenticated same-origin WebSock
                                       Chrome + AgentController
 ```
 
-Puppeteer, already present in development dependencies, may launch Chrome and
-navigate to the local app. Normal tool calls must use the narrow bridge, not
-arbitrary CDP/page evaluation. The companion should:
+Puppeteer launches Chrome and navigates to the local app. Normal tool calls use
+the narrow bridge, not arbitrary CDP/page evaluation. The companion:
 
-- bind the app/WebSocket host to `127.0.0.1`/`::1`, never `0.0.0.0`;
+- bind the app/WebSocket host to literal `127.0.0.1`, never `0.0.0.0`;
 - reject wildcard, `null`, and unexpected Host/Origin values;
 - generate at least 256 bits of per-session entropy kept out of localStorage,
   normal query parameters, and logs;
@@ -743,11 +745,11 @@ arbitrary CDP/page evaluation. The companion should:
   than a replacement for portable project save;
 - surface WebGPU and permission prerequisites clearly.
 
-The hosted Vercel page should not connect directly to a localhost bridge in the
-first release. Hosting the Agent build and bridge together makes the Origin
-boundary explicit and testable.
+The hosted Vercel page does not connect directly to the localhost bridge.
+Hosting the Agent build and bridge together makes the Origin boundary explicit
+and testable.
 
-Recommended initial MCP tools:
+Core MCP tools:
 
 | Tool | Risk | Purpose |
 | --- | --- | --- |
@@ -765,7 +767,7 @@ Do not create one MCP tool per node type. Node types are data described by the
 capability manifest; `add_node` remains a command inside a transaction.
 
 Bounded content-addressed asset tools and pinned local model status/preparation
-tools subsequently shipped behind their independent scopes. Document
+tools remain behind their independent scopes. Document
 replacement, arbitrary fetch, and filesystem export remain human-only or
 absent from MCP.
 
@@ -780,7 +782,6 @@ Grant capabilities per paired session:
 | `edit` | validated, reversible document transactions |
 | `assets` | bounded binary asset ingestion |
 | `model` | execution of an already approved/pinned model |
-| `export` | creation of a user-approved external artifact |
 
 In interactive mode, scope elevation occurs only through an in-app control and
 a browser-trusted event. Trusted Local is a separate operator-selected startup
@@ -818,24 +819,20 @@ Classify operations:
 The application controller enforces policy even if an MCP client mistakenly
 labels a tool as safe.
 
-Confirmation tokens are single-use, short-lived, and bound to a SHA-256 digest
-of the canonical proposed request. A token approved for one export, document
-replacement, or model preparation cannot authorize modified arguments.
-
 The first Agent write creates a session checkpoint. Reverting an Agent
 transaction is allowed only when the current revision is compatible; it must
 not invoke ordinary global undo and accidentally remove a later human edit.
 Agent-ready v1 uses strict head-only compatibility: the target committed
 revision must equal the current revision and the SHA-256 digest of the complete
-version 3 project envelope must still match. A successful revert restores the
+version 4 project envelope must still match. A successful revert restores the
 exact before snapshot as a new revision and a new history entry.
 
 ## Resource limits
 
-Expose effective limits in the capability manifest. Proposed conservative v1
-defaults (configurable downward/upward by an explicit local policy) are:
+The capability manifest exposes the effective limits. Current defaults are
+configurable downward or upward by an explicit local policy:
 
-| Resource | Proposed default |
+| Resource | Current default |
 | --- | --- |
 | Document JSON, excluding binary assets | 2 MiB |
 | Layers | 32 |

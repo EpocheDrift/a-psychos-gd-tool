@@ -15,6 +15,7 @@ import {
   AGENT_SECURITY_HEADERS,
   AGENT_WEBSOCKET_PROTOCOL,
 } from '../src/agentSecurity.js';
+import { COMPANION_VERSION } from '../src/version.js';
 
 let fixtureDirectory = '';
 let host: LocalAppHost | null = null;
@@ -155,7 +156,7 @@ describe('authenticated loopback app host', () => {
     expect(health.status).toBe(200);
     expect(JSON.parse(health.body)).toEqual({
       status: 'ok',
-      version: '0.0.1',
+      version: COMPANION_VERSION,
       bridge: 'waiting-for-browser',
     });
     expect(health.headers['content-security-policy']).toContain(

@@ -21,6 +21,10 @@ method. Use both for the complete workflow.
 You need Node.js 22.12 or newer, Git, Codex, and a WebGPU-capable
 Chrome/Chromium installation.
 
+The standard setup path is supported on macOS/Linux. On Windows, build through
+WSL/Git Bash (or run the equivalent npm steps yourself); the PowerShell command
+below registers already-built artifacts, and Windows is not yet covered by CI.
+
 ```sh
 git clone https://github.com/EpocheDrift/a-psychos-gd-tool.git
 cd a-psychos-gd-tool
@@ -127,7 +131,10 @@ aesthetic feedback.
 When Codex launches the companion, a Chrome window opens at
 `http://127.0.0.1:5199`. Keep it visible: it is the shared human-and-Agent
 workbench, not a status page. The separate `npm run dev` UI normally runs on
-5173 and is only for source-development work; it is not connected to MCP.
+5173 and is only for source-development work; it is not connected to MCP. A
+normal browser tab opened manually at 5199 receives `401 Unauthorized` because
+it lacks the companion's process-local cookie; use the Chrome window the
+companion launches.
 
 The first RMBG-1.4 model download still requires a separate human license
 confirmation in the 5199 window. Trusted Local does not bypass that decision.
@@ -217,6 +224,9 @@ them. To remove the optional link, first verify that it is a symlink, then run
 - **5199 is already in use:** stop the other companion. One companion owns the
   fixed shared workbench; do not start a manual and client-managed copy
   together.
+- **A manually opened 5199 tab says `Unauthorized`:** use the isolated Chrome
+  window launched by the companion. The 401 protects the session from ordinary
+  browser profiles that do not have its process-local cookie.
 - **Chrome does not launch:** use the explicit `--chrome` form documented in
   [Getting Started](getting-started.md#chrome-does-not-launch).
 - **A tool is missing:** `full-design-v1` is a fixed scope snapshot. For custom

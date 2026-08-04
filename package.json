@@ -1,8 +1,17 @@
 {
   "name": "a-psychos-gd-tool",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.1.0-alpha.0",
+  "description": "A local-first node-based WebGPU graphic-design tool with optional AI Agent collaboration through MCP.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EpocheDrift/a-psychos-gd-tool.git"
+  },
+  "homepage": "https://github.com/EpocheDrift/a-psychos-gd-tool#readme",
+  "bugs": {
+    "url": "https://github.com/EpocheDrift/a-psychos-gd-tool/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=22.12.0"
