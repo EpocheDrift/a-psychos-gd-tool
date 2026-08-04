@@ -20,6 +20,7 @@
 | 运行浏览器验证 | [浏览器与 WebGPU Smoke](testing/browser-smoke.md) | Chrome 前提、单项 suite、环境变量和 artifacts |
 | 准备发布 | [中文发布流程](releasing.zh-CN.md) | 版本 PR、必需证据、tag、GitHub Release 和回滚 |
 | 审阅依赖风险 | [中文依赖安全基线](dependency-security.zh-CN.md) | 当前例外、可达性、缓解措施和到期时间 |
+| 查看产品方向 | [公开 Alpha 路线图](roadmap.zh-CN.md) | 当前基线、暂缓决策，以及产品、上游贡献、Research 和 Release 线路的生命周期 |
 
 ## 工作台规则
 
@@ -53,6 +54,7 @@ suite 属于工程/研究材料，不是新用户教程。
 ## 项目政策
 
 - [已知限制](known-limitations.zh-CN.md)
+- [公开 Alpha 路线图](roadmap.zh-CN.md)
 - [安全政策](../SECURITY.zh-CN.md)
 - [贡献说明](../CONTRIBUTING.zh-CN.md)
 - [变更记录](../CHANGELOG.md)

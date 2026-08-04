@@ -56,4 +56,19 @@ CI 必须通过才能合并。安全问题请按 [SECURITY.zh-CN.md](SECURITY.zh
 [`blakeshao/a-psychos-gd-tool`](https://github.com/blakeshao/a-psychos-gd-tool)
 提案；不要让上游一次审查整段下游历史。
 
+准备开始实现上游贡献时，直接从上游当前分支创建一个按需分支：
+
+```sh
+git fetch upstream main
+git switch -c upstream-contrib/topic-name upstream/main
+```
+
+这个分支的 PR 目标是原仓库的 `main`。不要只是为了保存分支而把它合并回本 Fork；如果
+其中有适合下游产品的改动，应另开一个聚焦的产品 PR 进入 `origin/main`。
+
+`research/<topic>` 只用于有明确边界、正在进行的实验。原始 Prompt、资产和重复的
+Session 证据不进入 `main`；成熟成果通过聚焦、有测试的产品 PR 晋升。Snapshot Tag 和
+Release Tag 都保持不可变。这些分支前缀只在需要时创建，仓库不保留空的占位分支。当前
+决策门槛见[公开 Alpha 路线图](docs/roadmap.zh-CN.md)。
+
 提交贡献即表示你同意按本仓库的 [MIT License](LICENSE) 许可该贡献。
