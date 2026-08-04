@@ -27,7 +27,6 @@ function fail(message) {
 function headingSlug(heading) {
   return heading
     .toLowerCase()
-    .replace(/<[^>]+>/g, '')
     .replace(/[`*_~]/g, '')
     .replace(/[^\p{L}\p{N}\s-]/gu, '')
     .trim()
