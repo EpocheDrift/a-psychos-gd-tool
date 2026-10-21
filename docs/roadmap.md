@@ -50,8 +50,8 @@ useful state.
 - Reduce maintenance cost before a stable release by splitting oversized runtime
   modules and consolidating repetitive test/check harnesses where that improves
   reviewability, without weakening contract or regression coverage.
-- Revisit the time-bounded dependency exceptions recorded in the
-  [dependency security baseline](dependency-security.md).
+- Follow the [dependency security baseline](dependency-security.md) when new
+  advisories, dependency updates, or releases require a fresh review.
 
 ### Evidence-gated improvements
 

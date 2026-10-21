@@ -20,7 +20,7 @@ longer architecture and evaluation records are not required for ordinary use.
 | Contribute code | [Contributing](../CONTRIBUTING.md) | Local checks, focused PRs, browser/MCP expectations, and security reporting |
 | Run browser verification | [Browser and WebGPU smoke tests](testing/browser-smoke.md) | Chrome prerequisites, individual suites, environment variables, and artifacts |
 | Prepare a release | [Release process](releasing.md) | Version PR, required evidence, tag, GitHub Release, and rollback |
-| Review dependency risk | [Dependency security baseline](dependency-security.md) | Current reviewed exceptions, reachability, mitigations, and expiry |
+| Review dependency risk | [Dependency security baseline](dependency-security.md) | Current audit results, runtime boundaries, CI gate, and review rules |
 | Review product direction | [Public Alpha roadmap](roadmap.md) | Current baseline, deferred decisions, and the lifecycle of product, upstream, research, and release lanes |
 
 ## The workspace rule
