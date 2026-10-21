@@ -22,5 +22,5 @@ Include the affected commit, reproduction steps, impact, and any suggested
 mitigation. Do not include credentials, private project files, model cache
 contents, or other people's data.
 
-The current reviewed dependency exceptions and their expiry are recorded in
+The current dependency audit results and review rules are recorded in
 [the dependency security baseline](docs/dependency-security.md).
