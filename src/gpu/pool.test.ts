@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, type Mock } from 'vitest';
 import {
   estimateTextureBytes,
   TexturePool,
@@ -15,7 +15,7 @@ import { CookResourceLimitError } from '../engine/cookControl';
 };
 
 interface FakeTexture extends GPUTexture {
-  destroy: ReturnType<typeof vi.fn>;
+  destroy: Mock<GPUTexture['destroy']>;
 }
 
 function fakeDevice(): TextureFactory & {
@@ -29,7 +29,7 @@ function fakeDevice(): TextureFactory & {
     error: null as Error | null,
     createTexture(desc: GPUTextureDescriptor): GPUTexture {
       if (factory.error) throw factory.error;
-      const texture = { destroy: vi.fn() } as unknown as FakeTexture;
+      const texture = { destroy: vi.fn<GPUTexture['destroy']>() } as unknown as FakeTexture;
       factory.created.push(texture);
       factory.descriptors.push(desc);
       return texture;
