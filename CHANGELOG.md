@@ -9,7 +9,11 @@ GitHub Release，版本条目才成为正式 Release；归档和快照 tag 不�
 
 ## Unreleased
 
-No user-visible changes yet. / 暂无用户可见变化。
+- Refresh MCP, background-removal, build, and test dependencies; resolve the
+  previous native archive/image exceptions and restore a zero-advisory lockfile
+  as of 2026-10-21. CI now blocks high/critical dependency findings.
+- 更新 MCP、去背景、构建和测试依赖；移除之前的原生压缩包/图像依赖例外，并在
+  2026-10-21 复查时达到 lockfile 零告警。CI 现在会阻止 High/Critical 依赖告警。
 
 ## 0.1.0-alpha.0 - 2026-08-03
 

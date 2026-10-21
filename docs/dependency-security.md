@@ -2,27 +2,28 @@
 
 English · [简体中文](dependency-security.zh-CN.md)
 
-Baseline date: 2026-07-29
+Baseline date: 2026-10-21
 
 ## Current result
 
-Both the full dependency audit and
-`npm audit --omit=dev --omit=optional` report four high-severity entries and
-zero critical entries.
+Both `npm audit` and `npm audit --omit=dev --omit=optional` report **zero
+vulnerabilities** for the committed lockfile. No dependency exceptions remain.
+This is a dated advisory-database result, not a guarantee against unknown flaws.
 
-The fixable findings were removed by updating the MCP SDK, its Hono adapter,
-Vite, esbuild, PostCSS, and protobufjs. The four remaining package entries come
-from two upstream advisories:
+The security refresh includes:
 
-```text
-@huggingface/transformers 4.2.0
-├─ onnxruntime-node 1.24.3
-│  └─ adm-zip 0.5.17 — GHSA-xcpc-8h2w-3j85
-└─ sharp 0.34.5 — GHSA-f88m-g3jw-g9cj
-```
+- MCP SDK 1.32.1, Hono 4.13.13, proxy-addr 2.0.8, and compatible URI/query
+  parsing fixes;
+- Transformers.js 4.3.1 with its supported ONNX Runtime for Node 1.30.0, adm-zip 0.6.1,
+  and sharp 0.35.5 dependency chain;
+- Vitest 5.0.5, which removes the old vulnerable worker-pool dependency, plus
+  Vite 7.3.7 and patched browser-data/source-map dependencies.
 
-The Transformers and onnxruntime-node entries are derived audit entries for
-those same two advisories, not two additional vulnerabilities.
+The July exceptions for the Node-native archive/image stack are resolved through
+the supported Transformers.js dependency chain. No cross-version overrides or
+alert dismissals are used to obtain the clean result.
+
+## Runtime boundaries
 
 Transformers.js is used by the browser Remove Background worker. The production
 browser artifact selects `onnxruntime-web`; it does not bundle or invoke the
@@ -30,16 +31,22 @@ Node-native `onnxruntime-node`, `adm-zip`, or `sharp` path. The artifact gate
 rejects Node-native runtime/archive/image markers in browser bundles; release
 review must continue to verify this boundary.
 
-Upstream currently provides no compatible fix. Overriding the native packages
-across their `0.x` compatibility boundaries is not accepted because that could
-create an untested runtime instead of removing risk.
+The Companion uses MCP over stdio and a `node:http` loopback server with a direct
+socket-address check. It does not use Express's proxy-trust calculation for
+workbench authentication. The transitive proxy-addr critical advisory is fixed
+in the lockfile even though that vulnerable authentication path is not used by
+the Companion.
 
 ## Review rule
 
-Recheck this exception on every Transformers.js update or new advisory, and no
-later than 2026-10-29. Remove the exception as soon as an upstream compatible
-release is available. Any critical advisory, newly reachable path, or change
-that bundles a Node-native dependency blocks release until reviewed.
+CI runs `npm audit --audit-level=high` after the lockfile install. High and
+critical findings fail the required test job; lower-severity findings still
+require review. Do not bypass the gate or dismiss alerts simply to merge.
+
+Recheck on every dependency update, new advisory, and release. In addition to
+audit results, validate types, unit tests, production artifact boundaries, and
+the real MCP/Chrome/WebGPU checks. Reachability changes or newly bundled
+Node-native dependencies require a fresh security review.
 
 When GitHub identifies a fixable advisory, Dependabot groups the related
 security-update PRs. Routine minor/patch checks run weekly. Major upgrades
